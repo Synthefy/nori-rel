@@ -6,11 +6,11 @@ Version 0.3.0 defines the initial public database-client contract.
 | --- | --- |
 | Python | 3.11 and 3.12. |
 | Primary CI platform | Linux. CI also installs the wheel with the `database` extra on macOS and Windows and runs import checks only. Other operating systems require their own dependency/runtime validation. |
-| PostgreSQL | TLS-enabled PostgreSQL; read-only transactions and bounded extraction. CI server versions are specified in `.github/workflows/ci.yml`. |
+| PostgreSQL | TLS-enabled PostgreSQL; read-only transactions and bounded extraction. CI and release-matrix server versions are specified in `.github/workflows/ci.yml` and `.github/workflows/release-matrix.yml`. |
 | Snowflake | Standard tables with available Time Travel history. |
 | Databricks | Unity Catalog Delta tables on a SQL warehouse, with retained versions. |
 | Features | FastDFS (default) and NoriDFS. |
-| Agent search | Opt-in `AgenticSearch` (`agentic` extra), after 0.3.0. Anthropic models or an OpenAI-compatible endpoint, with local or hosted Nori. It sends the schema, aggregate column profiles, and up to 50 rows of each exploratory query result to the configured provider. Offline tests use fake agents; release certification does not call a live model provider, so the agent's value on your data is not established. |
+| Agent search | Opt-in `AgenticSearch` (`agentic` extra), after 0.3.0. Anthropic models or an OpenAI-compatible endpoint, with local or hosted Nori. It sends the configured provider the schema, column profiles that include up to 10 raw values of each profiled categorical column with their counts, up to 50 rows of each exploratory query result, and failed queries' error messages; the README lists exactly what. Offline tests use fake agents; release certification does not call a live model provider, so the agent's value on your data is not established. |
 | Synthefy SDK | `synthefy>=7.2.0,<8`, installed with each connector extra. |
 | Local prediction | Temporal aggregate regression; point and quantile output. |
 | Hosted prediction | Temporal aggregate regression and binary predicate targets. |

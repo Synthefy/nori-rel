@@ -46,6 +46,9 @@ TRIAL_OUTCOME_MESSAGES: Final[dict[TrialOutcome, str]] = {
 _MAX_STEERING_TEXT_CHARS = 500
 #: Scores at or above this magnitude are shown in full, not in e-notation.
 _MIN_GROUPED_SCORE_MAGNITUDE = 1e4
+#: Metrics whose scores are fractions (relative or range-normalized errors),
+#: shown as percentages.
+_PERCENT_METRICS = frozenset({"nmae", "nrmse", "wape", "mape", "smape"})
 
 
 def _format_score_for_message(data: Mapping[str, Any], key: str) -> str:
@@ -61,9 +64,24 @@ def _format_score_for_message(data: Mapping[str, Any], key: str) -> str:
     return f"{score:.4g}"
 
 
+def _get_score_text(data: Mapping[str, Any], key: str) -> str:
+    """Return the score under ``key`` as text in the units of the event's metric.
+
+    Relative and range-normalized errors (NMAE, NRMSE, WAPE, MAPE, SMAPE) are
+    fractions and read as percentages ("11.20%"); other scores read as numbers
+    ("3.91", or "12,345.6" when large).
+    """
+    if data.get("metric") not in _PERCENT_METRICS:
+        return _format_score_for_message(data, key)
+    score = data[key]
+    if isinstance(score, bool) or not isinstance(score, int | float):
+        raise ValueError(f"{key} must be a number, not {score!r}")
+    return f"{100 * score:.2f}%"
+
+
 def _format_metric_score(data: Mapping[str, Any], key: str) -> str:
     """Return the metric and the score under ``key``, e.g. "MAE 3.91"."""
-    return f"{data['metric'].upper()} {_format_score_for_message(data, key)}"
+    return f"{data['metric'].upper()} {_get_score_text(data, key)}"
 
 
 def _status_changed(data: Mapping[str, Any]) -> str:
@@ -92,7 +110,7 @@ def _trial_outcome_suffix(data: Mapping[str, Any]) -> str:
 def _trial_scored(data: Mapping[str, Any]) -> str:
     of = "" if data.get("max_trials") is None else f"/{data['max_trials']}"
     context = [
-        f"{name} {_format_score_for_message(data, key)}"
+        f"{name} {_get_score_text(data, key)}"
         for name, key in (("best", "best_score"), ("baseline", "baseline_score"))
         if data.get(key) is not None
     ]

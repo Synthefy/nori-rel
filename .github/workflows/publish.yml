@@ -63,8 +63,16 @@ jobs:
     needs: verify
     uses: ./.github/workflows/dependency-audit.yml
 
+  # Pull requests and main pushes run one consolidated CI job; the full
+  # cross-platform matrix runs here, once per release, before any upload.
+  matrix:
+    needs: verify
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-matrix.yml
+
   candidate:
-    needs: [verify, security]
+    needs: [verify, security, matrix]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

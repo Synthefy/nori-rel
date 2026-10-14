@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
-from nori_rel.contracts import PredictionTask, RelationalOutputType
+from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
 from nori_rel.feature import FeatureBackend
 from nori_rel.pipeline import PIPELINE_ATTR
 from nori_rel.pipeline.audit import get_context_rows_sha256, get_feature_matrix_sha256
@@ -31,6 +31,30 @@ from nori_rel.run import RunContext, Stage
 logger = logging.getLogger(__name__)
 
 
+def _require_agent_search_metric(
+    metric: AgentSearchMetric, task: PredictionTask, *, searching: bool
+) -> None:
+    """Raise ``ValueError`` unless ``metric`` can score this run's agent search.
+
+    A metric applies only when an agent search runs, on a regression target:
+    binary searches score ROC-AUC, and FastDFS, NoriDFS, a saved program or a
+    pipeline score nothing.
+    """
+    from nori_rel.feature.agentic.scoring import require_agent_search_metric
+
+    require_agent_search_metric(metric)
+    if task is PredictionTask.CLASSIFICATION:
+        raise ValueError(
+            "metric applies to regression targets; binary agent searches score ROC-AUC"
+        )
+    if not searching:
+        raise ValueError(
+            "metric chooses how an agent search scores its feature programs; "
+            "create the client with features=AgenticSearch.claude(...) or "
+            "AgenticSearch.openai(...), and do not pass feature_program or pipeline"
+        )
+
+
 def predict_pql(
     runtime,
     source,
@@ -51,6 +75,7 @@ def predict_pql(
     run_context: RunContext | None = None,
     pipeline=None,
     expected_context_sha256=None,
+    metric: AgentSearchMetric | None = None,
 ) -> pd.DataFrame:
     """Run temporal PQL through preparation, features and Nori inference.
 
@@ -75,6 +100,8 @@ def predict_pql(
     unless its context rows hash to that value. No silent context truncation
     or refill. run_context receives stage and search events and applies the
     run's commands between stages; without one, nothing is reported.
+    metric chooses how an agent search scores its candidate programs on a
+    regression target ("mae" when None); it is refused for any other run.
     """
     run_context = run_context or RunContext.unobserved()
     # An agent search holds steering from the run's first boundary until its
@@ -117,6 +144,15 @@ def predict_pql(
                 raise ValueError("quantiles must be sorted, unique and between 0 and 1")
         elif quantiles is not None:
             raise ValueError("quantiles requires output_type='quantiles'")
+    if metric is not None:
+        _require_agent_search_metric(
+            metric,
+            resolved,
+            searching=feature_program is None
+            and pipeline is None
+            and get_feature_strategy_name(runtime.features, replaying_program=False)
+            == "agentic",
+        )
     predictor = (
         runtime.predictor
         if pipeline is None
@@ -211,6 +247,7 @@ def predict_pql(
             labels,
             feature_program,
             run_context=run_context,
+            metric=metric,
         )
     else:
         backend = get_saved_feature_backend(pipeline.features)

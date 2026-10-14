@@ -69,8 +69,8 @@ class AgenticFeatures(FeatureBackend):
         search, never from the shared agent object. With
         ``fall_back_on_search_failure``, a search whose model provider could
         not answer, or whose agent found no program, returns the fallback's
-        matrices; any other error, such as a bad API key, is raised. Benchmarks
-        leave it off so every failed search is reported.
+        matrices; any other error, such as a bad API key, is raised. Without
+        it, every failed search raises.
         """
         searching = (
             agent is not None and scorer is not None and train_target is not None

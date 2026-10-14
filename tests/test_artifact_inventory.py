@@ -272,3 +272,40 @@ def test_unexpected_archive_directory_fails(distribution_case):
 
     with pytest.raises(ValueError, match="unexpected sdist directory"):
         case.validator.validate_public_distributions(case.dist, case.source)
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        b"anthropic<2,>=1",
+        b'openai<3,>=1.60; extra == "database"',
+        b'duckdb<2,>=1.1; extra == "agentic" or extra == "local"',
+    ],
+)
+def test_agent_dependency_outside_the_agentic_extra_fails(
+    distribution_case, requirement
+):
+    case = distribution_case
+    metadata_path = "nori_rel-0.3.0.dist-info/METADATA"
+    case.wheel_files[metadata_path] = case.wheel_files[metadata_path].replace(
+        b"License-File: LICENSE\n",
+        b"Requires-Dist: " + requirement + b"\nLicense-File: LICENSE\n",
+    )
+    case.sdist_files["PKG-INFO"] = case.wheel_files[metadata_path]
+    write_distribution_archives(case)
+
+    with pytest.raises(ValueError, match="outside the agentic extra"):
+        case.validator.validate_public_distributions(case.dist, case.source)
+
+
+def test_agent_dependency_under_the_agentic_extra_passes(distribution_case):
+    case = distribution_case
+    metadata_path = "nori_rel-0.3.0.dist-info/METADATA"
+    case.wheel_files[metadata_path] = case.wheel_files[metadata_path].replace(
+        b"License-File: LICENSE\n",
+        b'Requires-Dist: anthropic<2,>=1; extra == "agentic"\nLicense-File: LICENSE\n',
+    )
+    case.sdist_files["PKG-INFO"] = case.wheel_files[metadata_path]
+    write_distribution_archives(case)
+
+    case.validator.validate_public_distributions(case.dist, case.source)

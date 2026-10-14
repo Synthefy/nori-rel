@@ -5,7 +5,6 @@ nori_rel/_compat.py
 nori_rel/_credentials.py
 nori_rel/_feature_program.py
 nori_rel/_feature_search.py
-nori_rel/_features.py
 nori_rel/_legacy.py
 nori_rel/_names.py
 nori_rel/_pql_features.py

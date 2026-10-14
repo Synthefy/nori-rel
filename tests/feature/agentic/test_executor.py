@@ -177,3 +177,24 @@ def test_exploration_sql_is_row_capped(snapshot, anchors) -> None:
         assert len(executor.sql("SELECT * FROM eval_table", limit=50)) == 6
     finally:
         executor.close()
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "SELECT * FROM read_text('{path}')",
+        "SELECT * FROM read_csv('{path}')",
+        "SELECT * FROM glob('{directory}/*')",
+    ],
+)
+def test_agent_sql_cannot_read_local_files(snapshot, tmp_path, statement) -> None:
+    # DuckDB's disabled external access is the only barrier between
+    # agent-written SQL and the files on the caller's machine.
+    secret = tmp_path / "secret.csv"
+    secret.write_text("token\nnot-for-the-model\n")
+    executor = _executor(snapshot)
+    try:
+        with pytest.raises(ValueError, match="disabled by configuration"):
+            executor.sql(statement.format(path=secret, directory=tmp_path), limit=50)
+    finally:
+        executor.close()

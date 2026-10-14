@@ -18,61 +18,18 @@ concurrency:
 env:
   UV_VERSION: "0.12.21"
 
+# One job runs every pull-request and main check in sequence on Linux with
+# Python 3.12 and PostgreSQL 18. The full matrix (Python 3.11, PostgreSQL 16,
+# each extra alone, the sdist, macOS, Windows) is release-matrix.yml, which
+# publish.yml runs before any upload. The job keeps the release-readiness name
+# that branch protection and scripts/verify_release.py require.
 jobs:
-  dependency-audit:
-    uses: ./.github/workflows/dependency-audit.yml
-
-  lint:
+  release-readiness:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          version: ${{ env.UV_VERSION }}
-          python-version: "3.12"
-          enable-cache: true
-      - run: uv sync --locked --group dev
-      - run: uv run --no-sync ruff format --check .
-      - run: uv run --no-sync ruff check .
-      - name: Validate workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
-
-  secrets:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install the verified secret scanner
-        run: |
-          curl --fail --silent --show-error --location \
-            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
-            --output "$RUNNER_TEMP/gitleaks.tar.gz"
-          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check
-          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
-      - name: Scan the complete history reachable from this public commit
-        run: '"$RUNNER_TEMP/gitleaks" git --log-opts=HEAD --redact --no-banner .'
-
-  postgres:
-    name: postgres (Python ${{ matrix.python }}, PostgreSQL ${{ matrix.postgres }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - python: "3.11"
-            postgres: "16"
-          - python: "3.12"
-            postgres: "18"
+    timeout-minutes: 45
     services:
       postgres:
-        image: postgres:${{ matrix.postgres }}-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_DB: nori_rel_test
           POSTGRES_PASSWORD: integration
@@ -84,52 +41,56 @@ jobs:
     env:
       NORI_REL_TEST_DATABASE_URL: postgresql://postgres:integration@127.0.0.1:5432/nori_rel_test
       NORI_REL_TEST_MANAGED: "1"
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          version: ${{ env.UV_VERSION }}
-          python-version: ${{ matrix.python }}
-          enable-cache: true
-      - run: >-
-          uv sync --locked --group dev --group cpu
-          --extra database --extra snowflake --extra databricks --extra local
-          --extra agentic
-      - name: Test public client and real PostgreSQL
-        run: >-
-          uv run --no-sync pytest -m "not warehouse and not live_nori"
-          --junitxml=reports/tests.xml
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        if: always()
-        with:
-          name: tests-python-${{ matrix.python }}
-          path: reports/tests.xml
-          retention-days: 14
-          if-no-files-found: warn
-
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-      - run: uv sync --locked --only-group build
-      - run: uv build --no-sources --no-create-gitignore --out-dir release-artifacts/dist
-      - run: >-
+          enable-cache: true
+      - name: Install the development environment
+        run: >-
+          uv sync --locked --group dev --group cpu --group build
+          --extra database --extra snowflake --extra databricks --extra local
+          --extra agentic
+
+      - name: Check formatting and lint
+        run: |
+          uv run --no-sync ruff format --check .
+          uv run --no-sync ruff check .
+      - name: Validate workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+
+      - name: Install the verified secret scanner
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$RUNNER_TEMP/gitleaks.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+      - name: Scan the complete history reachable from this public commit
+        run: '"$RUNNER_TEMP/gitleaks" git --log-opts=HEAD --redact --no-banner .'
+
+      - name: Test the public client and real PostgreSQL
+        run: >-
+          uv run --no-sync pytest -m "not warehouse and not live_nori"
+          --junitxml=reports/tests.xml
+
+      - name: Build the distributions
+        run: uv build --no-sources --no-create-gitignore --out-dir release-artifacts/dist
+      - name: Validate the distributions
+        run: >-
           uv run --no-sync python scripts/validate_artifacts.py release-artifacts/dist
           --manifest release-artifacts/manifest.json
       - name: Validate built files through the publisher's candidate gate
         run: |
-          python - <<'PY'
+          uv run --no-sync python - <<'PY'
           import json, os
           from pathlib import Path
           from scripts.verify_release import build_candidate_provenance, validate_candidate_artifacts
@@ -143,99 +104,52 @@ jobs:
               )
           PY
       - run: uv run --no-sync twine check --strict release-artifacts/dist/*
-      - id: version
-        run: python -c 'import os,tomllib; print("version=" + tomllib.load(open("pyproject.toml", "rb"))["project"]["version"], file=open(os.environ["GITHUB_OUTPUT"], "a"))'
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: distributions
-          path: release-artifacts/
-          if-no-files-found: error
-          retention-days: 14
 
-  artifact-install:
-    name: artifact (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.extras || 'base' }}, ${{ matrix.format }})
-    needs: build
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {os: ubuntu-24.04, python: "3.11", extras: "", format: whl}
-          - {os: ubuntu-24.04, python: "3.12", extras: "", format: whl}
-          - {os: ubuntu-24.04, python: "3.11", extras: database, format: whl}
-          - {os: ubuntu-24.04, python: "3.12", extras: database, format: whl}
-          - {os: ubuntu-24.04, python: "3.11", extras: snowflake, format: whl}
-          - {os: ubuntu-24.04, python: "3.12", extras: snowflake, format: whl}
-          - {os: ubuntu-24.04, python: "3.11", extras: databricks, format: whl}
-          - {os: ubuntu-24.04, python: "3.12", extras: databricks, format: whl}
-          - {os: ubuntu-24.04, python: "3.11", extras: local, format: whl}
-          - {os: ubuntu-24.04, python: "3.12", extras: local, format: whl}
-          - {os: ubuntu-24.04, python: "3.12", extras: "database,local", format: whl}
-          - {os: ubuntu-24.04, python: "3.11", extras: agentic, format: whl}
-          - {os: ubuntu-24.04, python: "3.12", extras: agentic, format: whl}
-          - {os: ubuntu-24.04, python: "3.12", extras: "database,local,agentic", format: whl}
-          - {os: ubuntu-24.04, python: "3.11", extras: database, format: tar.gz}
-          - {os: macos-14, python: "3.12", extras: database, format: whl}
-          - {os: windows-2022, python: "3.12", extras: database, format: whl}
-    defaults:
-      run:
-        shell: bash
-    env:
-      EXTRAS: ${{ matrix.extras }}
-      FORMAT: ${{ matrix.format }}
-      PACKAGE_VERSION: ${{ needs.build.outputs.version }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          version: ${{ env.UV_VERSION }}
-          python-version: ${{ matrix.python }}
-          enable-cache: true
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: distributions
-          path: release-artifacts
-      - name: Install only the selected extra from the distribution
+      - name: Install the built wheel with every extra, outside the checkout
         run: |
+          version="$(uv run --no-sync python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          extras="database,snowflake,databricks,local,agentic"
           uv export --locked --all-extras --all-groups --no-emit-project \
             --no-hashes --no-annotate --output-file "$RUNNER_TEMP/release-constraints.txt" > /dev/null
           uv venv "$RUNNER_TEMP/artifact-venv"
-          artifact="$(find "$GITHUB_WORKSPACE/release-artifacts/dist" -name "*.$FORMAT" -type f)"
-          selection="$artifact"
-          if [ -n "$EXTRAS" ]; then selection="${artifact}[$EXTRAS]"; fi
-          if [[ "$EXTRAS" == *local* ]]; then
-            # Fetch only the CPU wheel here; its pinned dependencies come from
-            # PyPI in the complete package install below.
-            uv pip install --python "$RUNNER_TEMP/artifact-venv" \
-              --no-deps \
-              --constraint "$RUNNER_TEMP/release-constraints.txt" \
-              torch --index-url https://download.pytorch.org/whl/cpu
-          fi
+          wheel="$(find "$GITHUB_WORKSPACE/release-artifacts/dist" -name "*.whl" -type f)"
+          # Fetch only the CPU torch wheel here; its pinned dependencies come
+          # from PyPI in the complete package install below.
+          uv pip install --python "$RUNNER_TEMP/artifact-venv" --no-deps \
+            --constraint "$RUNNER_TEMP/release-constraints.txt" \
+            torch --index-url https://download.pytorch.org/whl/cpu
           uv pip install --python "$RUNNER_TEMP/artifact-venv" \
-            --constraint "$RUNNER_TEMP/release-constraints.txt" "$selection"
+            --constraint "$RUNNER_TEMP/release-constraints.txt" "${wheel}[${extras}]"
           uv pip check --python "$RUNNER_TEMP/artifact-venv"
           cd "$RUNNER_TEMP"
           uv run --no-project --python "$RUNNER_TEMP/artifact-venv" \
-            "$GITHUB_WORKSPACE/scripts/smoke_install.py" --extras "$EXTRAS" --version "$PACKAGE_VERSION"
+            "$GITHUB_WORKSPACE/scripts/smoke_install.py" --extras "$extras" --version "$version"
 
-  release-readiness:
-    if: always()
-    needs: [dependency-audit, lint, secrets, postgres, build, artifact-install]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    steps:
-      - name: Require every public release check
-        env:
-          REQUIRED_RESULTS: ${{ toJSON(needs) }}
+      - name: Audit every locked dependency
         run: |
+          mkdir audit
+          uv export --locked --all-extras --all-groups --no-emit-project \
+            --no-hashes --no-annotate -o audit/locked-requirements.txt
           python - <<'PY'
-          import json, os
-          jobs = json.loads(os.environ["REQUIRED_RESULTS"])
-          failed = {name: job["result"] for name, job in jobs.items() if job["result"] != "success"}
-          if failed:
-              raise SystemExit(f"Required checks did not pass: {failed}")
-          print("All public release checks passed")
+          import re
+          from pathlib import Path
+          original = Path("audit/locked-requirements.txt").read_text()
+          # PyPI advisories identify the upstream Torch release, not its +cpu
+          # wheel flavor; the lock and installs are unchanged.
+          requirements = re.sub(r"(?m)^(torch==[^+;\s]+)\+cpu(?=\s|$)", r"\1", original)
+          Path("audit/requirements.txt").write_text(requirements)
           PY
+          uvx --python 3.12 --from pip-audit==2.10.1 \
+            python scripts/audit_dependencies.py \
+            --requirements audit/requirements.txt --output audit
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: ci-reports
+          path: |
+            reports/
+            audit/
+            release-artifacts/
+          retention-days: 14
+          if-no-files-found: warn

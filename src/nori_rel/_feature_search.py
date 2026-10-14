@@ -27,7 +27,12 @@ from nori_rel._feature_program import (
     program_from_record,
     program_record,
 )
-from nori_rel.contracts import PredictionTask, RelationalOutputType, SchemaGraph
+from nori_rel.contracts import (
+    AgentSearchMetric,
+    PredictionTask,
+    RelationalOutputType,
+    SchemaGraph,
+)
 from nori_rel.feature._contract import FEATURE_BACKENDS, FeatureBackendName
 from nori_rel.feature.agentic import (
     AgenticFeatureConfig,
@@ -39,7 +44,11 @@ from nori_rel.feature.agentic import (
 from nori_rel.feature.agentic._agent_base import (
     DEFAULT_MAX_AGENT_TURNS as MAX_MODEL_RESPONSES,
 )
-from nori_rel.feature.agentic.scoring import metric_name, task_score
+from nori_rel.feature.agentic.scoring import (
+    DEFAULT_REGRESSION_METRIC,
+    metric_name,
+    task_score,
+)
 from nori_rel.feature.agentic.usage import TokenUsage
 from nori_rel.feature.dfs.noridfs import NoriDFS
 from nori_rel.feature.dfs.noridfs.contracts import NativeFeatureConfig
@@ -118,11 +127,12 @@ class AgenticSearch:
     context. A program is kept only if it also beats NoriDFS alone on a
     separate confirmation slice; otherwise the prediction uses NoriDFS alone.
 
-    The agent's tools send the schema, aggregate column profiles, and the
-    results of its exploratory SELECTs (at most 50 rows each) to the agent's
-    model provider. Do not enable this on data that may not leave your
-    environment for that provider. In hosted mode, Nori still receives only
-    feature matrices and labels.
+    The agent's tools send the agent's model provider the schema, column
+    profiles (which include up to 10 raw values of each profiled categorical
+    column), the results of its exploratory SELECTs (at most 50 rows each),
+    and the error messages of failed queries, which can quote values. Do not
+    enable this on data that may not leave your environment for that provider.
+    In hosted mode, Nori still receives only feature matrices and labels.
 
     ``config`` extends NoriDFS with at most 24 trials, a 1% minimum relative
     gain, and at least three training cutoff groups. A search must leave text
@@ -252,17 +262,20 @@ class AgenticSearch:
         task: PredictionTask,
         predictor: Predictor,
         run_context: RunContext | None = None,
+        metric: AgentSearchMetric = DEFAULT_REGRESSION_METRIC,
     ) -> AgenticFeatures:
         """Return the search for one prediction; ``labels`` follow context order.
 
-        ``run_context`` receives the search's progress events.
+        ``run_context`` receives the search's progress events. ``metric`` is
+        the regression metric candidate programs are scored with; binary
+        targets always score ROC-AUC.
         """
         kind: TaskKind = (
             "binary" if task is PredictionTask.CLASSIFICATION else "regression"
         )
         return AgenticFeatures(
             agent=self.agent,
-            scorer=ClientProgramScorer(predictor=predictor, task=kind),
+            scorer=ClientProgramScorer(predictor=predictor, task=kind, metric=metric),
             train_target=labels.reset_index(drop=True),
             fallback=seed,
             config=self.config,
@@ -276,7 +289,8 @@ class AgenticSearch:
 class ClientProgramScorer:
     """Score a program with one call to the client's Nori predictor.
 
-    Regression scores negative MAE on the median, binary scores ROC-AUC on the
+    Regression scores the negative of ``metric`` (MAE by default; see
+    ``AgentSearchMetric``) on the median, binary scores ROC-AUC on the
     probability: the outputs the client returns. One call has no seed spread,
     so the reported noise is zero. The client's acceptance checks also require
     the configured minimum relative gain; zero noise does not remove that floor.
@@ -284,6 +298,7 @@ class ClientProgramScorer:
 
     predictor: Predictor
     task: TaskKind = "regression"
+    metric: AgentSearchMetric = DEFAULT_REGRESSION_METRIC
 
     def __call__(
         self,
@@ -312,8 +327,8 @@ class ClientProgramScorer:
             raise ValueError("Nori returned invalid predictions or the wrong row count")
         target = holdout_target.to_numpy(dtype=float)
         return ScoreReport(
-            metric=metric_name(self.task),
-            score=task_score(self.task, target, values),
+            metric=metric_name(self.task, self.metric),
+            score=task_score(self.task, target, values, self.metric),
             noise=0.0,
             predictions=values,
         )

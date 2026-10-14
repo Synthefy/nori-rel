@@ -1,21 +1,41 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-14
 
+- PQL label windows accept `months`: `SUM(orders.amount,0,1,months)` covers one
+  UTC calendar month from the anchor (a whole month from an anchor on the 1st),
+  rendered as calendar-month arithmetic on PostgreSQL, Snowflake, and
+  Databricks. Day windows are unchanged.
+- Warn when `anchor_times` give no training rows because their label window ends
+  after the earlier of `anchor_time` and `observed_through`, naming the dropped
+  anchors. Previously they were dropped silently, which with a 30-day window on
+  monthly data removed every February anchor.
 - Add the NoriDFS relationship feature search (`features="noridfs"`) beside
   FastDFS. It needs only the core dependencies.
 - Add `AgenticSearch` (`nori-rel[agentic]`). A language-model agent writes SQL
   feature columns on top of NoriDFS. Each candidate runs locally in DuckDB and
-  is kept only if it beats NoriDFS alone on held-out rows. It is opt-in and
-  sends the schema, aggregate column profiles, and up to 50 rows of each
-  exploratory query result to the model provider you configure.
+  is kept only if it beats NoriDFS alone on held-out rows. It is opt-in. It
+  sends the model provider you configure the schema, column profiles (which
+  include up to 10 raw values of each profiled categorical column), up to 50
+  rows of each exploratory query result, and failed queries' error messages.
+  The README lists exactly what.
 - Save NoriDFS plans, and NoriDFS plans with an agent's SQL program, in
   pipelines. Replay does not plan again, search again, or call a model provider.
 - Add `stop` and `steer` run commands, trial, spend, and fallback events, and
   `max_runtime_seconds` and `max_spend_usd` limits for agent searches.
 - Add the `agentic` extra: `anthropic`, `duckdb`, and `openai`.
+- Add `predict(..., metric=...)`: an agent search on a regression target scores
+  its candidate programs with `"mae"` (the default), `"mse"`, `"rmse"`,
+  `"nmae"`, `"nrmse"`, `"medae"`, `"wape"`, `"mape"` or `"smape"`
+  (`AgentSearchMetric`). Events report relative and range-normalized errors as
+  percentages. An unknown metric, or one passed without an agent search, for a
+  binary target, or with a saved program or pipeline, raises `ValueError`.
 
-Existing code is unaffected: `features` still defaults to `"fastdfs"`.
+`features` still defaults to `"fastdfs"`. One behavior changes: in 0.3.0,
+`RunLimits.max_runtime_seconds`, passed to `nori_rel.run.LocalExecutor`,
+cancelled any run at its next stage boundary. Run limits now bound only the
+agent search, which they end as `stop` does; a FastDFS or NoriDFS run ignores
+them.
 
 ## 0.3.0 — 2026-10-14
 

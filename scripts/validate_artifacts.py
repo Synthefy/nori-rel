@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import tarfile
 import tomllib
@@ -15,10 +16,14 @@ from pathlib import Path, PurePosixPath
 REQUIRED_EXTRAS = {"database", "snowflake", "databricks", "local", "agentic"}
 FORBIDDEN_COMPONENTS = {
     "relarena",
+    "finetune",
     "benchmarks",
     "notebooks",
     "__pycache__",
 }
+#: Dependencies only the opt-in agent search uses. The wheel may require them
+#: under the ``agentic`` extra and nowhere else, so a core install stays light.
+AGENTIC_ONLY_REQUIREMENTS = {"anthropic", "duckdb", "openai"}
 SOURCE_ROOT_FILES = {
     "pyproject.toml",
     "README.md",
@@ -100,6 +105,22 @@ def contains_toml_comment(document: str) -> bool:
     return False
 
 
+def get_requirement_name(requirement: str) -> str:
+    """Return a Requires-Dist entry's normalized project name."""
+    name = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", requirement)
+    if name is None:
+        raise ValueError(f"unreadable wheel requirement: {requirement}")
+    return re.sub(r"[-_.]+", "-", name.group(1)).lower()
+
+
+def is_agentic_extra_requirement(requirement: str) -> bool:
+    """Return whether a Requires-Dist entry applies only with the agentic extra."""
+    _, separator, marker = requirement.partition(";")
+    return bool(separator) and (
+        re.fullmatch(r"\s*extra\s*==\s*[\"']agentic[\"']\s*", marker) is not None
+    )
+
+
 def validate_archive_member_path(name: str) -> None:
     """Reject private content and unsafe archive paths without extracting them."""
     path = PurePosixPath(name)
@@ -178,6 +199,14 @@ def validate_public_distributions(dist: Path, source: Path) -> dict:
                 name in requirement.lower() for name in ("relarena", "relbench", "git+")
             ):
                 raise ValueError(f"internal dependency in wheel: {requirement}")
+            if get_requirement_name(
+                requirement
+            ) in AGENTIC_ONLY_REQUIREMENTS and not is_agentic_extra_requirement(
+                requirement
+            ):
+                raise ValueError(
+                    f"agent-search dependency outside the agentic extra: {requirement}"
+                )
         if any(name.endswith("/entry_points.txt") for name in names):
             raise ValueError("the public Python client must not register research CLIs")
         if "nori_rel/py.typed" not in package:
