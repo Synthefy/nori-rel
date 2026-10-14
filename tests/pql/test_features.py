@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-from nori_rel._features import RelationalFeatureEngine
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
+from nori_rel.feature.dfs.fastdfs import FastDFS as RelationalFeatureEngine
 
 JAN = datetime(2026, 1, 1, tzinfo=UTC)
 FEB = datetime(2026, 2, 1, tzinfo=UTC)

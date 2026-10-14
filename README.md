@@ -121,9 +121,19 @@ with NoriRelClient(features=search) as client:
 ```
 
 `AgenticSearch.openai(model=...)` uses an OpenAI-compatible endpoint. The agent
-sends your schema, aggregate column profiles, and up to 50 rows of each
-exploratory query result to that model provider. Do not enable it for data that
-must not leave your environment for that provider. A search also costs provider
+sends that model provider:
+
+- your schema: table and column names, row counts, keys, and time columns;
+- a profile of each column it asks about: the share of missing values, the
+  number of distinct values, and either the 1st, 25th, 50th, 75th and 99th
+  percentiles of a numeric column, the earliest and latest value of a date
+  column, or the 10 most frequent values of any other column with their counts.
+  Those values are raw cells, such as names, emails, or IDs;
+- up to 50 rows of each exploratory query result;
+- the error message of any query that fails, which can quote values.
+
+Do not enable it for data that must not leave your environment for that
+provider. A search also costs provider
 tokens and extra Nori calls. Bound it with `max_cost_usd` (which also needs
 `prices`) or the search's `limits`. It is not exercised against a live model provider in release certification. See
 [run control](docs/run-control.md) for `stop` and `steer`.

@@ -97,7 +97,7 @@ class _Frozen(BaseModel):
 
 
 class RunEvent(_Frozen):
-    """One update in a run's event stream .
+    """One update in a run's event stream.
 
     ``event_id`` increases within a run and is stable when the stream is
     replayed. ``data`` always names its ``kind``, and ``type`` must be the type
@@ -159,8 +159,9 @@ CommandReceipt = CommandAcceptedResponse | CommandRejectedResponse
 class RunLimits(_Frozen):
     """Bounds on a run.
 
-    The ``max_*`` limits end the search gracefully, as ``stop`` does: the run
-    still completes with the best result so far. ``max_runtime_seconds``
+    The ``max_*`` limits end the agent search gracefully, as ``stop`` does:
+    the run still completes with the best result so far. They bound only an
+    agent search; a FastDFS or NoriDFS run ignores them. ``max_runtime_seconds``
     counts only running time; it takes fractions of a second, where a hosted
     request takes whole seconds. ``stop_grace_s`` budgets the work
     after a stop that ended the search: the best program is confirmed only if
