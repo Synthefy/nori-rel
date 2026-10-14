@@ -17,7 +17,7 @@
       "sha256": "92e3baeb115c5b37373285c6819ceb3bd0e41c637a68969b498dd3f2b50ca483"
     },
     ".github/workflows/publish.yml": {
-      "sha256": "203c7296d52f31ab6b8fa7249e1e22baa799701c83043550563a3970b267e445"
+      "sha256": "1b55524c460c1f89400e7656948d9e524fd427dd5092a67768d7d35c82abbd63"
     },
     ".github/workflows/warehouse-tests.yml": {
       "sha256": "c4c5f8685285ed24b3c89837718c0749153350f3a18a31a8240cefe0503137c4"

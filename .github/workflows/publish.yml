@@ -149,6 +149,7 @@ jobs:
   certify:
     needs: [verify, candidate]
     uses: ./.github/workflows/warehouse-tests.yml
+    secrets: inherit
     with:
       artifact_name: release-distributions
 
