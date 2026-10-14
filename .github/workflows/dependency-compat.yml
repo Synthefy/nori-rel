@@ -40,7 +40,7 @@ jobs:
           --resolution "$RESOLUTION" -o requirements-compat.txt
       - name: Test the installed distribution against that resolution
         run: |
-          uv build --no-sources --out-dir dist
+          uv build --no-sources --no-create-gitignore --out-dir dist
           uv venv "$RUNNER_TEMP/compat-venv"
           uv pip install --python "$RUNNER_TEMP/compat-venv" -r requirements-compat.txt
           uv pip install --python "$RUNNER_TEMP/compat-venv" --no-deps dist/*.whl

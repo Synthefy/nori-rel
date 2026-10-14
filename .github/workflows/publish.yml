@@ -85,7 +85,7 @@ jobs:
           CANDIDATE_TARGET: ${{ inputs.target }}
         run: |
           uv sync --locked --only-group build
-          uv build --no-sources --out-dir release-artifacts/dist
+          uv build --no-sources --no-create-gitignore --out-dir release-artifacts/dist
           uv run --no-sync python scripts/validate_artifacts.py release-artifacts/dist --manifest release-artifacts/manifest.json
           uv run --no-sync twine check --strict release-artifacts/dist/*
           python - <<'PY'
