@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-14
 
 - `predict(return_details=True)` keeps the scored rows' feature matrix in
   `PredictionDetails.features` (one row per `entity_id`), and
@@ -8,9 +8,6 @@
   source (an agent query, NoriDFS, or the run's feature strategy), its
   definition (the agent's SQL or the decoded NoriDFS name), and its missing
   share, mean, min and max over the scored entities.
-
-## 0.4.0 — 2026-10-14
-
 - PQL label windows accept `months`: `SUM(orders.amount,0,1,months)` covers one
   UTC calendar month from the anchor (a whole month from an anchor on the 1st),
   rendered as calendar-month arithmetic on PostgreSQL, Snowflake, and
