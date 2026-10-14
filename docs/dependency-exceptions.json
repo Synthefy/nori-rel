@@ -23,7 +23,7 @@
       "sha256": "5d1a09de811b2aaabd0951e3532fbfa1d2ae88a3c5f2ac7113927c4e09ac8b6d"
     },
     ".github/workflows/warehouse-tests.yml": {
-      "sha256": "c4c5f8685285ed24b3c89837718c0749153350f3a18a31a8240cefe0503137c4"
+      "sha256": "85d2d0faf9227859469b520f2f0d7a17024a8f48a49e4aac3bfd3d1edef0d783"
     },
     "docs/dependency-security.md": {
       "sha256": "38e5180071c5bf9dcfea708cb67ee98cbaf9668d03977fb48f1d9812bf5550da"

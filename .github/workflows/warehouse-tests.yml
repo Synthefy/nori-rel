@@ -41,6 +41,40 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      # The test configurations hold no credentials but name our accounts. A
+      # secret is masked only as a whole string, so also mask each identifying
+      # field in case a test or driver prints it on its own.
+      - name: Mask warehouse account identifiers in the logs
+        env:
+          NORI_REL_TEST_SNOWFLAKE_CONFIG: ${{ secrets.NORI_REL_TEST_SNOWFLAKE_CONFIG }}
+          NORI_REL_TEST_DATABRICKS_CONFIG: ${{ secrets.NORI_REL_TEST_DATABRICKS_CONFIG }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          IDENTIFYING_FIELDS = {"account", "server_hostname", "http_path", "reader_principal"}
+
+
+          def get_identifying_values(value):
+              """Return the identifying field values nested anywhere in a config."""
+              if isinstance(value, dict):
+                  for key, item in value.items():
+                      if key in IDENTIFYING_FIELDS and isinstance(item, str) and item:
+                          yield item
+                          yield item.lower()
+                      else:
+                          yield from get_identifying_values(item)
+              elif isinstance(value, list):
+                  for item in value:
+                      yield from get_identifying_values(item)
+
+
+          for name in ("NORI_REL_TEST_SNOWFLAKE_CONFIG", "NORI_REL_TEST_DATABRICKS_CONFIG"):
+              if os.environ.get(name):
+                  for value in set(get_identifying_values(json.loads(os.environ[name]))):
+                      print(f"::add-mask::{value}")
+          PY
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.12.21"
@@ -62,8 +96,8 @@ jobs:
           uv run --no-sync python -c 'from pathlib import Path; import nori_rel; assert "site-packages" in Path(nori_rel.__file__).parts, nori_rel.__file__'
       - name: Certify both warehouses and cross-engine parity
         env:
-          NORI_REL_TEST_SNOWFLAKE_CONFIG: ${{ vars.NORI_REL_TEST_SNOWFLAKE_CONFIG }}
-          NORI_REL_TEST_DATABRICKS_CONFIG: ${{ vars.NORI_REL_TEST_DATABRICKS_CONFIG }}
+          NORI_REL_TEST_SNOWFLAKE_CONFIG: ${{ secrets.NORI_REL_TEST_SNOWFLAKE_CONFIG }}
+          NORI_REL_TEST_DATABRICKS_CONFIG: ${{ secrets.NORI_REL_TEST_DATABRICKS_CONFIG }}
           NORI_REL_TEST_SNOWFLAKE_READER: ${{ secrets.NORI_REL_TEST_SNOWFLAKE_READER }}
           NORI_REL_TEST_SNOWFLAKE_WRITER: ${{ secrets.NORI_REL_TEST_SNOWFLAKE_WRITER }}
           NORI_REL_TEST_DATABRICKS_READER: ${{ secrets.NORI_REL_TEST_DATABRICKS_READER }}
