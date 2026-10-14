@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-14
 
 - Add the NoriDFS relationship feature search (`features="noridfs"`) beside
   FastDFS. It needs only the core dependencies.
