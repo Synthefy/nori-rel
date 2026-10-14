@@ -1,13 +1,14 @@
 # Releasing Nori-Rel
 
 Only reviewed commits on `main` in `Synthefy/nori-rel` can produce supported
-releases. The initial public version is `0.3.0`. Complete the release gates below
-before its first publication and repository visibility change. Research, earlier
+releases. The initial public version, `0.3.0`, was published on 2026-10-14.
+Complete the release gates below before each publication. Research, earlier
 history, and collaboration records remain in the private
 `Synthefy/nori-rel-internal` repository.
 
-The initial candidate has scoped, expiring
-[dependency security assessments](docs/dependency-security.md). The dependency
+The scoped, expiring
+[dependency security assessments](docs/dependency-security.md) must cover the
+candidate. The dependency
 gate requires complete audit results and zero unassessed findings before either
 TestPyPI or PyPI upload; raw findings remain in the audit artifacts.
 Each release also requires live-service certification and verified publisher setup.
@@ -39,24 +40,23 @@ files does not activate repository protections or index ownership.
 5. Use OIDC from the publisher job. Do not copy an account password, `.env.pypi`,
    or a personal API token into the repository or workflow. Account/2FA access
    is handled by the project owner outside the workflow.
-6. Keep publishing disabled during private migration. Enable the
-   `Publish` workflow only after publisher registration and release gates have
-   been verified. Keep the internal repository's publisher disabled.
+6. Run the `Publish` workflow only after publisher registration and release
+   gates have been verified. Keep the internal repository's publisher disabled.
 
 See [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) and
 [adding a publisher](https://docs.pypi.org/trusted-publishers/adding-a-publisher/).
 
-## Before the first public release
+## Repository history and exposure review
 
-Start this release repository from a reviewed source snapshot with fresh Git
-history. Verify that the private internal repository retains the original
-research, history, pull requests, and issues. Keep migration and preservation
-evidence internal. Promote only reviewed patches or selected files; never merge
-internal branches or import their full history into this repository.
+This release repository started from a reviewed source snapshot with fresh Git
+history. The private internal repository retains the original research,
+history, pull requests, and issues. Keep migration and preservation evidence
+internal. Promote only reviewed patches or selected files; never merge internal
+branches or import their full history into this repository.
 
-Review the entire surface of the new repository that will become public:
-source, all branches and history, PR/issue bodies and attachments, release assets,
-wiki pages, and Actions logs/artifacts/caches. Record the scope and redacted
+Review the entire public surface of this repository: source, all branches and
+history, PR/issue bodies and attachments, release assets, wiki pages, and
+Actions logs/artifacts/caches. Record the scope and redacted
 findings of secret/license scans. Resolve findings before visibility changes;
 rotate exposed credentials before relying on deletion. A clean current checkout
 alone does not certify repository history or collaboration records.
@@ -70,7 +70,9 @@ from the source-code license.
 1. Merge the version/changelog and reviewed changes through a PR. Replace the
    candidate's `Unreleased` heading with its release date when ready. Ensure
    `pyproject.toml`, the changelog, and `vX.Y.Z` agree. Tag the exact approved
-   `main` commit; do not move or reuse a published tag/version.
+   `main` commit; do not move or reuse a published tag/version. The release
+   check fails unless `CHANGELOG.md` has a dated `## X.Y.Z — YYYY-MM-DD`
+   heading with release notes for the tagged version.
 2. Require `release-readiness` to pass for that exact commit. Check Python
    3.11/3.12, each connector extra independently, real PostgreSQL tests, clean
    wheel/sdist installation outside the checkout, public import/typing checks,
@@ -118,7 +120,7 @@ paths explicitly:
 | Promote rehearsed files | `pypi` | `false` (default) | Successful TestPyPI run ID |
 | Direct PyPI release | `pypi` | `true` | Leave empty |
 
-For the initial release, use direct PyPI publication without a TestPyPI
+The initial release, `0.3.0`, used direct PyPI publication without a TestPyPI
 rehearsal. This path needs the PyPI Trusted Publisher and
 protected `pypi` environment; no TestPyPI registration is needed. The direct
 option cannot be combined with a TestPyPI target or an existing candidate run.

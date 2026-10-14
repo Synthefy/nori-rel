@@ -22,6 +22,10 @@ def release_evidence(tmp_path, monkeypatch):
     spec.loader.exec_module(module)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.3.0"\n')
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 0.3.0 \u2014 2026-10-14\n\nInitial public release.\n"
+        "\n## 0.2.0 \u2014 2026-09-01\n\nOlder notes.\n"
+    )
     output = tmp_path / "output"
     for key, value in {
         "GITHUB_REPOSITORY": REPOSITORY,
@@ -111,6 +115,47 @@ def test_rejects_version_mismatch(release_evidence):
 
     with pytest.raises(ValueError, match="project version differ"):
         release_evidence.module.main()
+
+
+@pytest.mark.parametrize(
+    "changelog",
+    [
+        "# Changelog\n\n## 0.2.0 \u2014 2026-09-01\n\nOlder notes.\n",
+        "# Changelog\n\n## Unreleased\n\nNew notes.\n",
+        "# Changelog\n\n## 0.3.0\n\nNew notes.\n",
+        "# Changelog\n\n## 0.3.0rc1 \u2014 2026-10-01\n\nCandidate notes.\n",
+        "# Changelog\n\n## 0.3.0 \u2014 2026-13-45\n\nNew notes.\n",
+        "# Changelog\n\n## 0.3.0 \u2014 2026-10-14\n\n"
+        "## 0.2.0 \u2014 2026-09-01\n\nOlder.\n",
+        "# Changelog\n\n## 0.3.0 \u2014 2026-10-14\n",
+    ],
+    ids=[
+        "no-entry",
+        "unreleased",
+        "undated",
+        "other-version",
+        "invalid-date",
+        "empty-notes",
+        "empty-last-entry",
+    ],
+)
+def test_requires_dated_release_notes_for_the_tagged_version(
+    release_evidence, changelog
+):
+    Path("CHANGELOG.md").write_text(changelog)
+
+    with pytest.raises(ValueError, match=r"CHANGELOG\.md needs release notes"):
+        release_evidence.module.main()
+
+    assert not release_evidence.output.exists()
+
+
+def test_changelog_entry_may_use_an_ascii_hyphen(release_evidence):
+    Path("CHANGELOG.md").write_text("## 0.3.0 - 2026-10-14\n\nInitial release.\n")
+
+    release_evidence.module.main()
+
+    assert release_evidence.output.read_text() == f"commit={COMMIT}\nversion=0.3.0\n"
 
 
 def test_latest_failed_readiness_cannot_reuse_an_older_success(release_evidence):

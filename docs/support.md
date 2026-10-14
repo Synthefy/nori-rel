@@ -1,17 +1,21 @@
 # Supported scope
 
-The 0.3.0 candidate defines the initial public database-client contract.
+Version 0.3.0 defines the initial public database-client contract.
 
 | Area | Scope |
 | --- | --- |
 | Python | 3.11 and 3.12. |
-| Primary CI platform | Linux. Other operating systems require their own dependency/runtime validation. |
+| Primary CI platform | Linux. CI also installs the wheel with the `database` extra on macOS and Windows and runs import checks only. Other operating systems require their own dependency/runtime validation. |
 | PostgreSQL | TLS-enabled PostgreSQL; read-only transactions and bounded extraction. CI server versions are specified in `.github/workflows/ci.yml`. |
 | Snowflake | Standard tables with available Time Travel history. |
 | Databricks | Unity Catalog Delta tables on a SQL warehouse, with retained versions. |
 | Features | FastDFS. |
+| Synthefy SDK | `synthefy>=7.2.0,<8`, installed with each connector extra. |
 | Local prediction | Temporal aggregate regression; point and quantile output. |
 | Hosted prediction | Temporal aggregate regression and binary predicate targets. |
+| Local runtime | `synthefy-nori==0.20.1`, pinned in the `local` extra. A newer runtime release is not supported until a Nori-Rel release raises the pin. |
+| Models | Local: `nori-6m`, `nori-30m` (default), and `nori-100m`. Hosted: the default `nori-30m`. Release certification exercises `nori-30m` only. |
+| Hardware | Release certification runs local inference on CPU (`device="cpu"`) on a Linux CI runner. By default, `device` selects CUDA, then MPS, then CPU; CUDA and MPS are not release-certified. Hosted inference needs no local accelerator or model weights. |
 | Pipelines | FastDFS recipes, schema/model checks, relative context anchors, fresh data on replay. |
 | Operations | Synchronous/background runs, progress, cooperative cancellation, pool cleanup. |
 
@@ -42,7 +46,9 @@ than silently changing a prediction's meaning.
 
 ## Release status
 
-Version 0.3.0 has not been published. This repository stays private while
-[upstream dependency blockers](dependency-security.md), live-service
-certification, and publisher setup remain unresolved. See the
+Version 0.3.0 was published to PyPI on 2026-10-14. Its release run passed the
+protected live-service certification for PostgreSQL, Snowflake, and
+Databricks, with local and hosted inference. Upstream version bounds still
+block some dependency advisory fixes; the scoped, expiring assessments are in
+the [dependency security review](dependency-security.md). See the
 [release gates](../RELEASING.md).
