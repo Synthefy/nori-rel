@@ -72,7 +72,7 @@ def test_only_the_for_clause_may_change(manifest) -> None:
 
 def test_feature_columns_must_keep_their_order(manifest) -> None:
     require_same_columns(manifest.columns, list(manifest.columns.names))
-    with pytest.raises(PipelineFeatureError, match=r"missing \['COUNT"):
+    with pytest.raises(PipelineFeatureError, match=r"missing \['nr\|path"):
         require_same_columns(manifest.columns, ["other"])
 
 

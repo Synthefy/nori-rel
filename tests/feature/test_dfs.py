@@ -1,12 +1,19 @@
-"""FastDFS alignment, input ownership and point-in-time behavior."""
+"""Check the shared matrix boundary against the unchanged native executor."""
 
+from importlib.util import find_spec
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from nori_rel.feature.dfs import CUTOFF_COLUMN, BaseDFS, FeatureMatrices
-from nori_rel.feature.dfs.fastdfs import FastDFS
+from nori_rel.feature.dfs.noridfs import (
+    AnchorDefinition,
+    DatabaseView,
+    NativeFeatureConfig,
+    NativeRelationalFeaturizer,
+    NoriDFS,
+)
 
 AnchorRows = tuple[pd.DataFrame, pd.DataFrame]
 
@@ -62,8 +69,17 @@ def _compute(
     return engine.compute(snapshot, train, query, "users", row_id_column="row_id")
 
 
-@pytest.fixture
-def engine() -> BaseDFS:
+@pytest.fixture(params=["noridfs", "fastdfs"])
+def engine(request: pytest.FixtureRequest) -> BaseDFS:
+    if request.param == "noridfs":
+        return NoriDFS(NativeFeatureConfig(max_features=64), horizon="2 days")
+    if (
+        find_spec("fastdfs") is None
+        or find_spec("nori_rel.feature.dfs.fastdfs") is None
+    ):
+        pytest.skip("The database FastDFS wrapper is optional and not exported")
+    from nori_rel.feature.dfs.fastdfs import FastDFS
+
     return FastDFS(max_features=64)
 
 
@@ -106,18 +122,124 @@ def test_backends_keep_features_aligned_after_row_reordering(
         pd.testing.assert_frame_equal(before.iloc[::-1].reset_index(drop=True), after)
 
 
+def test_native_boundary_matches_direct_fit_transform(
+    snapshot: SimpleNamespace, anchors: AnchorRows
+) -> None:
+    config = NativeFeatureConfig(max_features=64)
+    engine = NoriDFS(config, horizon="2 days")
+    matrices = _compute(engine, snapshot, anchors)
+    database = DatabaseView.from_parts(**vars(snapshot))
+    definition = AnchorDefinition.create(
+        entity_table="users",
+        entity_column="id",
+        cutoff_column=CUTOFF_COLUMN,
+        horizon="2 days",
+    )
+    fitted = NativeRelationalFeaturizer.fit(database, definition, config)
+    expected = fitted.transform(database, pd.concat(anchors, ignore_index=True)).frame
+    pd.testing.assert_frame_equal(
+        pd.concat([matrices.train, matrices.query], ignore_index=True), expected
+    )
+    total = next(
+        feature.name
+        for feature in fitted.plan.features
+        if feature.column == "amount"
+        and feature.operation == "sum"
+        and feature.window_ns is None
+    )
+    # Equal-to-cutoff events are excluded, and the original row order survives.
+    assert pd.isna(matrices.train[total].iloc[0])
+    assert matrices.train[total].iloc[1] == 4.0
+    assert matrices.query[total].tolist() == [1006.0, 24.0]
+
+
+def test_native_categories_come_from_the_plan_not_matrix_dtypes(
+    snapshot: SimpleNamespace, anchors: AnchorRows, monkeypatch
+) -> None:
+    transform = NativeRelationalFeaturizer.transform
+
+    def transform_with_numeric_categories(featurizer, database, rows):
+        result = transform(featurizer, database, rows)
+        for column in featurizer.plan.categorical_columns:
+            result.frame[column] = pd.to_numeric(result.frame[column])
+        return result
+
+    monkeypatch.setattr(
+        NativeRelationalFeaturizer, "transform", transform_with_numeric_categories
+    )
+    engine = NoriDFS()
+    assert engine.categorical_columns() is None
+    matrices = _compute(engine, snapshot, anchors)
+    categories = engine.categorical_columns()
+    assert categories == engine.last_plan.categorical_columns
+    assert categories
+    assert all(
+        pd.api.types.is_numeric_dtype(matrices.train[name]) for name in categories
+    )
+    assert matrices.train[categories[0]].tolist() == [2, 1]
+
+
 def test_fastdfs_keeps_automatic_categories() -> None:
     pytest.importorskip("fastdfs")
     fastdfs = pytest.importorskip("nori_rel.feature.dfs.fastdfs")
     assert fastdfs.FastDFS().categorical_columns() is None
 
 
+def test_native_boundary_does_not_use_extra_anchor_columns(
+    snapshot: SimpleNamespace, anchors: AnchorRows
+) -> None:
+    expected = _compute(NoriDFS(), snapshot, anchors)
+    changed = tuple(frame.assign(label=999.0, unrelated="ignored") for frame in anchors)
+    actual = _compute(NoriDFS(), snapshot, changed)
+    pd.testing.assert_frame_equal(actual.train, expected.train)
+    pd.testing.assert_frame_equal(actual.query, expected.query)
+
+
 def test_future_values_do_not_change_historical_rows(
     snapshot: SimpleNamespace, anchors: AnchorRows
 ) -> None:
-    original = _compute(FastDFS(), snapshot, anchors)
+    original = _compute(NoriDFS(), snapshot, anchors)
     orders = snapshot.tables["orders"]
     orders.loc[orders["id"] == 4, "amount"] = -1000.0
-    changed = _compute(FastDFS(), snapshot, anchors)
+    changed = _compute(NoriDFS(), snapshot, anchors)
     pd.testing.assert_frame_equal(changed.train, original.train)
     assert not changed.query.equals(original.query)
+
+
+@pytest.mark.parametrize("empty_split", [0, 1])
+def test_native_boundary_accepts_an_empty_split(
+    snapshot: SimpleNamespace, anchors: AnchorRows, empty_split: int
+) -> None:
+    rows = tuple(
+        frame.iloc[:0] if i == empty_split else frame for i, frame in enumerate(anchors)
+    )
+    matrices = _compute(NoriDFS(), snapshot, rows)
+    assert len(matrices.train) == len(rows[0])
+    assert len(matrices.query) == len(rows[1])
+    assert matrices.train.columns.equals(matrices.query.columns)
+
+
+@pytest.mark.parametrize("row_id", [None, "context:1"])
+def test_native_boundary_rejects_null_or_duplicate_row_ids(
+    snapshot: SimpleNamespace, anchors: AnchorRows, row_id: str | None
+) -> None:
+    train, query = anchors
+    query.loc[query.index[0], "row_id"] = row_id
+    with pytest.raises(ValueError, match="row identifiers"):
+        _compute(NoriDFS(), snapshot, (train, query))
+
+
+def test_native_boundary_rejects_missing_row_ids(
+    snapshot: SimpleNamespace, anchors: AnchorRows
+) -> None:
+    rows = tuple(frame.drop(columns="row_id") for frame in anchors)
+    with pytest.raises(ValueError, match="row identifiers"):
+        _compute(NoriDFS(), snapshot, rows)
+
+
+def test_native_boundary_rejects_composite_entity_keys(
+    snapshot: SimpleNamespace, anchors: AnchorRows
+) -> None:
+    snapshot.primary_keys["users"] = ["id", "age"]
+    with pytest.raises(ValueError, match="one primary-key column"):
+        _compute(NoriDFS(), snapshot, anchors)

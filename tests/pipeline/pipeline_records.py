@@ -7,7 +7,7 @@ QUERY = "PREDICT COUNT(orders.*,0,30,days) FOR EACH users.user_id"
 
 
 def manifest_fields() -> dict:
-    """Return the sections of a small, valid FastDFS pipeline."""
+    """Return the sections of a small, valid NoriDFS pipeline."""
     users = TableSchema(
         name="users",
         columns=[
@@ -33,6 +33,18 @@ def manifest_fields() -> dict:
         ],
         time_column="event_time",
     )
+    path = {
+        "entity_table": "users",
+        "edges": [
+            {
+                "child_table": "orders",
+                "child_column": "buyer_id",
+                "parent_table": "users",
+                "parent_column": "user_id",
+            }
+        ],
+        "direction": "descendant",
+    }
     return {
         "created_at": datetime(2026, 10, 8, tzinfo=UTC),
         "nori_rel_version": "0.2.0",
@@ -56,14 +68,41 @@ def manifest_fields() -> dict:
             },
         },
         "features": {
-            "kind": "fastdfs",
-            "max_depth": 2,
-            "max_features": 48,
-            "fastdfs_version": "1.1",
-            "column_types": {"orders": {"event_time": "datetime"}},
+            "kind": "noridfs",
+            "plan": {
+                "schema_digest": "a" * 32,
+                "anchors": {
+                    "entity_table": "users",
+                    "entity_column": "user_id",
+                    "cutoff_column": "__nori_rel_cutoff_time",
+                    "horizon_ns": 30 * 86_400 * 10**9,
+                },
+                "config": {
+                    "max_depth": 2,
+                    "max_paths": 24,
+                    "max_features": 256,
+                    "max_direct_features": 64,
+                    "max_direct_categorical_cardinality": None,
+                    "max_categorical_cardinality": 32,
+                    "window_multipliers": [1, 4, 16],
+                    "include_missing_in_modes": False,
+                    "include_missing_fractions": False,
+                },
+                "paths": [path],
+                "features": [
+                    {
+                        "name": "nr|path|orders|rows|count|all",
+                        "operation": "count",
+                        "kind": "numeric",
+                        "table": "orders",
+                        "path": path,
+                    }
+                ],
+                "digest": "b" * 32,
+            },
         },
         "columns": {
-            "names": ["COUNT(orders)"],
+            "names": ["nr|path|orders|rows|count|all"],
             "dtypes": ["float64"],
             "categorical": [],
         },
@@ -82,5 +121,5 @@ def manifest_fields() -> dict:
             "anchor_offsets": ["P90D", "P60D", "P30D"],
             "max_context_rows": 5000,
         },
-        "provenance": {"features": "fastdfs"},
+        "provenance": {"features": "noridfs"},
     }

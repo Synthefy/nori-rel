@@ -41,6 +41,7 @@ class LocalExecutor:
         prediction: Callable[[RunContext], Any],
         *,
         strategy: str,
+        max_trials: int | None = None,
         limits: RunLimits | None = None,
         on_event: Callable[[RunEvent], None] | None = None,
     ) -> LocalRun:
@@ -65,7 +66,7 @@ class LocalExecutor:
             self._runs[run.run_id] = run
         worker = threading.Thread(
             target=_execute_run_on_worker,
-            args=(run, prediction, strategy),
+            args=(run, prediction, strategy, max_trials),
             name=f"nori-rel-{run.run_id}",
             daemon=True,
         )
@@ -83,6 +84,7 @@ class LocalExecutor:
         prediction: Callable[[RunContext], Any],
         *,
         strategy: str,
+        max_trials: int | None = None,
         limits: RunLimits | None = None,
         on_event: Callable[[RunEvent], None] | None = None,
         summary_in_result_attrs: bool = True,
@@ -96,6 +98,7 @@ class LocalExecutor:
         run._execute_prediction(
             prediction,
             strategy=strategy,
+            max_trials=max_trials,
             summary_in_result_attrs=summary_in_result_attrs,
             reraise_failure=True,
         )
@@ -149,6 +152,7 @@ def _execute_run_on_worker(
     run: LocalRun,
     prediction: Callable[[RunContext], Any],
     strategy: str,
+    max_trials: int | None,
 ) -> None:
     """Execute ``run`` on its worker thread; log anything that escapes it.
 
@@ -159,6 +163,7 @@ def _execute_run_on_worker(
         run._execute_prediction(
             prediction,
             strategy=strategy,
+            max_trials=max_trials,
             summary_in_result_attrs=True,
             reraise_failure=False,
         )

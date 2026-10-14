@@ -12,11 +12,13 @@ from typing import Any
 import pandas as pd
 from pydantic import ValidationError
 
+from nori_rel.feature.agentic.guard import blocked_findings
 from nori_rel.pipeline import PIPELINE_ATTR
-from nori_rel.pipeline.errors import PipelineFormatError
+from nori_rel.pipeline.errors import PipelineFeatureError, PipelineFormatError
 from nori_rel.pipeline.manifest import (
     PIPELINE_FORMAT,
     PIPELINE_FORMAT_VERSION,
+    AgenticFeaturesRecord,
     PipelineManifest,
     get_pipeline_id,
 )
@@ -143,6 +145,15 @@ def _get_validated_manifest(record: Mapping[str, Any]) -> PipelineManifest:
             f"pipeline {manifest.pipeline_id} does not match its content; "
             "the file changed after it was saved"
         )
+    if isinstance(manifest.features, AgenticFeaturesRecord):
+        findings = [
+            finding
+            for query in manifest.features.program.queries
+            for finding in blocked_findings(query.name, query.sql)
+        ]
+        if findings:
+            reasons = "; ".join(f"{f.query}: {f.reason}" for f in findings)
+            raise PipelineFeatureError(f"saved SQL is not allowed: {reasons}")
     return manifest
 
 

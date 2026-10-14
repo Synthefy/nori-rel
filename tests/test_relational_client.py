@@ -13,6 +13,7 @@ from nori_rel import (
     DatabaseUrl,
     NoriRelClient,
 )
+from nori_rel._feature_search import AgenticSearch
 
 
 class FakeRuntime:
@@ -245,8 +246,9 @@ class PollingRuntime(BlockingRuntime):
         return FakeRuntime.predict_pql(self, source, request, **options)
 
 
-def test_two_runs_with_one_client_run_at_the_same_time() -> None:
-    runtime = BlockingRuntime()
+def test_two_runs_with_one_agent_run_at_the_same_time() -> None:
+    search = AgenticSearch(agent=object())
+    runtime = BlockingRuntime(features=search)
     client = _client(runtime)
     started = threading.Barrier(2, timeout=5)
 
@@ -260,11 +262,14 @@ def test_two_runs_with_one_client_run_at_the_same_time() -> None:
 
     for run in (first, second):
         assert run.result(timeout=5)["prediction"].tolist() == [3.5]
-        assert run.progress.strategy == "fastdfs"
+        assert run.progress.strategy == "agentic"
+        assert run.progress.max_trials == search.config.max_trials
 
 
-def test_two_threads_can_predict_with_one_client() -> None:
+def test_two_threads_can_predict_with_one_agent() -> None:
+    search = AgenticSearch(agent=object())
     runtime = FakeRuntime()
+    runtime.features = search
     client = _client(runtime)
     frames = []
 
@@ -355,3 +360,47 @@ def test_close_waits_for_background_runs() -> None:
 
     assert run.progress.status == "completed"
     assert runtime.closed
+
+
+def test_a_replayed_program_reports_its_strategy() -> None:
+    client = _client(BlockingRuntime(features=AgenticSearch(agent=object())))
+
+    assert client._get_run_options_for_features(True) == {"strategy": "saved_program"}
+
+
+def test_an_agent_search_brings_its_limits_to_the_run() -> None:
+    from nori_rel.run import RunLimits
+
+    limits = RunLimits(max_runtime_seconds=120, stop_grace_s=10)
+    search = AgenticSearch(agent=object(), limits=limits)
+    runtime = BlockingRuntime(features=search)
+    client = _client(runtime)
+
+    run = client.start_predict(source=runtime.source, **PQL_OPTIONS)
+    runtime.release_predictions.set()
+    run.result(timeout=5)
+
+    assert run._context.limits is limits
+
+
+def test_an_agent_search_reports_its_spend_limit_on_its_run() -> None:
+    pytest.importorskip("duckdb")
+    from nori_rel.feature.agentic.agent_claude import ClaudeProgramAgent
+    from nori_rel.feature.agentic.usage import TokenPrices
+    from nori_rel.run import RunLimits
+
+    prices = TokenPrices(
+        input=3.0, output=15.0, cache_read=0.3, cache_write_5m=3.75, cache_write_1h=6.0
+    )
+    search = AgenticSearch(
+        agent=ClaudeProgramAgent(prices=prices),
+        limits=RunLimits(max_spend_usd=2.5),
+    )
+    runtime = BlockingRuntime(features=search)
+    client = _client(runtime)
+
+    run = client.start_predict(source=runtime.source, **PQL_OPTIONS)
+    runtime.release_predictions.set()
+    run.result(timeout=5)
+
+    assert run.progress.max_spend_usd == 2.5

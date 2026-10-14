@@ -32,11 +32,16 @@ from nori_rel.run import (
 )
 
 if TYPE_CHECKING:
+    from nori_rel._feature_search import AgenticSearch
     from nori_rel.pipeline import NoriRelPipeline
 
 
 def __getattr__(name: str):
-    """Load pipeline records only when requested."""
+    """Load the agent search and pipeline records only when requested."""
+    if name == "AgenticSearch":
+        from nori_rel._feature_search import AgenticSearch
+
+        return AgenticSearch
     if name == "NoriRelPipeline":
         from nori_rel.pipeline import NoriRelPipeline
 
@@ -45,6 +50,7 @@ def __getattr__(name: str):
 
 
 __all__ = [
+    "AgenticSearch",
     "AwsSecret",
     "ConnectionStatus",
     "ConnectorCapabilities",

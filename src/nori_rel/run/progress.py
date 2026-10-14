@@ -13,6 +13,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from nori_rel.run.models import (
     EventKind,
+    FallbackReason,
     RunEvent,
     RunStatus,
     Stage,
@@ -24,8 +25,14 @@ class RunProgress(BaseModel):
 
     ``active_runtime_seconds`` counts only time spent ``running``, up to the
     latest event; an event timestamped before an earlier one adds nothing. The
-    final strategy, pipeline identifier and input hashes describe the result.
-    The hashes change as the database context or feature matrix changes.
+    summary fields (``strategy_used``, ``search_interrupted``,
+    ``fallback_reason``, ``pipeline_id``, ``context_sha256``,
+    ``features_sha256``) are final once the status is. The two hashes are audit
+    data of a pipeline run: they identify its context rows and its feature
+    matrix, and change as the data does.
+    ``search_interrupted`` comes from the final status: ``limit_reached`` alone
+    does not set it, because a limit reached after the search ended cuts
+    nothing short.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -38,7 +45,17 @@ class RunProgress(BaseModel):
     active_runtime_seconds: float = 0.0
     running_since: AwareDatetime | None = None
     strategy: str | None = None
+    metric: str | None = None
+    baseline_score: float | None = None
+    best_score: float | None = None
+    trials_attempted: int = 0
+    trials_accepted: int = 0
+    max_trials: int | None = None
+    spend_usd: float | None = None
+    max_spend_usd: float | None = None
     strategy_used: str | None = None
+    search_interrupted: bool = False
+    fallback_reason: FallbackReason | None = None
     pipeline_id: str | None = None
     context_sha256: str | None = None
     features_sha256: str | None = None
@@ -68,13 +85,31 @@ def _status_change_update(event: RunEvent) -> dict[str, Any]:
     update["running_since"] = event.timestamp if data["to"] == "running" else None
     for field in (
         "strategy",
+        "max_trials",
+        "max_spend_usd",
         "strategy_used",
+        "search_interrupted",
+        "fallback_reason",
         "pipeline_id",
         "context_sha256",
         "features_sha256",
     ):
         if field in data:
             update[field] = data[field]
+    return update
+
+
+def _trial_scored_update(progress: RunProgress, event: RunEvent) -> dict[str, Any]:
+    """Return the trial counts, metric and best score after a scored trial."""
+    data = event.data
+    update = {
+        "metric": data["metric"],
+        "trials_attempted": progress.trials_attempted + 1,
+        "trials_accepted": progress.trials_accepted + bool(data.get("accepted")),
+    }
+    # A rejected trial may carry an explicit null; that keeps the best so far.
+    if data.get("best_score") is not None:
+        update["best_score"] = data["best_score"]
     return update
 
 
@@ -99,6 +134,19 @@ def apply_event_to_progress(progress: RunProgress, event: RunEvent) -> RunProgre
         case EventKind.STAGE_FINISHED:
             # A nested stage returns to the stage it ran inside.
             update["stage"] = data.get("outer_stage")
+        case EventKind.BASELINE_SCORED:
+            update |= {"metric": data["metric"], "baseline_score": data["score"]}
+        case EventKind.TRIAL_SCORED:
+            update |= _trial_scored_update(progress, event)
+        case EventKind.SPEND_UPDATED:
+            update["spend_usd"] = data["spend_usd"]
+        case EventKind.FALLBACK_USED:
+            update |= {
+                "fallback_reason": data["reason"],
+                "strategy_used": data["to_strategy"],
+            }
+        case EventKind.SEARCH_STOPPED:
+            update["search_interrupted"] = True
         case EventKind.ERROR:
             update |= {
                 "error_kind": data.get("error_kind"),
@@ -118,7 +166,7 @@ def progress_from_events(run_id: str, events: list[RunEvent]) -> RunProgress:
 
 
 class RunStatusResponse(BaseModel):
-    """Status, latest message, and the sanitized error if a run failed."""
+    """``GET /runs/{id}``: status, latest message, and the error if failed."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

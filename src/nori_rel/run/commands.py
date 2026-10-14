@@ -14,6 +14,10 @@ from nori_rel.run.models import (
     CommandRejectedResponse,
 )
 
+#: Steering text longer than this is refused when it is sent: it is echoed in
+#: the run's events, replayed to every reader, and sent to the model.
+MAX_STEERING_TEXT_CHARS = 4_000
+
 
 class QueuedCommand(BaseModel):
     """A recorded command waiting for the run's next boundary."""
@@ -22,6 +26,7 @@ class QueuedCommand(BaseModel):
 
     command_id: str = Field(min_length=1)
     command: Command
+    steering_text: str | None = None
 
 
 class CommandInbox:
@@ -39,11 +44,27 @@ class CommandInbox:
         self._closed = False
         self._condition = threading.Condition()
 
-    def submit_command(self, command: Command) -> CommandReceipt:
-        """Record a command for the next boundary, or reject it after completion."""
+    def submit_command(
+        self, command: Command, steering_text: str | None = None
+    ) -> CommandReceipt:
+        """Record ``command``; it is applied, or rejected, at the next boundary.
+
+        ``steer`` needs non-blank ``steering_text`` of at most
+        ``MAX_STEERING_TEXT_CHARS`` characters; other commands take none.
+        A closed inbox records nothing and returns a rejected receipt.
+        """
+        if (command == "steer") != (steering_text is not None):
+            raise ValueError("steer needs steering_text; other commands take none")
+        if steering_text is not None and not steering_text.strip():
+            raise ValueError("steering_text must not be blank")
+        if steering_text is not None and len(steering_text) > MAX_STEERING_TEXT_CHARS:
+            raise ValueError(
+                f"steering_text must be at most {MAX_STEERING_TEXT_CHARS} characters"
+            )
         queued = QueuedCommand(
             command_id=f"cmd_{uuid.uuid4().hex[:16]}",
             command=command,
+            steering_text=steering_text,
         )
         with self._condition:
             if self._closed:
@@ -75,7 +96,7 @@ class CommandInbox:
         """Block until a command is queued; return whether one is.
 
         Only a command wakes the waiter, so a paused run is ended by sending it
-        a cancel.
+        a cancel or a stop.
         """
         with self._condition:
             return self._condition.wait_for(
@@ -83,4 +104,4 @@ class CommandInbox:
             )
 
 
-__all__ = ["CommandInbox", "QueuedCommand"]
+__all__ = ["MAX_STEERING_TEXT_CHARS", "CommandInbox", "QueuedCommand"]

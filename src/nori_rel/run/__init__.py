@@ -1,7 +1,7 @@
 """Run progress, commands and cancellation; see ``docs/run-control.md``.
 
-This package depends only on pydantic, so it imports without the database
-or Nori extras.
+This package depends only on pydantic, so it imports without the database,
+agent or Nori extras.
 """
 
 from nori_rel.run.commands import CommandInbox, QueuedCommand
@@ -24,10 +24,12 @@ from nori_rel.run.models import (
     CommandRejectedResponse,
     EventKind,
     EventType,
+    FallbackReason,
     RunEvent,
     RunLimits,
     RunStatus,
     Stage,
+    TrialOutcome,
 )
 from nori_rel.run.progress import (
     RunProgress,
@@ -47,6 +49,7 @@ __all__ = [
     "CommandRejectedResponse",
     "EventKind",
     "EventType",
+    "FallbackReason",
     "LocalExecutor",
     "LocalRun",
     "PredictionCancelled",
@@ -63,6 +66,7 @@ __all__ = [
     "RunStatusResponse",
     "RunTimeout",
     "Stage",
+    "TrialOutcome",
     "apply_event_to_progress",
     "new_run_id",
     "progress_from_events",

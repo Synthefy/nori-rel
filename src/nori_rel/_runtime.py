@@ -32,8 +32,12 @@ from nori_rel.feature import FEATURE_BACKENDS, FeatureBackend, FeatureBackendNam
 from nori_rel.feature.dfs.fastdfs import FastDFS
 from nori_rel.limits import RelationalLimits
 from nori_rel.pipeline.errors import PipelineModelError
+from nori_rel.pql.window import TargetWindow
+from nori_rel.run import RunContext
 
 if TYPE_CHECKING:
+    from nori_rel._feature_program import SavedFeatureProgram
+    from nori_rel._feature_search import AgenticSearch
     from nori_rel.pipeline.manifest import HostedModelRecord, LocalModelRecord
 
 
@@ -386,13 +390,16 @@ class LocalRelationalRuntime:
         limits: RelationalLimits | None = None,
         connector_factory: Callable[..., RelationalConnector] = create_connector,
         predictor: Predictor | None = None,
-        features: FeatureBackendName | FeatureBackend = "fastdfs",
+        features: FeatureBackendName | FeatureBackend | AgenticSearch = "fastdfs",
     ) -> None:
         if isinstance(features, str):
             if features not in FEATURE_BACKENDS:
                 raise ValueError(f"features must be one of {FEATURE_BACKENDS}")
         elif not isinstance(features, FeatureBackend):
-            raise ValueError("features must be a FeatureBackend or 'fastdfs'")
+            from nori_rel._feature_search import AgenticSearch
+
+            if not isinstance(features, AgenticSearch):
+                raise ValueError("features must be a FeatureBackend or AgenticSearch")
         self.limits = limits or RelationalLimits()
         self.connector_factory = connector_factory
         self.features = features
@@ -462,11 +469,60 @@ class LocalRelationalRuntime:
     def discover(self, source: Database) -> SchemaGraph:
         return self._connector(source).discover(source.id)
 
-    def feature_backend(self) -> FeatureBackend:
-        """Return a fresh FastDFS backend, or the caller's configured backend."""
+    def feature_backend(
+        self,
+        window: TargetWindow,
+        task: PredictionTask,
+        context: pd.DataFrame,
+        labels: pd.Series,
+        program: SavedFeatureProgram | None = None,
+        run_context: RunContext | None = None,
+    ) -> FeatureBackend:
+        """Return the feature backend for one prediction.
+
+        A saved ``program`` runs on top of NoriDFS with no search, whatever
+        ``features`` is. NoriDFS windows scale with the target's label
+        interval. An agent search also needs the context labels, in context
+        order, to score its programs. The planning session validates the
+        context and validation slices according to the search configuration.
+        """
+        if program is not None:
+            from nori_rel._feature_search import (
+                DEFAULT_SEARCH_CONFIG,
+                AgenticSearch,
+                noridfs_backend,
+            )
+            from nori_rel.feature.agentic import AgenticFeatures
+
+            config = (
+                self.features.config
+                if isinstance(self.features, AgenticSearch)
+                else DEFAULT_SEARCH_CONFIG
+            )
+            return AgenticFeatures(
+                program=program.to_program(),
+                fallback=noridfs_backend(window.end - window.start),
+                config=config,
+                expected_baseline_columns=program.baseline_columns,
+                run_context=run_context,
+            )
         if isinstance(self.features, FeatureBackend):
             return self.features
-        return FastDFS(max_depth=2, max_features=self.limits.max_features)
+        if self.features == "fastdfs":
+            return FastDFS(max_depth=2, max_features=self.limits.max_features)
+        from nori_rel._feature_search import AgenticSearch, noridfs_backend
+
+        seed = noridfs_backend(window.end - window.start)
+        if self.features == "noridfs":
+            return seed
+        assert isinstance(self.features, AgenticSearch)
+        return self.features.backend(
+            seed,
+            labels=labels,
+            task=task,
+            predictor=self.predictor,
+            run_context=run_context,
+        )
 
     def get_pipeline_predictor(self, record: Any) -> Predictor:
         """Return a predictor for a saved model record, or raise if it differs.

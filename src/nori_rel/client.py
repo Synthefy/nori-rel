@@ -29,6 +29,7 @@ from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS
 from nori_rel.run import LocalExecutor, PredictionRun, RunContext, RunEvent
 
 if TYPE_CHECKING:
+    from nori_rel._feature_search import AgenticSearch
     from nori_rel._runtime import LocalRelationalRuntime
     from nori_rel.feature import FeatureBackend, FeatureBackendName
     from nori_rel.limits import RelationalLimits
@@ -65,6 +66,7 @@ class PredictionRequestArguments(TypedDict, total=False):
     observed_through: datetime | None
     entity_created_at: str | None
     max_context_rows: int | None
+    feature_program: Mapping[str, Any] | None
     log_summary: bool
     pipeline: NoriRelPipeline | None
     expected_context_sha256: str | None
@@ -83,8 +85,12 @@ class NoriRelClient:
     key; local mode supports regression targets only. mode="hosted" sends only
     the resulting context and query feature matrices to hosted Nori.
 
-    ``features`` defaults to ``"fastdfs"``. A configured ``FeatureBackend``
-    instance is also accepted; its caller is responsible for concurrent use.
+    ``features`` picks the relational feature search: ``"fastdfs"`` (the
+    default), ``"noridfs"`` (the NoriDFS relationship search), or an
+    ``AgenticSearch``, which adds agent-written SQL features to NoriDFS and
+    sends schema, column profiles, and sampled query results to the agent's
+    model provider. A configured ``FeatureBackend`` instance is also accepted;
+    its caller is responsible for concurrent use. See ``AgenticSearch``.
     """
 
     def __init__(
@@ -98,7 +104,7 @@ class NoriRelClient:
         max_retries: int = 2,
         device: str | None = None,
         limits: RelationalLimits | None = None,
-        features: FeatureBackendName | FeatureBackend = "fastdfs",
+        features: FeatureBackendName | FeatureBackend | AgenticSearch = "fastdfs",
         _runtime: LocalRelationalRuntime | None = None,
     ) -> None:
         """Configure Nori inference and bounded local database execution.
@@ -277,6 +283,7 @@ class NoriRelClient:
         observed_through: datetime | None = None,
         entity_created_at: str | None = None,
         max_context_rows: int | None = None,
+        feature_program: Mapping[str, Any] | None = None,
         log_summary: bool = True,
         pipeline: NoriRelPipeline | None = None,
         expected_context_sha256: str | None = None,
@@ -303,6 +310,13 @@ class NoriRelClient:
         that requested IDs exist at anchor_time. NULL predicates exclude rows;
         no matches returns an empty result. Entity attributes must be immutable.
         PQL plus entity_ids remains an error: use FOR in the query instead.
+
+        feature_program replays a saved agent program: pass the agentic_program
+        record from an earlier prediction's metadata to rerun its SQL features on
+        top of NoriDFS, with no agent search and no model-provider calls. It
+        works with any features setting and needs the agentic extra for DuckDB.
+        Replay requires the same PQL text, entity_created_at, schema and NoriDFS
+        columns. Version-1 records lack these checks and must be regenerated.
 
         pipeline predicts with a saved NoriRelPipeline and no feature search.
         Pass source, as_of (the prediction time) and observed_through, and
@@ -334,7 +348,7 @@ class NoriRelClient:
         Direct/NEXT/named-class/path requests are retired and raise errors.
 
         on_event receives each of the prediction's events as it happens, on
-        this thread: its stages and its
+        this thread: its stages, the agent search's trials and spend, and its
         final status; attrs["run"] then holds the run's summary. start_predict
         runs the same prediction in the background.
         """
@@ -346,7 +360,7 @@ class NoriRelClient:
             self._prepare_pql_prediction(**request),
             on_event=on_event,
             summary_in_result_attrs=on_event is not None,
-            **self._get_run_options_for_features(pipeline),
+            **self._get_run_options_for_features(feature_program is not None, pipeline),
         )
         frame = run.result()
         if not return_details:
@@ -376,7 +390,7 @@ class NoriRelClient:
         through run.events() and on_event, which is called on the run's worker
         thread. run.result() returns the frame, whose attrs hold the metadata
         and attrs["run"] the run's summary. Runs do not wait for one another,
-        and use independent feature backends. Find the run again with
+        even when they share an agent. Find the run again with
         get_run(run.run_id).
         """
         if "return_details" in request:
@@ -392,7 +406,9 @@ class NoriRelClient:
         return self._executor.start_run(
             self._prepare_pql_prediction(**request),
             on_event=on_event,
-            **self._get_run_options_for_features(request.get("pipeline")),
+            **self._get_run_options_for_features(
+                request.get("feature_program") is not None, request.get("pipeline")
+            ),
         )
 
     def get_run(self, run_id: str) -> PredictionRun:
@@ -400,17 +416,30 @@ class NoriRelClient:
         return self._executor.get_run(run_id)
 
     def _get_run_options_for_features(
-        self, pipeline: NoriRelPipeline | None = None
+        self, replaying_program: bool, pipeline: NoriRelPipeline | None = None
     ) -> dict[str, Any]:
-        """Name the feature strategy used by this prediction."""
-        from nori_rel._pql_runtime import get_feature_strategy_name
+        """Return a run's strategy and, for an agent search, trial cap and limits.
+
+        Strategy names match the ``features`` entry of prediction metadata. A
+        saved pipeline fixes its own strategy and runs no search.
+        """
+        from nori_rel._pql_runtime import (
+            get_feature_strategy_name,
+            get_pipeline_strategy_name,
+        )
 
         if pipeline is not None:
-            return {"strategy": pipeline.manifest.features.kind}
+            return {"strategy": get_pipeline_strategy_name(pipeline.manifest.features)}
+        features = getattr(self._runtime, "features", "fastdfs")
+        strategy = get_feature_strategy_name(
+            features, replaying_program=replaying_program
+        )
+        if strategy != "agentic":
+            return {"strategy": strategy}
         return {
-            "strategy": get_feature_strategy_name(
-                getattr(self._runtime, "features", "fastdfs")
-            )
+            "strategy": strategy,
+            "max_trials": int(features.config.max_trials),
+            "limits": features.limits,
         }
 
     def _prepare_pql_prediction(
@@ -437,6 +466,7 @@ class NoriRelClient:
         observed_through: datetime | None = None,
         entity_created_at: str | None = None,
         max_context_rows: int | None = None,
+        feature_program: Mapping[str, Any] | None = None,
         log_summary: bool = True,
         pipeline: NoriRelPipeline | None = None,
         expected_context_sha256: str | None = None,
@@ -470,9 +500,19 @@ class NoriRelClient:
                     "anchor_time": anchor_time,
                     "entity_created_at": entity_created_at,
                     "max_context_rows": max_context_rows,
+                    "feature_program": feature_program,
                 },
                 log_summary=log_summary,
             )
+        program = None
+        if feature_program is not None:
+            from nori_rel._feature_search import (
+                program_from_record,
+                require_agentic_modules,
+            )
+
+            require_agentic_modules("duckdb")
+            program = program_from_record(feature_program)
         legacy = query is None
         if legacy:
             if entity is None or target is None:
@@ -557,6 +597,7 @@ class NoriRelClient:
                 decision_threshold=decision_threshold,
                 log_summary=log_summary,
                 query_filter=query_filter,
+                feature_program=program,
                 run_context=run_context,
             )
 
