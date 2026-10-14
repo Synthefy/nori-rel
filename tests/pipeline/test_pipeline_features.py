@@ -206,3 +206,24 @@ def test_a_misspelled_fastdfs_type_fails_on_load() -> None:
             fastdfs_version="1.1",
             column_types={"orders": {"amount": "numeric"}},
         )
+
+
+def test_features_cannot_be_passed_with_a_pipeline() -> None:
+    from datetime import UTC, datetime
+
+    from pipeline_records import manifest_fields
+
+    from nori_rel import NoriRelClient
+    from nori_rel.pipeline import NoriRelPipeline
+    from nori_rel.pipeline.manifest import PipelineManifest
+
+    client = NoriRelClient(mode="hosted", api_key="key", _runtime=object())
+    pipeline = NoriRelPipeline(PipelineManifest.create(**manifest_fields()))
+    with pytest.raises(ValueError, match="features cannot be passed with a pipeline"):
+        client.predict(
+            source=None,
+            pipeline=pipeline,
+            as_of=datetime(2026, 3, 1, tzinfo=UTC),
+            observed_through=datetime(2026, 3, 1, tzinfo=UTC),
+            features="noridfs",
+        )

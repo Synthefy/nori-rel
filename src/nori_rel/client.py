@@ -69,6 +69,7 @@ class PredictionRequestArguments(TypedDict, total=False):
     max_context_rows: int | None
     feature_program: Mapping[str, Any] | None
     metric: AgentSearchMetric | None
+    features: FeatureBackendName | FeatureBackend | AgenticSearch | None
     log_summary: bool
     pipeline: NoriRelPipeline | None
     expected_context_sha256: str | None
@@ -288,6 +289,7 @@ class NoriRelClient:
         max_context_rows: int | None = None,
         feature_program: Mapping[str, Any] | None = None,
         metric: AgentSearchMetric | None = None,
+        features: FeatureBackendName | FeatureBackend | AgenticSearch | None = None,
         log_summary: bool = True,
         pipeline: NoriRelPipeline | None = None,
         expected_context_sha256: str | None = None,
@@ -321,6 +323,11 @@ class NoriRelClient:
         works with any features setting and needs the agentic extra for DuckDB.
         Replay requires the same PQL text, entity_created_at, schema and NoriDFS
         columns. Version-1 records lack these checks and must be regenerated.
+
+        features picks this prediction's feature search, as the client's
+        features argument does: "fastdfs", "noridfs", a FeatureBackend, or an
+        AgenticSearch. None (the default) uses the client's. It is checked
+        before the run starts and cannot be combined with pipeline.
 
         metric chooses the error an agent search (features=AgenticSearch...)
         scores each candidate SQL program with on held-out history, and so which
@@ -382,7 +389,9 @@ class NoriRelClient:
             ),
             on_event=on_event,
             summary_in_result_attrs=on_event is not None,
-            **self._get_run_options_for_features(feature_program is not None, pipeline),
+            **self._get_run_options_for_features(
+                feature_program is not None, pipeline, features
+            ),
         )
         frame = run.result()
         if not return_details:
@@ -436,7 +445,9 @@ class NoriRelClient:
             self._prepare_pql_prediction(**request),
             on_event=on_event,
             **self._get_run_options_for_features(
-                request.get("feature_program") is not None, request.get("pipeline")
+                request.get("feature_program") is not None,
+                request.get("pipeline"),
+                request.get("features"),
             ),
         )
 
@@ -445,12 +456,16 @@ class NoriRelClient:
         return self._executor.get_run(run_id)
 
     def _get_run_options_for_features(
-        self, replaying_program: bool, pipeline: NoriRelPipeline | None = None
+        self,
+        replaying_program: bool,
+        pipeline: NoriRelPipeline | None = None,
+        features: FeatureBackendName | FeatureBackend | AgenticSearch | None = None,
     ) -> dict[str, Any]:
         """Return a run's strategy and, for an agent search, trial cap and limits.
 
-        Strategy names match the ``features`` entry of prediction metadata. A
-        saved pipeline fixes its own strategy and runs no search.
+        Strategy names match the ``features`` entry of prediction metadata.
+        ``features`` is the prediction's own feature search; ``None`` uses the
+        client's. A saved pipeline fixes its own strategy and runs no search.
         """
         from nori_rel._pql_runtime import (
             get_feature_strategy_name,
@@ -459,7 +474,8 @@ class NoriRelClient:
 
         if pipeline is not None:
             return {"strategy": get_pipeline_strategy_name(pipeline.manifest.features)}
-        features = getattr(self._runtime, "features", "fastdfs")
+        if features is None:
+            features = getattr(self._runtime, "features", "fastdfs")
         strategy = get_feature_strategy_name(
             features, replaying_program=replaying_program
         )
@@ -497,6 +513,7 @@ class NoriRelClient:
         max_context_rows: int | None = None,
         feature_program: Mapping[str, Any] | None = None,
         metric: AgentSearchMetric | None = None,
+        features: FeatureBackendName | FeatureBackend | AgenticSearch | None = None,
         log_summary: bool = True,
         pipeline: NoriRelPipeline | None = None,
         expected_context_sha256: str | None = None,
@@ -537,10 +554,15 @@ class NoriRelClient:
                     "max_context_rows": max_context_rows,
                     "feature_program": feature_program,
                     "metric": metric,
+                    "features": features,
                 },
                 log_summary=log_summary,
                 keep_scoring_features=keep_scoring_features,
             )
+        if features is not None:
+            from nori_rel._runtime import get_validated_features
+
+            get_validated_features(features)
         program = None
         if feature_program is not None:
             from nori_rel._feature_search import (
@@ -638,6 +660,7 @@ class NoriRelClient:
                 run_context=run_context,
                 metric=metric,
                 keep_scoring_features=keep_scoring_features,
+                features=features,
             )
 
         return predict_frame

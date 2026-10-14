@@ -101,7 +101,12 @@ sensitive information derived from those tables.
 relationship search over the foreign-key graph, with aggregation windows scaled
 to the target's label interval. It needs only the core dependencies.
 
+Pass `features=` to `predict` to choose the search for one prediction, or to
+`NoriRelClient` to set the default for every prediction on that client:
+
 ```python
+details = client.predict(..., features="noridfs")
+# Or, for every prediction on this client:
 with NoriRelClient(features="noridfs") as client:
     ...
 ```
@@ -116,8 +121,7 @@ on a separate confirmation slice; otherwise the prediction uses NoriDFS alone.
 from nori_rel import AgenticSearch, NoriRelClient
 
 search = AgenticSearch.claude()  # reads ANTHROPIC_API_KEY
-with NoriRelClient(features=search) as client:
-    ...
+details = client.predict(..., features=search)
 ```
 
 `AgenticSearch.openai(model=...)` uses an OpenAI-compatible endpoint. The agent

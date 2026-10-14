@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `predict(..., features=...)` and `start_predict(..., features=...)` choose
+  the feature search for one prediction: `"fastdfs"`, `"noridfs"`, a
+  `FeatureBackend`, or an `AgenticSearch`. Without it, the client's `features`
+  applies, as before. The value is checked before the run starts, and passing
+  it with `pipeline=` raises `ValueError`, since a pipeline fixes its features.
 - `predict(return_details=True)` keeps the scored rows' feature matrix in
   `PredictionDetails.features` (one row per `entity_id`), and
   `PredictionDetails.get_feature_table()` describes each feature column: its

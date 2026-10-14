@@ -379,6 +379,27 @@ class _Declared:
             self.regressor.set_params(categorical_columns=self.previous)
 
 
+def get_validated_features(
+    features: FeatureBackendName | FeatureBackend | AgenticSearch,
+) -> FeatureBackendName | FeatureBackend | AgenticSearch:
+    """Return ``features`` after checking it names or is a feature search.
+
+    Accepts a name in ``FEATURE_BACKENDS``, a ``FeatureBackend`` instance, or
+    an ``AgenticSearch``; raises ``ValueError`` for anything else.
+    """
+    if isinstance(features, str):
+        if features not in FEATURE_BACKENDS:
+            raise ValueError(f"features must be one of {FEATURE_BACKENDS}")
+        return features
+    if isinstance(features, FeatureBackend):
+        return features
+    from nori_rel._feature_search import AgenticSearch
+
+    if not isinstance(features, AgenticSearch):
+        raise ValueError("features must be a FeatureBackend or AgenticSearch")
+    return features
+
+
 class LocalRelationalRuntime:
     def __init__(
         self,
@@ -393,17 +414,9 @@ class LocalRelationalRuntime:
         predictor: Predictor | None = None,
         features: FeatureBackendName | FeatureBackend | AgenticSearch = "fastdfs",
     ) -> None:
-        if isinstance(features, str):
-            if features not in FEATURE_BACKENDS:
-                raise ValueError(f"features must be one of {FEATURE_BACKENDS}")
-        elif not isinstance(features, FeatureBackend):
-            from nori_rel._feature_search import AgenticSearch
-
-            if not isinstance(features, AgenticSearch):
-                raise ValueError("features must be a FeatureBackend or AgenticSearch")
         self.limits = limits or RelationalLimits()
         self.connector_factory = connector_factory
-        self.features = features
+        self.features = get_validated_features(features)
         self.predictor = predictor or HostedNoriPredictor(
             api_key,
             model,
@@ -479,17 +492,21 @@ class LocalRelationalRuntime:
         program: SavedFeatureProgram | None = None,
         run_context: RunContext | None = None,
         metric: AgentSearchMetric | None = None,
+        features: FeatureBackendName | FeatureBackend | AgenticSearch | None = None,
     ) -> FeatureBackend:
         """Return the feature backend for one prediction.
 
-        A saved ``program`` runs on top of NoriDFS with no search, whatever
-        ``features`` is. NoriDFS windows scale with the target's label
-        interval. An agent search also needs the context labels, in context
-        order, to score its programs, and scores them with ``metric`` (MAE
-        when ``None``); a metric outside ``AGENT_SEARCH_METRICS`` raises
-        ``ValueError``. The planning session validates the context and
-        validation slices according to the search configuration.
+        ``features`` is this prediction's feature search; ``None`` uses the
+        one the runtime was created with. A saved ``program`` runs on top of
+        NoriDFS with no search, whatever the feature search is. NoriDFS
+        windows scale with the target's label interval. An agent search also
+        needs the context labels, in context order, to score its programs, and
+        scores them with ``metric`` (MAE when ``None``); a metric outside
+        ``AGENT_SEARCH_METRICS`` raises ``ValueError``. The planning session
+        validates the context and validation slices according to the search
+        configuration.
         """
+        chosen = self.features if features is None else features
         if metric is not None:
             from nori_rel.feature.agentic.scoring import require_agent_search_metric
 
@@ -503,8 +520,8 @@ class LocalRelationalRuntime:
             from nori_rel.feature.agentic import AgenticFeatures
 
             config = (
-                self.features.config
-                if isinstance(self.features, AgenticSearch)
+                chosen.config
+                if isinstance(chosen, AgenticSearch)
                 else DEFAULT_SEARCH_CONFIG
             )
             return AgenticFeatures(
@@ -514,19 +531,19 @@ class LocalRelationalRuntime:
                 expected_baseline_columns=program.baseline_columns,
                 run_context=run_context,
             )
-        if isinstance(self.features, FeatureBackend):
-            return self.features
-        if self.features == "fastdfs":
+        if isinstance(chosen, FeatureBackend):
+            return chosen
+        if chosen == "fastdfs":
             return FastDFS(max_depth=2, max_features=self.limits.max_features)
         from nori_rel._feature_search import AgenticSearch, noridfs_backend
 
         seed = noridfs_backend(window.get_length_in_days())
-        if self.features == "noridfs":
+        if chosen == "noridfs":
             return seed
-        assert isinstance(self.features, AgenticSearch)
+        assert isinstance(chosen, AgenticSearch)
         from nori_rel.feature.agentic.scoring import DEFAULT_REGRESSION_METRIC
 
-        return self.features.backend(
+        return chosen.backend(
             seed,
             labels=labels,
             task=task,

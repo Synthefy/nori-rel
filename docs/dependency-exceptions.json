@@ -71,13 +71,13 @@
       "sha256": "ac7ebea5d01a1171c7d90e27b01baf6ad9e977a4b9c932cfa06f8b230b46d3d9"
     },
     "src/nori_rel/_pql_runtime.py": {
-      "sha256": "dd7d1133d5ae0c6ce3cb4429e0d4f3b063aa3df73e0b91769dced0850f2e1b54"
+      "sha256": "b1e06bdc1692723d62b278f4c08325be23395d15c31f36f071d1e00adf44f727"
     },
     "src/nori_rel/_runtime.py": {
-      "sha256": "550cf7f54178be1960abb2721d3c33c1407dbc91be52a4fc0a605a0990e691fb"
+      "sha256": "79719b96b54df5bbae93f30a76b6c8e60a344d43c35334eab2e98d0530a565ae"
     },
     "src/nori_rel/client.py": {
-      "sha256": "3f9deb5969bc930c6a75e6382df7467d164ee5e309f7f232917edea51b9b1d37"
+      "sha256": "c1b286f582c161e6e90b612f280c034b8f3affb986cd778309cacae695c9f4d9"
     },
     "src/nori_rel/connectors/__init__.py": {
       "sha256": "062b7b032c2a4d0d07484e5014b7dc46b6486887ecf158b3d101cb387abde71d"
