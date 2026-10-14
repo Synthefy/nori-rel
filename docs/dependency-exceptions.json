@@ -38,7 +38,7 @@
       "sha256": "4c1359a89655b0a274cea816772b08328d0a64f0c670ee70b999a6d77a62b46f"
     },
     "scripts/verify_release.py": {
-      "sha256": "3e03f251d7490693c4d5eb1a259af074a79b17a27607d01606b0746b0ceb28b3"
+      "sha256": "531ae23cae5b44769e02ec7db0b2defa86cb40e39ce81dba05b74dda298d2050"
     },
     "src/nori_rel/__init__.py": {
       "sha256": "e8c1779f8ca564756ac990e2b6e67c52d0c195f1f6de19f1240d0930ea09a5dc"
