@@ -47,3 +47,34 @@ and closes database pools; a paused run is cancelled so close can make progress.
 `close(timeout_seconds=...)` requests cancellation after its waiting period, then
 waits for cooperative cleanup. This is not a hard process deadline. Exiting the
 client context with an exception also requests cancellation.
+
+## Agent search runs
+
+`stop` and `steer` apply to a run that uses `AgenticSearch`; `cancel`, `pause`,
+and `resume` apply to every run.
+
+| Command | Python | Effect |
+| --- | --- | --- |
+| stop | `run.stop()` | End the search before the agent's next model request and finish with the best result so far. The status is `completed`. |
+| steer | `run.steer(text)` | Hold the text until the agent's next model request, then send it as a user message. |
+
+A stopped run still completes. It confirms the best program only if the
+estimated confirmation fits in `RunLimits.confirm_budget_fraction` (default
+half) of `RunLimits.stop_grace_s` (default 60 seconds); otherwise it predicts
+with NoriDFS alone and reports a `fallback_used` event with the reason.
+`max_runtime_seconds` and `max_spend_usd` in `AgenticSearch(limits=...)` end the
+search the same way. The trial cap is `AgenticFeatureConfig.max_trials`.
+`max_spend_usd` needs an agent that reports token cost, which the Claude agent
+does only when you pass `prices`.
+
+Steering text must not be blank and is at most 4,000 characters. A run without
+an agent, such as FastDFS, NoriDFS, or a saved-pipeline replay, rejects steering
+as `not_applicable`. So does a steer the search ends before delivering. A command
+that cannot apply is rejected by an `action` event with a reason: `no_op`,
+`not_applicable`, or `run_finished`.
+
+Agent searches add the events `baseline_scored`, `trial_scored`,
+`spend_updated`, `fallback_used`, and `search_stopped`. Their stages are
+`materialize`, `plan_search`, `run_trial`, `evaluate_trial`, `select_pipeline`,
+and `predict_batch`. The run summary's `search_interrupted` is true when a stop
+or limit ended the search early.
