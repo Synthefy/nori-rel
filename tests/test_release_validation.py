@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -201,3 +202,192 @@ def test_accepts_the_successful_candidate_at_the_exact_commit(
     release_evidence.module.main()
 
     assert f"commit={COMMIT}" in release_evidence.output.read_text()
+
+
+def test_explicit_direct_release_needs_no_testpypi_run(release_evidence, monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(SCRIPT), "v0.3.0", "--target", "pypi", "--direct-publish"],
+    )
+    del release_evidence.responses["actions/runs/456"]
+
+    release_evidence.module.main()
+
+    assert release_evidence.output.read_text() == f"commit={COMMIT}\nversion=0.3.0\n"
+
+
+@pytest.mark.parametrize(
+    ("target", "candidate_run", "direct_publish"),
+    [
+        ("testpypi", "", True),
+        ("testpypi", "456", True),
+        ("pypi", "456", True),
+        ("testpypi", "456", False),
+    ],
+)
+def test_incompatible_release_options_fail(
+    release_evidence, monkeypatch, target, candidate_run, direct_publish
+):
+    arguments = [
+        str(SCRIPT),
+        "v0.3.0",
+        "--target",
+        target,
+        "--candidate-run",
+        candidate_run,
+    ]
+    if direct_publish:
+        arguments.append("--direct-publish")
+    monkeypatch.setattr(sys, "argv", arguments)
+
+    with pytest.raises(ValueError, match="candidate_run"):
+        release_evidence.module.main()
+
+    assert not release_evidence.output.exists()
+
+
+@pytest.mark.parametrize("failure", ["protection", "tag", "version", "ci"])
+def test_direct_release_preserves_protected_main_and_ci_guards(
+    release_evidence, monkeypatch, failure
+):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(SCRIPT), "v0.3.0", "--target", "pypi", "--direct-publish"],
+    )
+    if failure == "protection":
+        release_evidence.responses["branches/main"]["protected"] = False
+    elif failure == "tag":
+        release_evidence.responses["git/ref/tags/v0.3.0"]["object"]["sha"] = "b" * 40
+    elif failure == "version":
+        Path("pyproject.toml").write_text('[project]\nversion = "0.3.1"\n')
+    else:
+        release_evidence.responses["actions/runs/123"]["conclusion"] = "failure"
+
+    with pytest.raises(ValueError):
+        release_evidence.module.main()
+
+    assert not release_evidence.output.exists()
+
+
+@pytest.fixture
+def candidate_artifacts(release_evidence, tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    file_metadata_by_name = {}
+    for name in ("nori_rel-0.3.0-py3-none-any.whl", "nori_rel-0.3.0.tar.gz"):
+        contents = f"synthetic distribution: {name}".encode()
+        (dist / name).write_bytes(contents)
+        file_metadata_by_name[name] = {"sha256": hashlib.sha256(contents).hexdigest()}
+    return SimpleNamespace(
+        module=release_evidence.module,
+        dist=dist,
+        manifest={
+            "commit": COMMIT,
+            "version": "0.3.0",
+            "candidate": {
+                "repository": REPOSITORY,
+                "workflow": ".github/workflows/publish.yml",
+                "run_id": "456",
+                "target": "testpypi",
+            },
+            "files": file_metadata_by_name,
+        },
+    )
+
+
+@pytest.mark.parametrize("target", ["testpypi", "pypi"])
+def test_candidate_provenance_records_the_actual_build_target(release_evidence, target):
+    assert release_evidence.module.build_candidate_provenance("456", target) == {
+        "repository": REPOSITORY,
+        "workflow": ".github/workflows/publish.yml",
+        "run_id": "456",
+        "target": target,
+    }
+
+
+@pytest.mark.parametrize(
+    ("run_id", "target"),
+    [("", "pypi"), ("0", "pypi"), ("abc", "pypi"), ("456", "other")],
+)
+def test_invalid_candidate_provenance_is_rejected(release_evidence, run_id, target):
+    with pytest.raises(ValueError, match="provenance"):
+        release_evidence.module.build_candidate_provenance(run_id, target)
+
+
+@pytest.mark.parametrize("target", ["testpypi", "pypi"])
+def test_validated_candidate_keeps_exact_distribution_bytes(
+    candidate_artifacts, target
+):
+    case = candidate_artifacts
+    case.manifest["candidate"]["target"] = target
+    original_bytes_by_name = {
+        path.name: path.read_bytes() for path in case.dist.iterdir()
+    }
+
+    case.module.validate_candidate_artifacts(
+        case.manifest,
+        case.dist,
+        commit=COMMIT,
+        version="0.3.0",
+        candidate_run="456",
+        candidate_target=target,
+    )
+
+    assert {
+        path.name: path.read_bytes() for path in case.dist.iterdir()
+    } == original_bytes_by_name
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("repository", "someone/nori-rel"),
+        ("workflow", ".github/workflows/other.yml"),
+        ("run_id", "789"),
+        ("target", "pypi"),
+    ],
+)
+def test_promotion_rejects_foreign_run_or_direct_pypi_candidate(
+    candidate_artifacts, field, value
+):
+    case = candidate_artifacts
+    case.manifest["candidate"][field] = value
+
+    with pytest.raises(ValueError, match="identity"):
+        case.module.validate_candidate_artifacts(
+            case.manifest,
+            case.dist,
+            commit=COMMIT,
+            version="0.3.0",
+            candidate_run="456",
+            candidate_target="testpypi",
+        )
+
+
+@pytest.mark.parametrize(
+    "change", ["commit", "version", "missing-provenance", "digest", "file-list"]
+)
+def test_candidate_identity_and_distribution_tampering_fail(
+    candidate_artifacts, change
+):
+    case = candidate_artifacts
+    if change in {"commit", "version"}:
+        case.manifest[change] = "unreviewed"
+    elif change == "missing-provenance":
+        del case.manifest["candidate"]
+    elif change == "digest":
+        (case.dist / "nori_rel-0.3.0-py3-none-any.whl").write_bytes(b"tampered")
+    else:
+        (case.dist / "unexpected.whl").write_bytes(b"unexpected")
+
+    with pytest.raises(ValueError):
+        case.module.validate_candidate_artifacts(
+            case.manifest,
+            case.dist,
+            commit=COMMIT,
+            version="0.3.0",
+            candidate_run="456",
+            candidate_target="testpypi",
+        )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -11,6 +12,8 @@ import urllib.request
 from pathlib import Path
 
 REPOSITORY = "Synthefy/nori-rel"
+PUBLISH_WORKFLOW_PATH = ".github/workflows/publish.yml"
+PACKAGE_INDEXES = ("testpypi", "pypi")
 
 
 def read_github_repository_json(path: str) -> dict:
@@ -27,13 +30,64 @@ def read_github_repository_json(path: str) -> dict:
         return json.load(response)
 
 
+def build_candidate_provenance(run_id: str, target: str) -> dict[str, str]:
+    """Identify the workflow run and index for which candidate files were built."""
+    if not re.fullmatch(r"[1-9]\d*", run_id) or target not in PACKAGE_INDEXES:
+        raise ValueError("candidate provenance requires a valid run ID and index")
+    return {
+        "repository": REPOSITORY,
+        "workflow": PUBLISH_WORKFLOW_PATH,
+        "run_id": run_id,
+        "target": target,
+    }
+
+
+def validate_candidate_artifacts(
+    manifest: dict,
+    dist: Path,
+    *,
+    commit: str,
+    version: str,
+    candidate_run: str,
+    candidate_target: str,
+) -> None:
+    """Require the selected candidate's provenance and exact distribution bytes."""
+    if (
+        manifest.get("commit") != commit
+        or manifest.get("version") != version
+        or manifest.get("candidate")
+        != build_candidate_provenance(candidate_run, candidate_target)
+    ):
+        raise ValueError("candidate identity differs from the selected release run")
+    expected_files = {
+        f"nori_rel-{version}-py3-none-any.whl",
+        f"nori_rel-{version}.tar.gz",
+    }
+    if (
+        set(manifest["files"]) != expected_files
+        or {path.name for path in dist.iterdir()} != expected_files
+    ):
+        raise ValueError("unexpected candidate files")
+    for name, metadata in manifest["files"].items():
+        path = dist / name
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or hashlib.sha256(path.read_bytes()).hexdigest() != metadata["sha256"]
+        ):
+            raise ValueError(f"candidate digest mismatch: {name}")
+
+
 def main() -> None:
     """Verify the selected release and emit immutable identifiers for later jobs."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tag")
-    parser.add_argument("--target", choices=("testpypi", "pypi"), required=True)
+    parser.add_argument("--target", choices=PACKAGE_INDEXES, required=True)
     parser.add_argument("--candidate-run", default="")
+    parser.add_argument("--direct-publish", action="store_true")
     args = parser.parse_args()
+    if args.direct_publish and (args.target != "pypi" or args.candidate_run):
+        raise ValueError("direct publishing requires PyPI and no candidate_run")
     if os.environ.get("GITHUB_REPOSITORY") != REPOSITORY:
         raise ValueError("only Synthefy/nori-rel can publish this distribution")
     if os.environ.get("GITHUB_REF") != "refs/heads/main":
@@ -86,12 +140,12 @@ def main() -> None:
         or run["conclusion"] != "success"
     ):
         raise ValueError("readiness must come from successful CI on the main push")
-    if args.target == "pypi":
+    if args.target == "pypi" and not args.direct_publish:
         if not re.fullmatch(r"[1-9]\d*", args.candidate_run):
             raise ValueError("PyPI requires a successful TestPyPI candidate run ID")
         candidate = read_github_repository_json(f"actions/runs/{args.candidate_run}")
         if (
-            candidate["path"] != ".github/workflows/publish.yml"
+            candidate["path"] != PUBLISH_WORKFLOW_PATH
             or candidate["event"] != "workflow_dispatch"
             or candidate["head_branch"] != "main"
             or candidate["head_sha"] != tag_commit
