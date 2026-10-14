@@ -22,8 +22,18 @@ Pass timezone-aware UTC datetimes:
 | `observed_through` | Caller-verified completeness watermark for historical labels. |
 | `entity_created_at` | Creation-time column on the entity table. |
 
-A label window is `(anchor + start, anchor + end]`. It must be fully observed
-before it can provide training context. Features use only events available at
+A label window is `(anchor + start, anchor + end]`, counted in `days` (exact
+24-hour periods) or `months` (UTC calendar months). With monthly data, use
+months: `SUM(orders.amount,0,1,months)` from an anchor on the 1st covers that
+calendar month, and `(1,2,months)` the month after it. A month added to the 31st
+lands on the last day of a shorter month.
+
+A label window must be fully observed before it can provide training context:
+an anchor whose window ends after the earlier of `anchor_time` and
+`observed_through` gives no training rows, and the client warns which anchors
+it dropped. A 30-day window shows why months matter on monthly data: from
+February 1 it ends on March 3, so a forecast dated March 1 loses every February
+anchor. Features use only events available at
 the corresponding row's anchor. Register each event table in `time_columns`
 when connecting. Rows without an event timestamp and mutable entity attributes
 are not automatically reconstructed as they existed historically: provide

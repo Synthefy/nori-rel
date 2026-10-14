@@ -1,6 +1,7 @@
 """Check exact historical candidates and their labels in PostgreSQL."""
 
 import os
+import warnings
 from datetime import UTC, datetime, timedelta, timezone
 
 import psycopg
@@ -197,6 +198,8 @@ def test_empty_and_unobserved_anchor_sets_return_no_rows(db, schema, anchors):
         ("AVG(orders.amount,0,30,days)", [(1, None), (2, 10), (3, 2.5)]),
         ("MIN(orders.amount,0,30,days)", [(1, None), (2, 10), (3, 2)]),
         ("MAX(orders.amount,0,30,days)", [(1, None), (2, 10), (3, 3)]),
+        # January's month (Jan 1, Feb 1] also holds the order at Feb 1 00:00.
+        ("COUNT(orders.*,0,1,months)", [(1, 0), (2, 1), (3, 3)]),
     ],
 )
 def test_pql_to_context_to_exact_sql_labels(db, schema, target, expected):
@@ -256,3 +259,32 @@ def test_arithmetic_waits_for_longest_complete_label_interval(schema):
     )
     _, params = compile_context(schema, query=query)
     assert [v for k, v in params.items() if k.startswith("anchor_")] == [JAN]
+
+
+def _get_bound_anchors(params):
+    return [v for k, v in params.items() if k.startswith("anchor_")]
+
+
+def test_a_dropped_anchor_is_reported_with_a_month_window_hint(schema):
+    options = dict(anchor_times=[JAN, FEB], anchor_time=MAR, observed_through=MAR)
+    with pytest.warns(UserWarning, match=r"1 of 2 anchor_times.*2026-02-01.*months"):
+        _, params = compile_context(schema, **options)
+    assert _get_bound_anchors(params) == [JAN]
+
+
+def test_a_month_window_keeps_february_without_a_warning(schema):
+    query = QUERY.replace("0,30,days", "0,1,months")
+    options = dict(anchor_times=[JAN, FEB], anchor_time=MAR, observed_through=MAR)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _, params = compile_context(schema, query=query, **options)
+    assert _get_bound_anchors(params) == [JAN, FEB]
+    with pytest.warns(UserWarning) as record:
+        compile_context(
+            schema,
+            query=query,
+            anchor_times=[JAN, FEB, MAR],
+            **{k: v for k, v in options.items() if k != "anchor_times"},
+        )
+    assert "2026-03-01" in str(record[0].message)
+    assert "(0, 1, months)" not in str(record[0].message)

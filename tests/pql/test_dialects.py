@@ -472,3 +472,12 @@ def test_declared_case_matching_preserves_physical_sql_and_feature_names(
         "created_at",
     )
     assert scoring.entity_id.tolist() == [ENTITY_ID]
+
+
+def test_month_windows_add_calendar_months_on_the_warehouse(dialect, schema):
+    sql, params = compile_label_sql(
+        query("SUM(orders.amount,1,3,months)"), schema, dialect=dialect
+    )
+    assert "TIMESTAMPADD(MONTH, %(start_months)s, e.anchor_time)" in sql
+    assert "TIMESTAMPADD(MONTH, %(horizon_months)s, e.anchor_time)" in sql
+    assert params == {"horizon_months": 3, "start_months": 1}
