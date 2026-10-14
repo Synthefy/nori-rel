@@ -9,7 +9,7 @@ import pandas as pd
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
 from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
 from nori_rel.feature import FeatureBackend
-from nori_rel.pipeline import PIPELINE_ATTR
+from nori_rel.pipeline import PIPELINE_ATTR, SCORING_FEATURES_ATTR
 from nori_rel.pipeline.audit import get_context_rows_sha256, get_feature_matrix_sha256
 from nori_rel.pipeline.build import get_pipeline_manifest
 from nori_rel.pipeline.checks import (
@@ -76,6 +76,7 @@ def predict_pql(
     pipeline=None,
     expected_context_sha256=None,
     metric: AgentSearchMetric | None = None,
+    keep_scoring_features: bool = False,
 ) -> pd.DataFrame:
     """Run temporal PQL through preparation, features and Nori inference.
 
@@ -102,6 +103,8 @@ def predict_pql(
     run's commands between stages; without one, nothing is reported.
     metric chooses how an agent search scores its candidate programs on a
     regression target ("mae" when None); it is refused for any other run.
+    keep_scoring_features puts the scored rows' feature matrix, indexed by
+    entity_id, in attrs[SCORING_FEATURES_ATTR]; it stays out of the pipeline.
     """
     run_context = run_context or RunContext.unobserved()
     # An agent search holds steering from the run's first boundary until its
@@ -348,7 +351,27 @@ def predict_pql(
             context_sha256=context_hash,
             features_sha256=result.attrs["feature_matrix_sha256"],
         )
+    if keep_scoring_features:
+        result.attrs[SCORING_FEATURES_ATTR] = get_scoring_feature_frame(
+            matrices.query, scoring
+        )
     return result
+
+
+def get_scoring_feature_frame(
+    query_matrix: pd.DataFrame, scoring: pd.DataFrame
+) -> pd.DataFrame:
+    """Return the scored rows' feature matrix with one row per entity_id.
+
+    ``query_matrix`` is indexed by query_row_id, as build_pql_features returns
+    it; ``scoring`` maps each query_row_id to its entity_id.
+    """
+    entity_ids = scoring.set_index("query_row_id")["entity_id"]
+    features = query_matrix.copy()
+    features.index = pd.Index(
+        entity_ids.reindex(query_matrix.index).to_numpy(), name="entity_id"
+    )
+    return features
 
 
 def get_feature_strategy_name(features, *, replaying_program: bool) -> str:
