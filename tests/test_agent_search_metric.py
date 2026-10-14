@@ -1,4 +1,4 @@
-"""How an agent search scores candidate programs: MAE, WAPE or MAPE."""
+"""How an agent search scores candidate programs: the ``metric`` errors."""
 
 from __future__ import annotations
 
@@ -13,9 +13,10 @@ from nori_rel import AgenticSearch
 from nori_rel._feature_search import ClientProgramScorer
 from nori_rel._pql_runtime import predict_pql
 from nori_rel._runtime import LocalRelationalRuntime
-from nori_rel.contracts import PredictionTask
+from nori_rel.contracts import AGENT_SEARCH_METRICS, PredictionTask
 from nori_rel.feature.agentic.run_reporting import displayed_metric_score
 from nori_rel.feature.agentic.scoring import (
+    _REGRESSION_ERRORS,
     get_regression_error,
     metric_name,
     task_score,
@@ -23,7 +24,7 @@ from nori_rel.feature.agentic.scoring import (
 from nori_rel.pql.window import TargetWindow
 from nori_rel.run.messages import render
 
-# Absolute errors 2, 3 and 6; the second row's actual is zero.
+# Absolute errors 2, 3 and 6; the second row's actual is zero; actuals span 30.
 TARGET = np.array([10.0, 0.0, 30.0])
 PREDICTION = np.array([12.0, 3.0, 24.0])
 REGRESSION_QUERY = "PREDICT SUM(orders.amount,0,30,days) FOR EACH users.user_id"
@@ -67,32 +68,48 @@ def _predict_pql(features, query=REGRESSION_QUERY, **options):
     ("metric", "expected"),
     [
         ("mae", 11 / 3),
+        ("mse", 49 / 3),
+        ("rmse", (49 / 3) ** 0.5),
+        ("nmae", 11 / 3 / 30),
+        ("nrmse", (49 / 3) ** 0.5 / 30),
+        ("medae", 3.0),
         ("wape", 11 / 40),
         ("mape", (2 / 10 + 6 / 30) / 2),
+        ("smape", (4 / 22 + 6 / 3 + 12 / 54) / 3),
     ],
 )
 def test_regression_errors_follow_their_definitions(metric, expected) -> None:
     assert get_regression_error(metric, TARGET, PREDICTION) == pytest.approx(expected)
 
 
-def test_wape_ranks_programs_as_mae_does_on_one_holdout() -> None:
+def test_every_supported_metric_has_an_error_function() -> None:
+    assert tuple(_REGRESSION_ERRORS) == AGENT_SEARCH_METRICS
+
+
+def test_normalized_errors_rank_programs_as_their_raw_error_does() -> None:
     better, worse = np.array([11.0, 1.0, 29.0]), np.array([5.0, 0.0, 40.0])
-    for metric in ("mae", "wape"):
+    for metric in ("mae", "nmae", "wape", "rmse", "nrmse"):
         assert get_regression_error(metric, TARGET, better) < get_regression_error(
             metric, TARGET, worse
         )
 
 
-@pytest.mark.parametrize("metric", ["wape", "mape"])
-def test_relative_errors_need_a_nonzero_target(metric) -> None:
+def test_smape_counts_a_zero_forecast_of_a_zero_actual_as_no_error() -> None:
+    assert get_regression_error(
+        "smape", np.array([0.0, 10.0]), np.array([0.0, 10.0])
+    ) == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("metric", ["wape", "mape", "nmae", "nrmse"])
+def test_relative_and_normalized_errors_need_something_to_divide_by(metric) -> None:
     with pytest.raises(ValueError, match="not"):
         get_regression_error(metric, np.zeros(3), PREDICTION)
     assert get_regression_error("mae", np.zeros(3), PREDICTION) == pytest.approx(13)
 
 
 def test_an_unknown_metric_is_refused() -> None:
-    with pytest.raises(ValueError, match="mae, wape, mape"):
-        get_regression_error("rmse", TARGET, PREDICTION)
+    with pytest.raises(ValueError, match=", ".join(AGENT_SEARCH_METRICS)):
+        get_regression_error("r2", TARGET, PREDICTION)
 
 
 def test_scores_are_higher_is_better_and_binary_keeps_roc_auc() -> None:
@@ -137,9 +154,13 @@ def test_the_runtime_passes_the_metric_to_the_agent_search() -> None:
     )
     assert chosen.scorer.metric == "mape"
     assert default.scorer.metric == "mae"
+    with pytest.raises(ValueError, match="metric must be one of"):
+        runtime.feature_backend(
+            window, PredictionTask.REGRESSION, context, labels, metric="r2"
+        )
 
 
-def test_wape_and_mape_events_read_as_percentages() -> None:
+def test_relative_and_normalized_errors_read_as_percentages() -> None:
     assert displayed_metric_score("neg_wape", -0.112) == ("wape", 0.112)
     assert (
         render(
@@ -154,6 +175,14 @@ def test_wape_and_mape_events_read_as_percentages() -> None:
         )
         == "Trial 1: MAPE 20.00% (best 25.00%)."
     )
+    assert (
+        render("trial_scored", {"trial": 2, "metric": "nmae", "score": 0.05})
+        == "Trial 2: NMAE 5.00%."
+    )
+    assert (
+        render("trial_scored", {"trial": 3, "metric": "mse", "score": 49000.0})
+        == "Trial 3: MSE 49,000.0."
+    )
 
 
 @pytest.mark.parametrize(
@@ -161,7 +190,7 @@ def test_wape_and_mape_events_read_as_percentages() -> None:
     [
         ("fastdfs", {"metric": "wape"}, "agent search scores"),
         ("noridfs", {"metric": "wape"}, "agent search scores"),
-        (None, {"metric": "rmse"}, "mae, wape, mape"),
+        (None, {"metric": "r2"}, "metric must be one of"),
         (None, {"metric": "wape", "query": BINARY_QUERY}, "regression targets"),
         (
             None,

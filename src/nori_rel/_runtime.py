@@ -20,6 +20,7 @@ from nori_rel._checkpoint import NoriCheckpoint, get_pinned_checkpoint
 from nori_rel.connectors import create_connector
 from nori_rel.connectors.base import RelationalConnector
 from nori_rel.contracts import (
+    AgentSearchMetric,
     ConnectionStatus,
     Database,
     DatabaseCreateRequest,
@@ -477,7 +478,7 @@ class LocalRelationalRuntime:
         labels: pd.Series,
         program: SavedFeatureProgram | None = None,
         run_context: RunContext | None = None,
-        metric: str | None = None,
+        metric: AgentSearchMetric | None = None,
     ) -> FeatureBackend:
         """Return the feature backend for one prediction.
 
@@ -485,9 +486,14 @@ class LocalRelationalRuntime:
         ``features`` is. NoriDFS windows scale with the target's label
         interval. An agent search also needs the context labels, in context
         order, to score its programs, and scores them with ``metric`` (MAE
-        when ``None``). The planning session validates the context and
+        when ``None``); a metric outside ``AGENT_SEARCH_METRICS`` raises
+        ``ValueError``. The planning session validates the context and
         validation slices according to the search configuration.
         """
+        if metric is not None:
+            from nori_rel.feature.agentic.scoring import require_agent_search_metric
+
+            require_agent_search_metric(metric)
         if program is not None:
             from nori_rel._feature_search import (
                 DEFAULT_SEARCH_CONFIG,

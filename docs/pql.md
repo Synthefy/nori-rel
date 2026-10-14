@@ -73,10 +73,6 @@ include a `quantiles` column. A binary predicate target, for example
 `COUNT(orders.*,0,30,days)=0`, requires hosted mode and also returns a
 `probability` column. Local mode rejects binary targets.
 
-With an agent search (`features=AgenticSearch...`), `metric="mae"` (the
-default), `"wape"` or `"mape"` sets the error the agent's candidate programs
-must lower on held-out history. It does not change the forecast's output type.
-
 Empty and all-null aggregate windows follow the target's SQL semantics; missing
 labels are not silently replaced by zero. The default request context cap is
 5,000 rows, additionally bounded by `RelationalLimits`. Too few usable labels

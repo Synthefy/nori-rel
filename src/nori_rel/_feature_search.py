@@ -27,7 +27,12 @@ from nori_rel._feature_program import (
     program_from_record,
     program_record,
 )
-from nori_rel.contracts import PredictionTask, RelationalOutputType, SchemaGraph
+from nori_rel.contracts import (
+    AgentSearchMetric,
+    PredictionTask,
+    RelationalOutputType,
+    SchemaGraph,
+)
 from nori_rel.feature._contract import FEATURE_BACKENDS, FeatureBackendName
 from nori_rel.feature.agentic import (
     AgenticFeatureConfig,
@@ -256,7 +261,7 @@ class AgenticSearch:
         task: PredictionTask,
         predictor: Predictor,
         run_context: RunContext | None = None,
-        metric: str = DEFAULT_REGRESSION_METRIC,
+        metric: AgentSearchMetric = DEFAULT_REGRESSION_METRIC,
     ) -> AgenticFeatures:
         """Return the search for one prediction; ``labels`` follow context order.
 
@@ -283,16 +288,16 @@ class AgenticSearch:
 class ClientProgramScorer:
     """Score a program with one call to the client's Nori predictor.
 
-    Regression scores the negative of ``metric`` (MAE by default, or WAPE or
-    MAPE) on the median, binary scores ROC-AUC on the probability: the outputs
-    the client returns. One call has no seed spread, so the reported noise is
-    zero. The client's acceptance checks also require the configured minimum
-    relative gain; zero noise does not remove that floor.
+    Regression scores the negative of ``metric`` (MAE by default; see
+    ``AgentSearchMetric``) on the median, binary scores ROC-AUC on the
+    probability: the outputs the client returns. One call has no seed spread,
+    so the reported noise is zero. The client's acceptance checks also require
+    the configured minimum relative gain; zero noise does not remove that floor.
     """
 
     predictor: Predictor
     task: TaskKind = "regression"
-    metric: str = DEFAULT_REGRESSION_METRIC
+    metric: AgentSearchMetric = DEFAULT_REGRESSION_METRIC
 
     def __call__(
         self,

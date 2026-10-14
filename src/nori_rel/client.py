@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, Unpack, cas
 import pandas as pd
 
 from nori_rel.contracts import (
+    AgentSearchMetric,
     ConnectionStatus,
     CredentialReference,
     Database,
@@ -36,8 +37,6 @@ if TYPE_CHECKING:
     from nori_rel.pipeline import NoriRelPipeline, PredictionDetails
 
 PredictionOperation = Literal["average", "total", "minimum", "maximum", "count"]
-#: How an agent search scores candidate feature programs on a regression target.
-AgentSearchMetric = Literal["mae", "wape", "mape"]
 
 
 class PredictionRequestArguments(TypedDict, total=False):
@@ -322,15 +321,18 @@ class NoriRelClient:
         Replay requires the same PQL text, entity_created_at, schema and NoriDFS
         columns. Version-1 records lack these checks and must be regenerated.
 
-        metric chooses how an agent search (features=AgenticSearch...) scores
-        each candidate SQL program on held-out history, and so which program it
-        keeps: "mae" (mean absolute error, the default), "wape" (total absolute
-        error divided by total actual) or "mape" (mean absolute percentage
-        error over rows whose actual is not zero). On one holdout, WAPE ranks
-        programs as MAE does; MAPE weighs every row equally in relative terms,
-        so small series count as much as large ones. It does not change the
-        forecast itself (the median, or output_type). It applies only to
-        regression targets with an agent search; otherwise it raises ValueError.
+        metric chooses the error an agent search (features=AgenticSearch...)
+        scores each candidate SQL program with on held-out history, and so which
+        program it keeps: "mae" (mean absolute error, the default), "mse",
+        "rmse", "nmae" and "nrmse" (MAE and RMSE divided by the range of the
+        actuals), "medae" (median absolute error), "wape" (total absolute error
+        divided by total actual), "mape" (mean absolute percentage error over
+        rows whose actual is not zero) or "smape" (symmetric MAPE). On one
+        holdout NMAE and WAPE rank programs as MAE does; MAPE and SMAPE weigh
+        every row equally in relative terms, so small series count as much as
+        large ones. It does not change the forecast itself (the median, or
+        output_type). It applies only to regression targets with an agent
+        search; any other use, or an unknown metric, raises ValueError.
 
         pipeline predicts with a saved NoriRelPipeline and no feature search.
         Pass source, as_of (the prediction time) and observed_through, and

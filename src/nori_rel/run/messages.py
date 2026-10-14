@@ -46,8 +46,9 @@ TRIAL_OUTCOME_MESSAGES: Final[dict[TrialOutcome, str]] = {
 _MAX_STEERING_TEXT_CHARS = 500
 #: Scores at or above this magnitude are shown in full, not in e-notation.
 _MIN_GROUPED_SCORE_MAGNITUDE = 1e4
-#: Metrics whose scores are fractions of the actual total, shown as percentages.
-_PERCENT_METRICS = frozenset({"wape", "mape"})
+#: Metrics whose scores are fractions (relative or range-normalized errors),
+#: shown as percentages.
+_PERCENT_METRICS = frozenset({"nmae", "nrmse", "wape", "mape", "smape"})
 
 
 def _format_score_for_message(data: Mapping[str, Any], key: str) -> str:
@@ -66,8 +67,9 @@ def _format_score_for_message(data: Mapping[str, Any], key: str) -> str:
 def _get_score_text(data: Mapping[str, Any], key: str) -> str:
     """Return the score under ``key`` as text in the units of the event's metric.
 
-    WAPE and MAPE scores are fractions and read as percentages ("11.20%");
-    other scores read as numbers ("3.91", or "12,345.6" when large).
+    Relative and range-normalized errors (NMAE, NRMSE, WAPE, MAPE, SMAPE) are
+    fractions and read as percentages ("11.20%"); other scores read as numbers
+    ("3.91", or "12,345.6" when large).
     """
     if data.get("metric") not in _PERCENT_METRICS:
         return _format_score_for_message(data, key)

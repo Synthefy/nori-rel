@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
-from nori_rel.contracts import PredictionTask, RelationalOutputType
+from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
 from nori_rel.feature import FeatureBackend
 from nori_rel.pipeline import PIPELINE_ATTR
 from nori_rel.pipeline.audit import get_context_rows_sha256, get_feature_matrix_sha256
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 def _require_agent_search_metric(
-    metric: str, task: PredictionTask, *, searching: bool
+    metric: AgentSearchMetric, task: PredictionTask, *, searching: bool
 ) -> None:
     """Raise ``ValueError`` unless ``metric`` can score this run's agent search.
 
@@ -40,9 +40,9 @@ def _require_agent_search_metric(
     binary searches score ROC-AUC, and FastDFS, NoriDFS, a saved program or a
     pipeline score nothing.
     """
-    from nori_rel.feature.agentic.scoring import require_regression_metric
+    from nori_rel.feature.agentic.scoring import require_agent_search_metric
 
-    require_regression_metric(metric)
+    require_agent_search_metric(metric)
     if task is PredictionTask.CLASSIFICATION:
         raise ValueError(
             "metric applies to regression targets; binary agent searches score ROC-AUC"
@@ -75,7 +75,7 @@ def predict_pql(
     run_context: RunContext | None = None,
     pipeline=None,
     expected_context_sha256=None,
-    metric=None,
+    metric: AgentSearchMetric | None = None,
 ) -> pd.DataFrame:
     """Run temporal PQL through preparation, features and Nori inference.
 
