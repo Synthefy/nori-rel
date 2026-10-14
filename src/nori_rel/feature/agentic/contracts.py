@@ -24,7 +24,7 @@ ROW_COLUMN = "row_id"
 CUTOFF_ALIAS = "cutoff"
 EVAL_TABLE = "eval_table"
 #: How the scorer may rescale the regression target before Nori reads it.
-#: ``auto`` keeps the board's own rule (a log scale only for extremely skewed
+#: ``auto`` keeps the scorer's default rule (a log scale only for extremely skewed
 #: targets), ``identity`` never rescales, and ``log1p`` always reads
 #: log(1 + y), for non-negative targets. Predictions return to the label scale
 #: before they are scored.

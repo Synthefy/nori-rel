@@ -220,7 +220,12 @@ class PlanningSession:
         return schema
 
     def profile_column(self, table: str, column: str) -> dict[str, object]:
-        """Return aggregate statistics for one column, never row values."""
+        """Return one column's statistics, with raw values for some kinds.
+
+        A categorical column reports its most frequent raw values with their
+        counts, a text column one sample value, a date column its earliest
+        and latest values, and a numeric column its quantiles.
+        """
         if table not in self.database.tables:
             raise KeyError(f"unknown table {table!r}")
         frame = self.database.tables[table]

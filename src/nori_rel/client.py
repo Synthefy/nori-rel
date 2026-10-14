@@ -90,9 +90,10 @@ class NoriRelClient:
     ``features`` picks the relational feature search: ``"fastdfs"`` (the
     default), ``"noridfs"`` (the NoriDFS relationship search), or an
     ``AgenticSearch``, which adds agent-written SQL features to NoriDFS and
-    sends schema, column profiles, and sampled query results to the agent's
-    model provider. A configured ``FeatureBackend`` instance is also accepted;
-    its caller is responsible for concurrent use. See ``AgenticSearch``.
+    sends schema, column profiles with raw categorical values, sampled query
+    results, and query error messages to the agent's model provider. A
+    configured ``FeatureBackend`` instance is also accepted; its caller is
+    responsible for concurrent use. See ``AgenticSearch``.
     """
 
     def __init__(

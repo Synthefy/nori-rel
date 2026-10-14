@@ -6,9 +6,11 @@
   FastDFS. It needs only the core dependencies.
 - Add `AgenticSearch` (`nori-rel[agentic]`). A language-model agent writes SQL
   feature columns on top of NoriDFS. Each candidate runs locally in DuckDB and
-  is kept only if it beats NoriDFS alone on held-out rows. It is opt-in and
-  sends the schema, aggregate column profiles, and up to 50 rows of each
-  exploratory query result to the model provider you configure.
+  is kept only if it beats NoriDFS alone on held-out rows. It is opt-in. It
+  sends the model provider you configure the schema, column profiles (which
+  include up to 10 raw values of each profiled categorical column), up to 50
+  rows of each exploratory query result, and failed queries' error messages.
+  The README lists exactly what.
 - Save NoriDFS plans, and NoriDFS plans with an agent's SQL program, in
   pipelines. Replay does not plan again, search again, or call a model provider.
 - Add `stop` and `steer` run commands, trial, spend, and fallback events, and
@@ -21,7 +23,11 @@
   percentages. An unknown metric, or one passed without an agent search, for a
   binary target, or with a saved program or pipeline, raises `ValueError`.
 
-Existing code is unaffected: `features` still defaults to `"fastdfs"`.
+`features` still defaults to `"fastdfs"`. One behavior changes: in 0.3.0,
+`RunLimits.max_runtime_seconds`, passed to `nori_rel.run.LocalExecutor`,
+cancelled any run at its next stage boundary. Run limits now bound only the
+agent search, which they end as `stop` does; a FastDFS or NoriDFS run ignores
+them.
 
 ## 0.3.0 — 2026-10-14
 

@@ -240,7 +240,7 @@ class ProgramAgentBase(ABC):
             ),
             ToolSpec(
                 name="profile_column",
-                description="Aggregate statistics for one column; never row values.",
+                description="Statistics for one column, with its most frequent values.",
                 parameters={
                     "type": "object",
                     "properties": {

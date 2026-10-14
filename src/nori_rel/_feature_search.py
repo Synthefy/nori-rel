@@ -127,11 +127,12 @@ class AgenticSearch:
     context. A program is kept only if it also beats NoriDFS alone on a
     separate confirmation slice; otherwise the prediction uses NoriDFS alone.
 
-    The agent's tools send the schema, aggregate column profiles, and the
-    results of its exploratory SELECTs (at most 50 rows each) to the agent's
-    model provider. Do not enable this on data that may not leave your
-    environment for that provider. In hosted mode, Nori still receives only
-    feature matrices and labels.
+    The agent's tools send the agent's model provider the schema, column
+    profiles (which include up to 10 raw values of each profiled categorical
+    column), the results of its exploratory SELECTs (at most 50 rows each),
+    and the error messages of failed queries, which can quote values. Do not
+    enable this on data that may not leave your environment for that provider.
+    In hosted mode, Nori still receives only feature matrices and labels.
 
     ``config`` extends NoriDFS with at most 24 trials, a 1% minimum relative
     gain, and at least three training cutoff groups. A search must leave text
