@@ -122,10 +122,25 @@ jobs:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
       - run: uv sync --locked --only-group build
-      - run: uv build --no-sources --out-dir release-artifacts/dist
+      - run: uv build --no-sources --no-create-gitignore --out-dir release-artifacts/dist
       - run: >-
           uv run --no-sync python scripts/validate_artifacts.py release-artifacts/dist
           --manifest release-artifacts/manifest.json
+      - name: Validate built files through the publisher's candidate gate
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts.verify_release import build_candidate_provenance, validate_candidate_artifacts
+          manifest = json.loads(Path("release-artifacts/manifest.json").read_text())
+          for target in ("testpypi", "pypi"):
+              manifest["candidate"] = build_candidate_provenance(os.environ["GITHUB_RUN_ID"], target)
+              validate_candidate_artifacts(
+                  manifest, Path("release-artifacts/dist"),
+                  commit=os.environ["GITHUB_SHA"], version=manifest["version"],
+                  candidate_run=os.environ["GITHUB_RUN_ID"], candidate_target=target,
+              )
+          PY
       - run: uv run --no-sync twine check --strict release-artifacts/dist/*
       - id: version
         run: python -c 'import os,tomllib; print("version=" + tomllib.load(open("pyproject.toml", "rb"))["project"]["version"], file=open(os.environ["GITHUB_OUTPUT"], "a"))'
