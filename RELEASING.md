@@ -1,15 +1,16 @@
 # Releasing Nori-Rel
 
 Only reviewed commits on `main` in `Synthefy/nori-rel` can produce supported
-releases. The initial public candidate is `0.3.0`; this repository stays private
-until the release gates below pass. Research, earlier history, and collaboration
-records remain in the private `Synthefy/nori-rel-internal` repository.
+releases. The initial public version is `0.3.0`. Complete the release gates below
+before its first publication and repository visibility change. Research, earlier
+history, and collaboration records remain in the private
+`Synthefy/nori-rel-internal` repository.
 
 The initial candidate has scoped, expiring
 [dependency security assessments](docs/dependency-security.md). The dependency
 gate requires complete audit results and zero unassessed findings before either
 TestPyPI or PyPI upload; raw findings remain in the audit artifacts.
-Live-service certification and publisher setup also remain outstanding.
+Each release also requires live-service certification and verified publisher setup.
 
 ## One-time repository and index setup
 
@@ -38,7 +39,7 @@ files does not activate repository protections or index ownership.
 5. Use OIDC from the publisher job. Do not copy an account password, `.env.pypi`,
    or a personal API token into the repository or workflow. Account/2FA access
    is handled by the project owner outside the workflow.
-6. Publishing is disabled during the initial private migration. Enable the
+6. Keep publishing disabled during private migration. Enable the
    `Publish` workflow only after publisher registration and release gates have
    been verified. Keep the internal repository's publisher disabled.
 
