@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-14
 
 - Add the NoriDFS relationship feature search (`features="noridfs"`) beside
   FastDFS. It needs only the core dependencies.
@@ -14,6 +14,12 @@
 - Add `stop` and `steer` run commands, trial, spend, and fallback events, and
   `max_runtime_seconds` and `max_spend_usd` limits for agent searches.
 - Add the `agentic` extra: `anthropic`, `duckdb`, and `openai`.
+- Ship the `nori-rel-prepare-data` agent skill in the package, at
+  `nori_rel/skills/nori-rel-prepare-data/SKILL.md`. It guides an AI agent from
+  CSV, Excel, Parquet or JSON files to a PostgreSQL schema Nori-Rel can predict
+  from, and has the agent confirm every table, column and relationship with the
+  user before it creates anything. See "Start from CSV or Excel files" in the
+  README.
 
 Existing code is unaffected: `features` still defaults to `"fastdfs"`.
 
