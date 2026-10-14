@@ -4,8 +4,8 @@ Use a feature branch and open a pull request against `main`. Describe the user
 behavior being changed, the reason, and validation performed. Include a small
 reproduction for bugs, using synthetic data and redacted configuration.
 
-`main` contains the supported PQL client, FastDFS, database connectors, pipeline
-replay, and prediction lifecycle.
+`main` contains the supported PQL client, FastDFS, NoriDFS, the opt-in agent
+search, database connectors, pipeline replay, and prediction lifecycle.
 
 Maintainers keep research code, tests, and earlier history in the private
 `Synthefy/nori-rel-internal` repository. Promote reviewed patches or selected
@@ -17,7 +17,8 @@ internal branches or import their full history or collaboration records.
 Install Python 3.11 or 3.12 and [uv](https://docs.astral.sh/uv/), then:
 
 ```bash
-uv sync --group dev --extra database --extra snowflake --extra databricks
+uv sync --group dev --extra database --extra snowflake --extra databricks \
+  --extra agentic
 uv run --no-sync ruff format --check .
 uv run --no-sync ruff check .
 uv run --no-sync pytest -m "not warehouse and not live_nori"
@@ -49,7 +50,7 @@ Tests should protect a user-visible behavior or failure mode. Keep temporal
 leakage, key precision, credential redaction, SQL read-only enforcement,
 resource ceilings, cancellation, and pipeline compatibility covered. Consolidate
 duplicate cases; do not remove tests to meet a deletion or coverage target.
-Research implementations and their tests remain together in the private
+Benchmark adapters, fine-tuning, and their tests remain together in the private
 internal repository.
 
 Local inference is the default; never fall back to hosted inference unless the

@@ -10,7 +10,7 @@ from typing import Literal, Protocol, get_args
 import pandas as pd
 
 CUTOFF_COLUMN = "__nori_rel_cutoff_time"
-FeatureBackendName = Literal["fastdfs"]
+FeatureBackendName = Literal["fastdfs", "noridfs"]
 FEATURE_BACKENDS: tuple[FeatureBackendName, ...] = get_args(FeatureBackendName)
 
 
@@ -50,7 +50,8 @@ class FeatureMatrices:
 class FeatureBackend(ABC):
     """Materialize relational features without changing prediction row order.
 
-    Backends share the same matrix and category contract.
+    Deep feature synthesis backends and agent-written SQL programs both
+    implement this; callers use the same matrix and category contract.
     """
 
     def categorical_columns(self) -> tuple[str, ...] | None:

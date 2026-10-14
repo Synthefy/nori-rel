@@ -18,6 +18,8 @@ from nori_rel import (
     NoriRelClient,
     RelationalLimits,
 )
+from nori_rel._feature_program import program_record
+from nori_rel.feature.agentic.contracts import FeatureProgram, FeatureQuery
 from nori_rel.pipeline import (
     PipelineContextError,
     PipelineModelError,
@@ -108,7 +110,7 @@ def _connect(client, schema):
     )
 
 
-def _first_prediction(schema, features="fastdfs", **options):
+def _first_prediction(schema, features="noridfs", **options):
     with NoriRelClient(limits=LIMITS, device="cpu", features=features) as client:
         return client.predict(
             source=_connect(client, schema),
@@ -142,11 +144,35 @@ def _child_prediction(path, checkpoint, schema, anchor_time, tmp_path):
     return json.loads(output.read_text())
 
 
+def _program(baseline_columns):
+    sql = (
+        "SELECT e.row_id, COUNT(o.id) AS web_orders FROM eval_table e "
+        "LEFT JOIN orders o ON o.buyer_id = e.user_id AND o.channel = 'web' "
+        "AND o.event_time < e.cutoff GROUP BY e.row_id"
+    )
+    return FeatureProgram((FeatureQuery("web_orders", sql),)), tuple(baseline_columns)
+
+
+@pytest.mark.parametrize("kind", ["noridfs", "fastdfs", "agentic"])
 def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
-    shop, checkpoint, tmp_path
+    shop, checkpoint, tmp_path, kind
 ):
     schema, _ = shop
-    first = _first_prediction(schema)
+    first = _first_prediction(
+        schema, features="fastdfs" if kind == "fastdfs" else "noridfs"
+    )
+    if kind == "agentic":
+        program, baseline = _program(first["pipeline"].feature_names)
+        with NoriRelClient(limits=LIMITS, device="cpu") as client:
+            source = _connect(client, schema)
+            record = program_record(
+                program,
+                query=QUERY,
+                entity_created_at="created_at",
+                schema=client.discover(source),
+                baseline_columns=baseline,
+            )
+        first = _first_prediction(schema, feature_program=record)
     pipeline = first["pipeline"]
     path = pipeline.save(tmp_path / "pipeline.json")
     reference = first["predictions"]
@@ -154,11 +180,12 @@ def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
 
     child = _child_prediction(path, checkpoint, schema, CUTOFF, tmp_path)
 
-    assert pipeline.manifest.features.kind == "fastdfs"
+    assert pipeline.manifest.features.kind == kind
     assert child["inputs"] == reference_inputs
     assert child["entity_id"] == [int(value) for value in reference["entity_id"]]
     assert child["prediction"] == reference["prediction"].tolist()
-    assert child["metadata"]["features"] == "fastdfs"
+    strategy = {"noridfs": "noridfs", "fastdfs": "fastdfs", "agentic": "saved_program"}
+    assert child["metadata"]["features"] == strategy[kind]
     assert (
         child["metadata"]["context_rows_sha256"]
         == (first["metadata"]["context_rows_sha256"])
@@ -168,6 +195,8 @@ def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
         == (first["metadata"]["feature_matrix_sha256"])
     )
     assert child["metadata"]["pipeline_id"] == pipeline.pipeline_id
+    if kind == "agentic":
+        assert pipeline.feature_names[-1] == "web_orders__web_orders"
 
 
 def _later_prediction(schema, pipeline, **options):
@@ -199,7 +228,7 @@ def test_a_later_run_builds_new_context_with_the_saved_rules(shop, checkpoint):
 
     assert later["predictions"]["entity_id"].tolist() == [3, 5]
     assert later["pipeline"] == pipeline
-    assert later["metadata"]["features"] == "fastdfs"
+    assert later["metadata"]["features"] == "noridfs"
     # The anchors moved with as_of, so the context rows are not the first run's.
     assert (
         later["metadata"]["context_rows_sha256"]
@@ -270,7 +299,7 @@ def test_a_pipeline_run_reports_its_id_and_hashes_to_run_control(shop, checkpoin
     summary = run.progress
     assert summary.status == "completed"
     assert summary.pipeline_id == pipeline.pipeline_id
-    assert summary.strategy_used == "fastdfs"
+    assert summary.strategy_used == "noridfs"
     assert summary.context_sha256 == frame.attrs["context_rows_sha256"]
     assert summary.features_sha256 == frame.attrs["feature_matrix_sha256"]
     assert frame.attrs["run"]["pipeline_id"] == pipeline.pipeline_id

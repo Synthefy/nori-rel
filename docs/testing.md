@@ -9,15 +9,16 @@ test-count target. The cleanup decisions below group comparable cases.
 | `tests/pql/test_parser.py`, binding/scope/relationships/tree/window tests | PQL syntax, identifiers, relationships, valid target/time combinations | Keep |
 | PQL SQL/dialect/context/feature tests | SQL quoting, exact window boundaries, null semantics, historical labels, scoring filters, future-data isolation, entity-ID precision and row order | Keep |
 | `tests/pql/test_vendored_grammar.py` | Pinned upstream attribution and generated-parser checksums | Keep |
-| `tests/feature/` | FastDFS input ownership, feature alignment, inferred/saved types, future-data invariance, optional imports | Keep FastDFS cases; preserve alternative backend cases with their code |
-| `tests/pipeline/`, `tests/pql/test_pipeline_roundtrip.py` | Serialization, content identity, source/model/settings checks, input hashes, replay in another process and on fresh context | Keep FastDFS cases; add regression for different settings sharing checkpoint bytes |
+| `tests/feature/` | FastDFS and NoriDFS input ownership, feature alignment, inferred/saved types, future-data invariance, optional imports, agent SQL guard, executor, scoring, session, and steering | Keep |
+| `tests/pipeline/`, `tests/pql/test_pipeline_roundtrip.py` | Serialization, content identity, source/model/settings checks, input hashes, replay in another process and on fresh context | Keep; add regression for different settings sharing checkpoint bytes |
 | `tests/connectors/` | Driver configuration, credential validation, warehouse snapshot pins, key checks, resource ceilings and error handling | Keep simulations and separate required live checks |
 | Root credential/PostgreSQL/runtime/connection tests | Read-only transactions, real server-side streaming, bounded extraction, sanitized exception chains, pool reuse/cleanup | Keep; add regressions for streaming and credential boundaries |
-| `tests/run/`, PQL run-stage/connection-lifecycle tests | Event ordering, background results, timeout, pause/resume/cancel, callback failures and client shutdown | Keep generic lifecycle cases; remove agent steering/trial/spend cases with their APIs |
+| `tests/run/`, PQL run-stage/connection-lifecycle tests | Event ordering, background results, timeout, pause/resume/cancel, callback failures and client shutdown | Keep |
 | Root checkpoint/local-inference tests and PQL client/inference tests | Local/hosted isolation, checkpoint integrity, predictions, output validation and transport contracts | Keep deterministic tests; require real local/hosted certification for releases |
 | `tests/test_legacy_adapter.py` | Deprecated aggregate-request migration behavior | Keep while the bridge remains public |
 | `tests/test_release_validation.py` and package validation scripts | Protected main/tag/version checks, changelog entry for the tagged version, exact candidate identity, stale/fork rejection, installed artifact boundaries | Keep behavior checks and package validation |
-| RelArena, NoriDFS, agentic, fine-tuning, Modal, and research end-to-end tests | Contracts of research implementations outside this distribution | Preserve with their code in the private internal repository |
+| `tests/test_feature_search.py`, `tests/pql/test_feature_backends.py` | Feature-backend selection, agent-search settings, saved-program replay, PostgreSQL with NoriDFS or an agent, and hosted transport, offline with fake agents | Keep |
+| RelArena, fine-tuning, Modal, and live agent end-to-end tests | Contracts of research implementations outside this distribution | Preserve with their code in the private internal repository |
 | Old workflow-routing and saved-notebook-output assertions | Mirrored retired draft/stacked-PR routing and research notebook output | Remove from `main`; use workflow validation and execution of the synthetic example |
 
 Historical research tests remain with their implementations in the private
@@ -33,7 +34,8 @@ suite uses deterministic predictors and does not download model weights:
 
 ```bash
 uv sync --group dev --group cpu \
-  --extra database --extra snowflake --extra databricks --extra local
+  --extra database --extra snowflake --extra databricks --extra local \
+  --extra agentic
 uv run --no-sync ruff format --check .
 uv run --no-sync ruff check .
 uv run --no-sync pytest -m "not warehouse and not live_nori"

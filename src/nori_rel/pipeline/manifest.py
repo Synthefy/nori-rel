@@ -26,12 +26,14 @@ from pydantic import (
     model_validator,
 )
 
+from nori_rel._feature_program import SavedFeatureProgram
 from nori_rel.contracts import (
     DatabaseEngine,
     PredictionTask,
     RelationalOutputType,
     TableSchema,
 )
+from nori_rel.feature.dfs.noridfs.contracts import ColumnKind, FeatureOperation
 from nori_rel.pipeline.task import get_pql_task_signature
 
 PIPELINE_FORMAT = "nori-rel.pipeline"
@@ -139,6 +141,88 @@ class SourceRecord(_Record):
         return self
 
 
+class ForeignKeyRecord(_Record):
+    """One child-to-parent key in a saved NoriDFS relation path."""
+
+    child_table: str
+    child_column: str
+    parent_table: str
+    parent_column: str
+
+
+class RelationPathRecord(_Record):
+    """One saved NoriDFS relation path."""
+
+    entity_table: str
+    edges: tuple[ForeignKeyRecord, ...] = Field(min_length=1)
+    direction: Literal["bridge", "descendant", "parent"]
+
+
+class FeatureSpecRecord(_Record):
+    """One saved NoriDFS output column."""
+
+    name: str = Field(min_length=1)
+    operation: FeatureOperation
+    kind: ColumnKind
+    table: str
+    column: str | None = None
+    path: RelationPathRecord | None = None
+    window_ns: int | None = None
+
+
+class AnchorRecord(_Record):
+    """How the saved plan reads prediction rows."""
+
+    entity_table: str
+    entity_column: str
+    cutoff_column: str | None
+    horizon_ns: int | None = None
+
+
+class PlanConfigRecord(_Record):
+    """The NoriDFS settings a plan was fitted with (``NativeFeatureConfig``).
+
+    ``pipeline_id`` hashes them, so an unknown or misspelled setting must fail
+    on load instead of changing the identifier.
+    """
+
+    max_depth: int = Field(ge=1)
+    max_paths: int = Field(ge=1)
+    max_features: int = Field(ge=1)
+    max_direct_features: int = Field(ge=0)
+    max_direct_categorical_cardinality: int | None = Field(ge=1)
+    max_categorical_cardinality: int = Field(ge=1)
+    window_multipliers: tuple[int, ...]
+    include_missing_in_modes: bool
+    include_missing_fractions: bool
+
+
+class FeaturePlanRecord(_Record):
+    """A fitted NoriDFS ``FeaturePlan`` and the digest it must reproduce."""
+
+    schema_digest: str = Field(min_length=1)
+    anchors: AnchorRecord
+    config: PlanConfigRecord
+    paths: tuple[RelationPathRecord, ...]
+    features: tuple[FeatureSpecRecord, ...] = Field(min_length=1)
+    digest: str = Field(min_length=1)
+
+
+class NoriDFSFeaturesRecord(_Record):
+    """NoriDFS columns from a saved plan."""
+
+    kind: Literal["noridfs"] = "noridfs"
+    plan: FeaturePlanRecord
+
+
+class AgenticFeaturesRecord(_Record):
+    """A saved agent SQL program on top of a saved NoriDFS plan."""
+
+    kind: Literal["agentic"] = "agentic"
+    plan: FeaturePlanRecord
+    program: SavedFeatureProgram
+
+
 FastDFSColumnType = Literal["float", "category", "datetime", "text", "timestamp"]
 
 
@@ -159,7 +243,10 @@ class FastDFSFeaturesRecord(_Record):
     column_types: dict[str, dict[str, FastDFSColumnType]]
 
 
-FeaturesRecord = FastDFSFeaturesRecord
+FeaturesRecord = Annotated[
+    NoriDFSFeaturesRecord | AgenticFeaturesRecord | FastDFSFeaturesRecord,
+    Field(discriminator="kind"),
+]
 
 
 class ColumnsRecord(_Record):
@@ -259,16 +346,24 @@ __all__ = [
     "PIPELINE_FORMAT",
     "PIPELINE_FORMAT_VERSION",
     "PIPELINE_ID_FIELDS",
+    "AgenticFeaturesRecord",
+    "AnchorRecord",
     "ColumnsRecord",
     "ContextPolicyRecord",
     "FastDFSColumnType",
     "FastDFSFeaturesRecord",
+    "FeaturePlanRecord",
+    "FeatureSpecRecord",
     "FeaturesRecord",
+    "ForeignKeyRecord",
     "HostedModelRecord",
     "LocalModelRecord",
     "ModelRecord",
+    "NoriDFSFeaturesRecord",
     "PipelineManifest",
+    "PlanConfigRecord",
     "PredictionRecord",
+    "RelationPathRecord",
     "SourceRecord",
     "TaskRecord",
     "get_pipeline_id",

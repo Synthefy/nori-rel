@@ -13,7 +13,7 @@ pick up rotated database credentials.
 | `model` | `"nori-30m"`; local supports `nori-6m`, `nori-30m`, and `nori-100m`. |
 | `api_key` | Hosted mode uses this value or `SYNTHEFY_NORI_API_KEY`. |
 | `device` | Local only; automatic CUDA, then MPS, then CPU. An explicit PyTorch device can be supplied. |
-| `features` | `"fastdfs"`, the supported built-in feature backend. |
+| `features` | `"fastdfs"` (default), `"noridfs"`, or an `AgenticSearch`. A custom `FeatureBackend` instance is also accepted but has no pipeline format. |
 | `timeout` | 300 seconds for inference transport configuration. |
 | `max_retries` | 2 for hosted transport retries. |
 | `limits` | `RelationalLimits()` for extraction/context ceilings. |
@@ -95,6 +95,6 @@ Inspect error types and messages rather than matching full exception strings.
 
 The old `entity`/`target` aggregate request form is a deprecated compatibility
 bridge and emits `FutureWarning`. Use `query=` PQL for new code. Direct/NEXT
-legacy targets and explicit relationship-path prediction are retired. Research
-feature engines and their saved pipeline variants are outside the public client
+legacy targets and explicit relationship-path prediction are retired. RelArena
+adapters, fine-tuning, and benchmark runners are outside the public client
 contract and are not included in this package.

@@ -95,6 +95,39 @@ matrices and labels to hosted Nori. Database connections, credentials, and raw
 source tables stay in the caller's process. Generated features can still contain
 sensitive information derived from those tables.
 
+## Choose a feature search
+
+`features="fastdfs"` is the default. `features="noridfs"` plans a NoriDFS
+relationship search over the foreign-key graph, with aggregation windows scaled
+to the target's label interval. It needs only the core dependencies.
+
+```python
+with NoriRelClient(features="noridfs") as client:
+    ...
+```
+
+`AgenticSearch` lets a language-model agent write SQL feature columns on top of
+NoriDFS. Install `nori-rel[agentic]`. Each candidate program runs locally in an
+in-memory DuckDB catalog and is scored with the client's own Nori predictor on
+held-out historical rows. A program is kept only if it also beats NoriDFS alone
+on a separate confirmation slice; otherwise the prediction uses NoriDFS alone.
+
+```python
+from nori_rel import AgenticSearch, NoriRelClient
+
+search = AgenticSearch.claude()  # reads ANTHROPIC_API_KEY
+with NoriRelClient(features=search) as client:
+    ...
+```
+
+`AgenticSearch.openai(model=...)` uses an OpenAI-compatible endpoint. The agent
+sends your schema, aggregate column profiles, and up to 50 rows of each
+exploratory query result to that model provider. Do not enable it for data that
+must not leave your environment for that provider. A search also costs provider
+tokens and extra Nori calls. Bound it with `max_cost_usd` (which also needs
+`prices`) or the search's `limits`. It is not exercised against a live model provider in release certification. See
+[run control](docs/run-control.md) for `stop` and `steer`.
+
 ## Save and reload
 
 Request prediction details to obtain a pipeline, then reconnect when using it:
@@ -122,7 +155,8 @@ with NoriRelClient() as client:
     )
 ```
 
-A pipeline stores the task, feature recipe, schema contract, context policy, and
+A pipeline stores the task, feature recipe (a FastDFS or NoriDFS plan, plus the
+agent's SQL program after an agent search), schema contract, context policy, and
 model settings. Each replay reads fresh rows. It contains no credentials,
 source rows, or model weights. See [pipeline export](docs/pipeline-export.md)
 and the runnable [save/reload example](examples/pipeline_reload.py).

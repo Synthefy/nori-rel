@@ -17,6 +17,7 @@ def check_feature_generation() -> None:
 
     from nori_rel.feature.dfs import CUTOFF_COLUMN
     from nori_rel.feature.dfs.fastdfs import FastDFS
+    from nori_rel.feature.dfs.noridfs import NativeFeatureConfig, NoriDFS
 
     snapshot = SimpleNamespace(
         tables={"users": pd.DataFrame({"id": [1, 2], "age": [40.0, 30.0]})},
@@ -33,16 +34,21 @@ def check_feature_generation() -> None:
     )
     query_rows = context_rows.iloc[::-1].copy()
     query_rows["row_id"] = ["query:2", "query:1"]
-    features = FastDFS(max_depth=1).compute(
-        snapshot, context_rows, query_rows, "users", row_id_column="row_id"
+    backends = (
+        FastDFS(max_depth=1),
+        NoriDFS(NativeFeatureConfig(max_depth=1), horizon=pd.Timedelta(days=30)),
     )
-    if len(features.train) != 2 or len(features.query) != 2:
-        raise RuntimeError("feature generation changed the requested row counts")
-    if not features.feature_names:
-        raise RuntimeError("feature generation returned no model inputs")
-    pd.testing.assert_frame_equal(
-        features.train.iloc[::-1].reset_index(drop=True), features.query
-    )
+    for backend in backends:
+        features = backend.compute(
+            snapshot, context_rows, query_rows, "users", row_id_column="row_id"
+        )
+        if len(features.train) != 2 or len(features.query) != 2:
+            raise RuntimeError("feature generation changed the requested row counts")
+        if not features.feature_names:
+            raise RuntimeError("feature generation returned no model inputs")
+        pd.testing.assert_frame_equal(
+            features.train.iloc[::-1].reset_index(drop=True), features.query
+        )
 
 
 def main() -> None:
@@ -65,7 +71,16 @@ def main() -> None:
         "grammar/PQLGrammar.g4"
     ).read_bytes()
     if not extras and any(
-        name in sys.modules for name in ("torch", "fastdfs", "psycopg", "synthefy_nori")
+        name in sys.modules
+        for name in (
+            "torch",
+            "fastdfs",
+            "psycopg",
+            "synthefy_nori",
+            "duckdb",
+            "anthropic",
+            "openai",
+        )
     ):
         raise RuntimeError("base import eagerly loaded an optional dependency")
     connector_modules = {
@@ -81,6 +96,17 @@ def main() -> None:
         # Creating and closing a client must not contact a database or model service.
         with nori_rel.NoriRelClient(mode="hosted", api_key="artifact-smoke-test"):
             pass
+    if "agentic" in extras:
+        import duckdb
+
+        for module in ("anthropic", "openai"):
+            importlib.import_module(module)
+        importlib.import_module("nori_rel.feature.agentic.agent_claude")
+        importlib.import_module("nori_rel.feature.agentic.agent_openai")
+        if duckdb.sql("SELECT 1").fetchone() != (1,):
+            raise RuntimeError("DuckDB did not run a query")
+        if not callable(nori_rel.AgenticSearch):
+            raise RuntimeError("the agent search is not exposed")
     if "local" in extras:
         from synthefy_nori import NoriRegressor
 

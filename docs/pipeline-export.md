@@ -1,8 +1,9 @@
 # Save and reload a pipeline
 
 A pipeline is a versioned prediction recipe. It stores the PQL task, source
-schema, fitted FastDFS settings, ordered feature columns, model settings, and
-rules for historical context. It contains no credentials, database rows, or
+schema, the feature recipe, ordered feature columns, model settings, and rules
+for historical context. The recipe is FastDFS settings, a fitted NoriDFS plan, or
+a NoriDFS plan with the SQL program an agent search kept. It contains no credentials, database rows, or
 model weights.
 
 First request details from a normal PQL prediction:
@@ -52,7 +53,11 @@ as a calendar-month offset. Late-arriving rows or corrected values may therefore
 change a replay's context and predictions.
 
 FastDFS replay restores the saved type hints and requires the same FastDFS
-version and feature columns. Schema checks cover tables, column types, keys,
+version and feature columns. NoriDFS replay runs the saved plan without planning
+again and refuses a plan whose schema or digest no longer matches. An agent
+pipeline replays its saved SQL program on that plan in DuckDB, so it needs the
+`agentic` extra but sends nothing to a model provider and searches no further.
+If no program beat NoriDFS alone, the pipeline holds the NoriDFS plan only. Schema checks cover tables, column types, keys,
 and registered time columns. Local pipelines pin the checkpoint repository,
 revision, file SHA-256, runtime version, and inference settings. Hosted pipelines
 record model names and SDK version; they do not pin the server's underlying
@@ -82,11 +87,10 @@ and model configuration even though they contain no source rows or credentials.
 | Changed target, historical predicate, or entity | `PipelineTaskError` |
 | Incompatible source schema/dtypes | `PipelineSchemaError` |
 | Requested context hash differs | `PipelineContextError` |
-| FastDFS version or feature columns differ | `PipelineFeatureError` |
+| Feature plan, program, FastDFS version, or feature columns differ | `PipelineFeatureError` |
 | Mode/model/runtime/checkpoint/settings differ | `PipelineModelError` |
 
 These inherit from `PipelineError`, a `ValueError`. A different Nori-Rel version
 emits `PipelineVersionWarning`; the remaining compatibility checks still apply.
-Research pipeline variants are unsupported and rejected by the public package.
 Custom feature implementations and local checkpoint files
 outside the supported cache layout may not produce an exportable pipeline.

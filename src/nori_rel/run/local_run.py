@@ -2,8 +2,7 @@
 
 ``PredictionRun`` is the handle a caller holds: the run's progress, its
 replayable event journal and its result. ``LocalRun`` implements it in this
-process. See
-``docs/run-control.md``.
+process. See ``docs/run-control.md``.
 """
 
 from __future__ import annotations
@@ -84,8 +83,17 @@ class PredictionRun(Protocol):
         """
         ...
 
+    def stop(self) -> CommandReceipt:
+        """End the search at its next boundary and finish with the best so far.
+
+        A paused run is released, so a stopped run needs no resume. After the
+        run has ended this returns a rejected receipt and emits no event; it does
+        not raise.
+        """
+        ...
+
     def pause(self) -> CommandReceipt:
-        """Hold the run at its next boundary until :meth:`resume` or cancel.
+        """Hold the run at its next boundary until :meth:`resume`, stop or cancel.
 
         After the run has ended this returns a rejected receipt and emits no
         event; it does not raise.
@@ -97,6 +105,17 @@ class PredictionRun(Protocol):
 
         After the run has ended this returns a rejected receipt and emits no
         event; it does not raise.
+        """
+        ...
+
+    def steer(self, text: str) -> CommandReceipt:
+        """Hold ``text`` for the agent and send it as a user turn in its next call.
+
+        The command's ``action`` event reports it applied once the text is in
+        a model request, and rejected if the search ends first or the run has
+        no agent search; until then it is held. After the run has ended this
+        returns a rejected receipt and emits no event. Blank text, or text over
+        ``MAX_STEERING_TEXT_CHARS``, raises ``ValueError`` at any time.
         """
         ...
 
@@ -216,6 +235,7 @@ class LocalRun:
         prediction: Callable[[RunContext], Any],
         *,
         strategy: str,
+        max_trials: int | None,
         summary_in_result_attrs: bool,
         reraise_failure: bool,
     ) -> None:
@@ -224,13 +244,16 @@ class LocalRun:
         Its outcome becomes its final status, read with :meth:`result`. With
         ``reraise_failure`` a failure is also raised here unchanged; an
         interruption such as ``KeyboardInterrupt`` always is, after the run
-        ends cancelled. Runs execute independently.
+        ends cancelled. Runs never wait for one another: agents keep no state
+        between searches, so two searches can share one agent.
         """
         final_status: RunStatus = "failed"
         try:
             self._context.change_status(
                 "running",
                 strategy=strategy,
+                max_trials=max_trials,
+                max_spend_usd=self._context.limits.max_spend_usd,
             )
             self._prediction = prediction(self._context)
             final_status = "completed"
@@ -247,11 +270,12 @@ class LocalRun:
             self._finish_run(final_status, strategy, summary_in_result_attrs)
 
     def pause(self) -> CommandReceipt:
-        """Hold the run at its next boundary until :meth:`resume` or cancel.
+        """Hold the run at its next boundary until :meth:`resume`, stop or cancel.
 
         While paused the run reports ``paused`` and its active runtime, which
-        ``max_runtime_seconds`` limits, does not grow. After the run has ended
-        this returns a rejected
+        ``max_runtime_seconds`` limits, does not grow. A pause sent after a
+        stop, or after a limit ended the search, is rejected as
+        ``not_applicable``. After the run has ended this returns a rejected
         receipt and emits no event; it does not raise.
         """
         return self._queue_command_for_next_boundary("pause")
@@ -264,20 +288,52 @@ class LocalRun:
         """
         return self._queue_command_for_next_boundary("resume")
 
+    def steer(self, text: str) -> CommandReceipt:
+        """Hold ``text`` for the agent and send it as a user turn in its next call.
+
+        An agent search accepts steering from the start of the run, even before
+        its agent has started, and holds it. The command's ``action`` event
+        reports it ``applied`` when the text goes into a model request, which
+        can be well after the receipt. A held steer the search ends without
+        sending, as when it stops first, is rejected as ``not_applicable``,
+        or as ``run_finished`` if the run is cancelled or ends first. A run
+        without an agent search, such as NoriDFS or a saved program, rejects
+        steering as ``not_applicable``, as does steering sent after the search
+        ends. The text is echoed in the run's events, so it is the caller's to
+        share. After the run has ended this returns a rejected receipt and emits
+        no event. Blank text, or text over ``MAX_STEERING_TEXT_CHARS``
+        characters, raises ``ValueError`` at any time.
+        """
+        return self._queue_command_for_next_boundary("steer", text)
+
     def cancel(self) -> CommandReceipt:
         """Abort the run at its next boundary; ``result()`` then raises.
 
-        The work in flight (a database or model call) finishes
+        The work in flight (a model call, a trial's SQL, a Nori call) finishes
         first; then only cleanup runs and the run ends ``cancelled``. After the
         run has ended this returns a rejected receipt and emits no event; it does
         not raise.
         """
         return self._queue_command_for_next_boundary("cancel")
 
+    def stop(self) -> CommandReceipt:
+        """End the search at its next boundary and finish with the best so far.
+
+        The best program is confirmed only if that fits in the stop grace
+        period; otherwise, or without a program, the run uses NoriDFS. The
+        final prediction always runs, and the run ends ``completed``. A stop
+        sent while the run is paused ends the pause, so the run finishes
+        without a resume. After the run has ended this returns a rejected
+        receipt and emits no event; it does not raise.
+        """
+        return self._queue_command_for_next_boundary("stop")
+
     def _has_events_after_index_or_finished(self, journal_index: int) -> bool:
         return len(self._journal) > journal_index or self._finished.is_set()
 
-    def _queue_command_for_next_boundary(self, command: Command) -> CommandReceipt:
+    def _queue_command_for_next_boundary(
+        self, command: Command, steering_text: str | None = None
+    ) -> CommandReceipt:
         """Queue ``command`` for the next boundary, or reject it once the run ends.
 
         A command queued before the end is applied or rejected by an event. After
@@ -285,7 +341,7 @@ class LocalRun:
         status stays the run's last event. This takes no run lock and emits
         nothing, so it is safe to call from an ``on_event`` callback.
         """
-        return self._context.commands.submit_command(command)
+        return self._context.commands.submit_command(command, steering_text)
 
     def _record_event(self, event: RunEvent) -> None:
         """Journal ``event``, fold it into the progress, and pass it to ``on_event``.
@@ -326,7 +382,7 @@ class LocalRun:
         Unless the caller re-raises it, the frames' local variables are
         released; the traceback still shows where the prediction failed. The
         first frame is this run's own, still running, so it is dropped rather
-        than cleared: it holds the prediction closure (client, source).
+        than cleared: it holds the prediction closure (client, source, program).
         """
         self._failure = error
         if not keep_frames and error.__traceback__ is not None:
@@ -350,13 +406,21 @@ class LocalRun:
         """
         self._finishing_thread_id = threading.get_ident()
         try:
+            # Steering the agent never delivered is rejected first, then the
+            # commands still queued.
+            self._context.reject_undelivered_steering_texts("run_finished")
             for queued in self._context.commands.close_and_take_all_commands():
                 self._reject_command_after_run_finished(queued)
             progress = self.progress
+            fallback_reason = progress.fallback_reason
             completed_strategy = strategy if status == "completed" else None
             self._context.change_status(
                 status,
                 strategy_used=progress.strategy_used or completed_strategy,
+                search_interrupted=progress.search_interrupted,
+                fallback_reason=None
+                if fallback_reason is None
+                else fallback_reason.value,
                 **{
                     "pipeline_id": progress.pipeline_id,
                     **self._context.pipeline_summary,
@@ -373,7 +437,7 @@ class LocalRun:
     def _reject_command_after_run_finished(self, queued: QueuedCommand) -> None:
         """Report that the run ended before ``queued`` could be applied.
 
-        A cancel that repeats one the run already applied is ``no_op``;
+        A cancel or stop that repeats one the run already applied is ``no_op``;
         any other command is ``run_finished``.
         """
         self._context.emit_event(

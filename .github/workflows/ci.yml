@@ -96,6 +96,7 @@ jobs:
       - run: >-
           uv sync --locked --group dev --group cpu
           --extra database --extra snowflake --extra databricks --extra local
+          --extra agentic
       - name: Test public client and real PostgreSQL
         run: >-
           uv run --no-sync pytest -m "not warehouse and not live_nori"
@@ -171,6 +172,9 @@ jobs:
           - {os: ubuntu-24.04, python: "3.11", extras: local, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: local, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: "database,local", format: whl}
+          - {os: ubuntu-24.04, python: "3.11", extras: agentic, format: whl}
+          - {os: ubuntu-24.04, python: "3.12", extras: agentic, format: whl}
+          - {os: ubuntu-24.04, python: "3.12", extras: "database,local,agentic", format: whl}
           - {os: ubuntu-24.04, python: "3.11", extras: database, format: tar.gz}
           - {os: macos-14, python: "3.12", extras: database, format: whl}
           - {os: windows-2022, python: "3.12", extras: database, format: whl}

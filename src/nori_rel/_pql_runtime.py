@@ -8,6 +8,7 @@ import pandas as pd
 
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
 from nori_rel.contracts import PredictionTask, RelationalOutputType
+from nori_rel.feature import FeatureBackend
 from nori_rel.pipeline import PIPELINE_ATTR
 from nori_rel.pipeline.audit import get_context_rows_sha256, get_feature_matrix_sha256
 from nori_rel.pipeline.build import get_pipeline_manifest
@@ -24,6 +25,7 @@ from nori_rel.pipeline.features import (
 from nori_rel.pql import parse_pql
 from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS
 from nori_rel.pql.tree_access import query_parts
+from nori_rel.pql.window import target_window
 from nori_rel.run import RunContext, Stage
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,7 @@ def predict_pql(
     decision_threshold=None,
     log_summary=True,
     query_filter=None,
+    feature_program=None,
     run_context: RunContext | None = None,
     pipeline=None,
     expected_context_sha256=None,
@@ -56,8 +59,14 @@ def predict_pql(
     binary classification; numeric aggregates resolve to regression. An explicit
     task must agree. Returns entity_id, anchor_time, prediction; binary adds
     probability and quantile output adds quantiles. attrs contains task, model,
-    feature_count and context counts, plus the feature backend. Pipeline and
-    input hashes are recorded in attrs. A ``PipelineManifest`` in ``pipeline``
+    feature_count and context counts, plus the feature backend and, for an
+    agent search, its usage, cost, stop reason, trial count and winning program.
+    attrs["pipeline"] is the prediction's pipeline record and
+    attrs["pipeline_id"] its identifier; both are None without a pipeline.
+    attrs also holds context_rows_sha256 and feature_matrix_sha256, the audit
+    hashes of this run's inputs.
+    A saved feature_program replays on NoriDFS instead of
+    the runtime's feature search. A ``PipelineManifest`` in ``pipeline``
     replaces the feature search and the model with its saved ones: the caller
     passes the context anchors and limit the manifest's policy gives for this
     run, and the run checks the schema and the feature columns, raising a
@@ -68,6 +77,16 @@ def predict_pql(
     run's commands between stages; without one, nothing is reported.
     """
     run_context = run_context or RunContext.unobserved()
+    # An agent search holds steering from the run's first boundary until its
+    # agent delivers it; a DFS run or a saved program rejects steering.
+    run_context.steering_enabled = (
+        feature_program is None
+        and pipeline is None
+        and get_feature_strategy_name(runtime.features, replaying_program=False)
+        == "agentic"
+    )
+    if feature_program is not None:
+        feature_program.validate_query(query, entity_created_at)
     parts = query_parts(parse_pql(query))
     if parts["aggregate"] is None:
         raise ValueError("PQL inference currently requires a temporal aggregate target")
@@ -120,6 +139,8 @@ def predict_pql(
             max_context_rows=max_context_rows,
             query_filter=query_filter,
         )
+        if feature_program is not None:
+            feature_program.validate_schema(snapshot.schema)
         if pipeline is not None:
             require_same_schema(pipeline.source, source.engine, snapshot.schema)
             snapshot = replace(
@@ -133,9 +154,11 @@ def predict_pql(
         "task": resolved.value,
         "model": model,
         "features": (
-            pipeline.features.kind
+            get_pipeline_strategy_name(pipeline.features)
             if pipeline is not None
-            else get_feature_strategy_name(runtime.features)
+            else get_feature_strategy_name(
+                runtime.features, replaying_program=feature_program is not None
+            )
         ),
         **counts,
         "feature_count": 0,
@@ -181,7 +204,14 @@ def predict_pql(
     context_hash = get_context_rows_sha256(context, context_labels)
     require_expected_context(expected_context_sha256, context_hash)
     if pipeline is None:
-        backend = runtime.feature_backend()
+        backend = runtime.feature_backend(
+            target_window(parts["aggregate"]),
+            resolved,
+            context,
+            labels,
+            feature_program,
+            run_context=run_context,
+        )
     else:
         backend = get_saved_feature_backend(pipeline.features)
     with run_context.report_stage(Stage.PLAN_SEARCH):
@@ -238,6 +268,17 @@ def predict_pql(
             "feature_matrix_sha256": get_feature_matrix_sha256(matrices),
         }
     )
+    if metadata["features"] in ("agentic", "saved_program"):
+        from nori_rel._feature_search import agentic_summary
+
+        result.attrs.update(
+            agentic_summary(
+                backend,
+                query=query,
+                entity_created_at=entity_created_at,
+                schema=snapshot.schema,
+            )
+        )
     if pipeline is None:
         pipeline = get_pipeline_manifest(
             engine=source.engine,
@@ -273,6 +314,28 @@ def predict_pql(
     return result
 
 
-def get_feature_strategy_name(features) -> str:
-    """Name the configured backend without importing optional feature stacks."""
-    return features if isinstance(features, str) else type(features).__name__
+def get_feature_strategy_name(features, *, replaying_program: bool) -> str:
+    """Return the feature strategy a prediction uses, as metadata and runs name it.
+
+    ``saved_program`` for a replayed program; otherwise the backend name
+    (``fastdfs``, ``noridfs``), a custom backend's class name, or ``agentic``
+    for an ``AgenticSearch``. It imports nothing, so the client can name a
+    run's strategy without loading the agent search.
+    """
+    if replaying_program:
+        return "saved_program"
+    if isinstance(features, str):
+        return features
+    return (
+        type(features).__name__ if isinstance(features, FeatureBackend) else "agentic"
+    )
+
+
+def get_pipeline_strategy_name(features) -> str:
+    """Return the run strategy of a saved pipeline's features.
+
+    The names are the ones run control and prediction metadata use:
+    ``noridfs`` and ``fastdfs`` for those backends, and ``saved_program`` for
+    an agent's SQL program replayed on its NoriDFS plan.
+    """
+    return "saved_program" if features.kind == "agentic" else features.kind

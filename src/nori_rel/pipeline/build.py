@@ -12,16 +12,21 @@ from typing import Any
 
 import pandas as pd
 
+from nori_rel._feature_program import SavedFeatureProgram, program_record
 from nori_rel.contracts import PredictionTask, RelationalOutputType, SchemaGraph
 from nori_rel.feature import FeatureBackend, FeatureMatrices
+from nori_rel.feature.dfs.noridfs import NoriDFS
 from nori_rel.pipeline.features import (
     get_installed_fastdfs_version,
+    get_plan_record,
     get_table_dtypes,
 )
 from nori_rel.pipeline.manifest import (
+    AgenticFeaturesRecord,
     ContextPolicyRecord,
     FastDFSFeaturesRecord,
     FeaturesRecord,
+    NoriDFSFeaturesRecord,
     PipelineManifest,
     get_pql_task_signature,
 )
@@ -33,6 +38,11 @@ PROVENANCE_KEYS = (
     "usable_rows",
     "dropped_unknown_labels",
     "feature_count",
+    "agentic_model",
+    "agentic_cost_usd",
+    "agentic_usage",
+    "agentic_stop_reason",
+    "agentic_trials",
     "context_rows_sha256",
     "feature_matrix_sha256",
 )
@@ -149,6 +159,18 @@ def _get_features_record(
     The result is None when the backend has not run yet, and for a custom
     backend, which has no pipeline form.
     """
+    if isinstance(backend, NoriDFS):
+        return (
+            None
+            if backend.last_plan is None
+            else NoriDFSFeaturesRecord(plan=get_plan_record(backend.last_plan))
+        )
+    from nori_rel.feature.agentic import AgenticFeatures
+
+    if isinstance(backend, AgenticFeatures):
+        return _get_agentic_record(
+            backend, query=query, entity_created_at=entity_created_at, schema=schema
+        )
     fastdfs = sys.modules.get("nori_rel.feature.dfs.fastdfs")
     if fastdfs is not None and type(backend) is fastdfs.FastDFS:
         if backend.last_column_types is None:
@@ -160,6 +182,30 @@ def _get_features_record(
             column_types=backend.last_column_types,
         )
     return None
+
+
+def _get_agentic_record(
+    backend: Any, *, query: str, entity_created_at: str, schema: SchemaGraph
+) -> FeaturesRecord | None:
+    """Record the saved program on its NoriDFS plan, or the plan alone."""
+    fallback = backend.fallback
+    plan = fallback.last_plan if isinstance(fallback, NoriDFS) else None
+    config = backend.config
+    if plan is None or not config.extend_baseline or config.allow_text:
+        return None
+    if backend.last_program is None:
+        return NoriDFSFeaturesRecord(plan=get_plan_record(plan))
+    program = program_record(
+        backend.last_program,
+        query=query,
+        entity_created_at=entity_created_at,
+        schema=schema,
+        baseline_columns=backend.last_baseline_columns,
+    )
+    return AgenticFeaturesRecord(
+        plan=get_plan_record(plan),
+        program=SavedFeatureProgram.model_validate(program),
+    )
 
 
 def _get_utc_datetime(value: Any) -> datetime:

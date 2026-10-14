@@ -5,11 +5,12 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
-from pipeline_records import manifest_fields
+from pipeline_records import QUERY, manifest_fields
 
 from nori_rel import NoriRelPipeline, PipelineError
 from nori_rel.pipeline import (
     PIPELINE_ATTR,
+    PipelineFeatureError,
     PipelineFormatError,
     get_pql_task_signature,
 )
@@ -18,7 +19,7 @@ from nori_rel.pipeline.manifest import ContextPolicyRecord, PipelineManifest
 
 def test_pipeline_id_is_derived_from_the_prediction_sections(manifest) -> None:
     again = PipelineManifest.create(
-        **{**manifest_fields(), "provenance": {"feature_count": 9}}
+        **{**manifest_fields(), "provenance": {"agentic_trials": 9}}
     )
     changed = manifest_fields()
     changed["context_policy"] = {
@@ -39,7 +40,7 @@ def test_save_and_load_round_trip(manifest, tmp_path) -> None:
 
     assert loaded == pipeline
     assert loaded.pipeline_id == manifest.pipeline_id
-    assert loaded.feature_names == ("COUNT(orders)",)
+    assert loaded.feature_names == ("nr|path|orders|rows|count|all",)
     assert json.loads(path.read_text())["format"] == "nori-rel.pipeline"
     assert list(tmp_path.iterdir()) == [path]
 
@@ -107,6 +108,27 @@ def test_load_rejects_non_json_files(tmp_path) -> None:
 def test_errors_share_one_value_error_base() -> None:
     assert issubclass(PipelineFormatError, PipelineError)
     assert issubclass(PipelineError, ValueError)
+
+
+def test_saved_sql_is_checked_on_load(manifest) -> None:
+    fields = manifest_fields()
+    fields["features"] = {
+        "kind": "agentic",
+        "plan": fields["features"]["plan"],
+        "program": {
+            "pql_query": QUERY,
+            "entity_created_at": "created_at",
+            "schema_digest": "0" * 64,
+            "baseline_columns": ["nr|path|orders|rows|count|all"],
+            "queries": [
+                {"name": "spent", "sql": "COPY orders TO '/tmp/out.csv'"},
+            ],
+        },
+    }
+    record = NoriRelPipeline(PipelineManifest.create(**fields)).to_dict()
+
+    with pytest.raises(PipelineFeatureError, match="blocked statement 'copy'"):
+        NoriRelPipeline.from_dict(record)
 
 
 def test_from_prediction_reads_the_frame_attrs(manifest) -> None:
@@ -183,7 +205,7 @@ def test_the_policy_rejects_bad_offsets(offsets, message) -> None:
 
 def test_a_misspelled_plan_setting_fails_on_load(manifest) -> None:
     record = NoriRelPipeline(manifest).to_dict()
-    record["features"]["max_dpeth"] = 3
+    record["features"]["plan"]["config"]["max_dpeth"] = 3
 
     with pytest.raises(PipelineFormatError, match="max_dpeth"):
         NoriRelPipeline.from_dict(record)

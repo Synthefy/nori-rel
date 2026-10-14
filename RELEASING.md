@@ -83,8 +83,8 @@ from the source-code license.
    SDK, runtime, and model versions alongside JUnit/test reports.
 4. Record the source commit, tag, package version, workflow run IDs, dependency
    resolution, test results, and SHA-256 hashes of the wheel and sdist. Confirm
-   that research modules, extras, credentials, notebooks, and results are absent
-   from both artifacts.
+   that RelArena and benchmark modules, credentials, notebooks, and results are
+   absent from both artifacts.
 
 Warehouse configuration and reader/writer separation are documented in
 [the connector guide](docs/warehouse-connectors.md). Each live test creates and

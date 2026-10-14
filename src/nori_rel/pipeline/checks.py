@@ -18,7 +18,8 @@ from nori_rel.pipeline.errors import (
 )
 from nori_rel.pipeline.task import get_pql_task_signature
 
-# Checks need manifest records only for type annotations.
+# The manifest records load the NoriDFS and agent modules; the annotations
+# need them, the checks do not, so a FastDFS-only client can import this file.
 if TYPE_CHECKING:
     from nori_rel.pipeline.manifest import ColumnsRecord, PipelineManifest, SourceRecord
 

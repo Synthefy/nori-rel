@@ -1,4 +1,9 @@
-"""Relational feature contracts and optional deep feature synthesis backends."""
+"""Relational feature methods, grouped by family.
+
+``dfs`` holds deep feature synthesis backends; ``agentic`` holds agent-written
+SQL feature programs. Both implement ``FeatureBackend``. Import a backend from
+its own module so optional dependencies stay optional.
+"""
 
 from ._contract import (
     CUTOFF_COLUMN,
