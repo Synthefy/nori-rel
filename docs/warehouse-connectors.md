@@ -231,7 +231,10 @@ The connector uses the reader identity. Do not point both credential references
 to an identity that can write: the read-only test deliberately requires the
 reader's INSERT to fail.
 
-Each test configuration is a nonsecret JSON object. Set `writer_schema` to an
+Each test configuration is a JSON object without credentials. It still names
+your account, workspace, warehouse and roles, so store it as a CI secret, not a
+plain variable: GitHub Actions prints variables unmasked in its logs, which are
+public for a public repository. Set `writer_schema` to an
 existing schema if Snowflake's `PUBLIC` or Databricks' `default` schema is
 unavailable. The writer connects there before creating its isolated fixture
 schema.
@@ -306,8 +309,9 @@ Ordinary runs skip absent service configurations. `--require-warehouse` makes
 missing settings fail; include the explicit test-file path so pytest loads the
 warehouse option before parsing arguments. The manually triggered
 `Warehouse integration` GitHub Actions workflow uses that option and uploads
-JUnit reports. Configure repository variables with the JSON above and secrets
-with the corresponding `NORI_REL_TEST_*_READER`/`*_WRITER` values. Running both
+JUnit reports. Configure `warehouse` environment secrets with the JSON above
+(`NORI_REL_TEST_SNOWFLAKE_CONFIG`, `NORI_REL_TEST_DATABRICKS_CONFIG`) and with
+the corresponding `NORI_REL_TEST_*_READER`/`*_WRITER` values. Running both
 engines also runs parity. This workflow is not a default PR check because it
 requires external credentials and incurs warehouse charges.
 
