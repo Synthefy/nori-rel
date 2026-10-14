@@ -24,15 +24,17 @@ files does not activate repository protections or index ownership.
    credentials, deployment environments, and publishing permissions. Enable
    secret scanning, push protection where available, and private vulnerability
    reporting before changing visibility.
-3. Configure protected `warehouse`, `testpypi`, and `pypi` environments with
-   reviewers and deployment rules allowing only the `main` branch.
+3. Configure protected `warehouse` and `pypi` environments, plus `testpypi` when
+   using a TestPyPI rehearsal. Set reviewers and deployment rules allowing only
+   the `main` branch.
    Environment branch rules do not restrict workflow identity; the index's
    Trusted Publisher binds the exact publishing workflow in the next step.
    Scope live-service credentials to their test steps and environments.
 4. Verify ownership or create a pending publisher for the `nori-rel` project on
-   both indexes. Configure a GitHub Trusted Publisher with owner `Synthefy`,
-   repository `nori-rel`, workflow `publish.yml`, and environment `pypi` on PyPI
-   or `testpypi` on TestPyPI. These are independent registrations.
+   PyPI and, when rehearsing there, TestPyPI. Configure a GitHub Trusted Publisher
+   with owner `Synthefy`, repository `nori-rel`, workflow `publish.yml`, and
+   environment `pypi` on PyPI or `testpypi` on TestPyPI. These are independent
+   registrations.
 5. Use OIDC from the publisher job. Do not copy an account password, `.env.pypi`,
    or a personal API token into the repository or workflow. Account/2FA access
    is handled by the project owner outside the workflow.
@@ -104,27 +106,46 @@ PostgreSQL database. Hosted certification needs a real authorized Synthefy API
 key and a small synthetic prediction; mocked transport does not certify it.
 Do not print credentials in release evidence.
 
-## Rehearse and publish
+## Publish
 
-Use the `publish.yml` workflow from `main`. Its release tag input is `vX.Y.Z`.
-Rehearse with the `testpypi` target before approving production. For the `pypi`
-target, supply `candidate_run` as the successful TestPyPI workflow run ID. Confirm the
-workflow's tag/version/main-commit validation and mandatory certification pass.
+Use `publish.yml` from `main` with the existing `vX.Y.Z` tag. Select one of these
+paths explicitly:
 
-Promote the exact tested wheel and sdist bytes to production. Their digests must
-match the TestPyPI candidate record. Never use an artifact called "latest" or
-rebuild in a publisher job. The workflow must retrieve artifacts from the exact
-candidate run, validate the recorded hashes, and fail on a mismatch. Publisher
-jobs should only download/verify the candidate and invoke the trusted publisher;
-`id-token: write` belongs only to those jobs. Keep provenance/attestations and
-artifact manifests with the release evidence.
+| Path | `target` | `direct_publish` | `candidate_run` |
+| --- | --- | --- | --- |
+| TestPyPI rehearsal | `testpypi` | `false` (default) | Leave empty |
+| Promote rehearsed files | `pypi` | `false` (default) | Successful TestPyPI run ID |
+| Direct PyPI release | `pypi` | `true` | Leave empty |
 
-After TestPyPI, install the exact candidate into a fresh environment outside the
-checkout. Resolve dependencies from PyPI and fetch the candidate itself from
-TestPyPI without using a mixed index as an unrestricted dependency resolver.
-Exercise imports, PQL parsing, each promised connector installation, and a
-representative synthetic prediction. Approve the protected `pypi` environment
-only after that evidence matches the candidate.
+For the initial release, use direct PyPI publication without a TestPyPI
+rehearsal. This path needs the PyPI Trusted Publisher and
+protected `pypi` environment; no TestPyPI registration is needed. The direct
+option cannot be combined with a TestPyPI target or an existing candidate run.
+Leaving it disabled preserves the requirement to supply a successful TestPyPI
+run before production promotion.
+
+Both fresh-candidate paths require the exact protected-main CI result and
+dependency assessment, then build the wheel and sdist once. The workflow checks
+package contents and licenses, installs both files outside the checkout using
+the audited dependency resolution, and records their SHA-256 hashes and the
+originating repository, workflow, run ID, and intended index. Mandatory live
+warehouse, local-inference, and hosted-inference certification then uses that
+exact candidate wheel. Direct publication skips only the TestPyPI upload and
+rehearsal; every other release gate still applies.
+
+When promoting from TestPyPI, the workflow downloads the exact files from
+`candidate_run` and requires their manifest to identify that TestPyPI run at the
+same source commit and package version. It checks their hashes and repeats the
+candidate installation and live certification before PyPI upload. It does not
+rebuild the files. After a rehearsal, verify the downloaded TestPyPI files and
+install the candidate with dependencies from PyPI; avoid a mixed index as an
+unrestricted dependency resolver.
+
+Approve the protected `pypi` environment only after its candidate evidence is
+complete. The publishing job downloads and verifies the certified files, then
+uses OIDC to upload them. It never checks out or builds project code;
+`id-token: write` belongs only to that job. Keep manifests, attestations, audit
+results, and certification reports with the release evidence.
 
 After publishing, independently download/install the exact production version
 from PyPI in a fresh environment. Verify metadata and distribution digests

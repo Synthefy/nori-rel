@@ -14,9 +14,14 @@ on:
         default: testpypi
         options: [testpypi, pypi]
       candidate_run:
-        description: Successful TestPyPI run ID (required for PyPI; exact files reused)
+        description: Successful TestPyPI run ID for promotion (omit for a direct release)
         required: false
         type: string
+      direct_publish:
+        description: Build and certify a new PyPI candidate without TestPyPI
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -48,9 +53,11 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           TARGET: ${{ inputs.target }}
           CANDIDATE_RUN: ${{ inputs.candidate_run }}
-        run: >-
-          python scripts/verify_release.py "$RELEASE_TAG"
-          --target "$TARGET" --candidate-run "$CANDIDATE_RUN"
+          DIRECT_PUBLISH: ${{ inputs.direct_publish }}
+        run: |
+          release_arguments=("$RELEASE_TAG" --target "$TARGET" --candidate-run "$CANDIDATE_RUN")
+          if [ "$DIRECT_PUBLISH" = true ]; then release_arguments+=(--direct-publish); fi
+          python scripts/verify_release.py "${release_arguments[@]}"
 
   security:
     needs: verify
@@ -72,8 +79,10 @@ jobs:
         with:
           version: "0.12.21"
           python-version: "3.12"
-      - name: Build the TestPyPI candidate once
-        if: inputs.target == 'testpypi'
+      - name: Build the selected candidate once
+        if: inputs.target == 'testpypi' || inputs.direct_publish
+        env:
+          CANDIDATE_TARGET: ${{ inputs.target }}
         run: |
           uv sync --locked --only-group build
           uv build --no-sources --out-dir release-artifacts/dist
@@ -82,13 +91,16 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
+          from scripts.verify_release import build_candidate_provenance
           path = Path("release-artifacts/manifest.json")
           manifest = json.loads(path.read_text())
-          manifest["testpypi_run"] = os.environ["GITHUB_RUN_ID"]
+          manifest["candidate"] = build_candidate_provenance(
+              os.environ["GITHUB_RUN_ID"], os.environ["CANDIDATE_TARGET"]
+          )
           path.write_text(json.dumps(manifest, indent=2) + "\n")
           PY
       - name: Retrieve the already certified TestPyPI files for production
-        if: inputs.target == 'pypi'
+        if: inputs.target == 'pypi' && !inputs.direct_publish
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: release-distributions
@@ -99,21 +111,19 @@ jobs:
         env:
           RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
           RELEASE_VERSION: ${{ needs.verify.outputs.version }}
-          CANDIDATE_RUN: ${{ inputs.target == 'pypi' && inputs.candidate_run || github.run_id }}
+          CANDIDATE_RUN: ${{ inputs.target == 'pypi' && !inputs.direct_publish && inputs.candidate_run || github.run_id }}
+          CANDIDATE_TARGET: ${{ inputs.direct_publish && 'pypi' || 'testpypi' }}
         run: |
           python - <<'PY'
-          import hashlib, json, os
+          import json, os
           from pathlib import Path
+          from scripts.verify_release import validate_candidate_artifacts
           manifest = json.loads(Path("release-artifacts/manifest.json").read_text())
-          expected = {"commit": os.environ["RELEASE_COMMIT"], "version": os.environ["RELEASE_VERSION"], "testpypi_run": os.environ["CANDIDATE_RUN"]}
-          if any(str(manifest.get(key)) != value for key, value in expected.items()):
-              raise SystemExit("Candidate identity differs from the approved TestPyPI run")
-          dist = Path("release-artifacts/dist")
-          if {p.name for p in dist.iterdir()} != set(manifest["files"]):
-              raise SystemExit("Unexpected candidate files")
-          for name, metadata in manifest["files"].items():
-              if hashlib.sha256((dist / name).read_bytes()).hexdigest() != metadata["sha256"]:
-                  raise SystemExit(f"Candidate digest mismatch: {name}")
+          validate_candidate_artifacts(
+              manifest, Path("release-artifacts/dist"),
+              commit=os.environ["RELEASE_COMMIT"], version=os.environ["RELEASE_VERSION"],
+              candidate_run=os.environ["CANDIDATE_RUN"], candidate_target=os.environ["CANDIDATE_TARGET"],
+          )
           PY
       - name: Test the exact release files outside the checkout
         env:
