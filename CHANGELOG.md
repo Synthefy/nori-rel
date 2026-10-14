@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — Unreleased
+
+Agentic feature search and NoriDFS become supported features.
+
+- Add `features="noridfs"`, a deterministic relational feature search, and
+  `AgenticSearch.claude(...)` / `AgenticSearch.openai(...)`, which add
+  agent-written SQL features on top of NoriDFS.
+- Add the `agentic` extra (`anthropic`, `duckdb`, `openai`).
+
 ## 0.3.0 — 2026-10-14
 
 Initial public database-client release.
