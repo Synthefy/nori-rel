@@ -28,6 +28,26 @@ For hosted inference, omit `local` and set `SYNTHEFY_NORI_API_KEY` privately.
 A hosted installation does not require the local model runtime or model weights.
 See [supported capabilities](docs/support.md) for platform and target limits.
 
+## Start from CSV or Excel files
+
+If your data is a set of exported files rather than a database, the
+[`nori-rel-prepare-data`](skills/nori-rel-prepare-data/SKILL.md) skill walks an
+AI agent through converting them. The agent profiles the files and designs
+entity and event tables with declared keys, leaving out columns that would leak
+the future, such as a customer's lifetime total. It shows you every table,
+column and relationship it plans to create and waits for your confirmation
+before it touches the database. It then writes a load script you can rerun
+when new files arrive, and proves the schema with Nori-Rel's own discovery and
+one prediction.
+
+With Claude Code, copy the folder into your skills, then ask for the conversion:
+
+```bash
+cp -r skills/nori-rel-prepare-data ~/.claude/skills/
+```
+
+With another agent, give it `SKILL.md` as its instructions.
+
 ## Predict customer spend
 
 This example expects existing `users(user_id, created_at)` and
