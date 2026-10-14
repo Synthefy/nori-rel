@@ -1,0 +1,19 @@
+Nori-Rel
+Copyright (c) 2026 Synthefy
+
+Original Synthefy code is licensed under the MIT License in LICENSE.
+Third-party components retain their own licenses and notices.
+
+The PQL grammar, its Synthefy modifications, and the generated parser derive
+from the NVIDIA Kumo Relational Client and are subject to Apache-2.0:
+
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+
+The unmodified upstream license, notice, grammar, and provenance are included
+under src/nori_rel/pql/_vendor/kumo/. Synthefy's grammar modifications are
+identified in src/nori_rel/pql/grammar/PQLGrammar.g4; the generated parser
+headers identify this derivation. See ATTRIBUTION.md for source details.
+
+The upstream NOTICE describes components of the full upstream distribution.
+Its inclusion preserves that notice; Nori-Rel vendors only the PQL grammar
+and the accompanying license/provenance files, and ships its derived parser.

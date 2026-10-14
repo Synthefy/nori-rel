@@ -1,0 +1,8 @@
+# Generated from the reviewed Nori grammar extension.
+src/nori_rel/pql/_generated/*.py linguist-generated=true
+
+# These bytes are asserted by SHA-256 in tests/pql/test_vendored_grammar.py,
+# so they must check out identically on every platform.
+src/nori_rel/pql/_vendor/kumo/* text eol=lf
+src/nori_rel/pql/grammar/* text eol=lf
+src/nori_rel/pql/_generated/*.py text eol=lf

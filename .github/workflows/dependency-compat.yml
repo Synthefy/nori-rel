@@ -1,0 +1,63 @@
+name: Dependency compatibility
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependencies:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+        resolution: [lowest-direct, highest]
+    env:
+      RESOLUTION: ${{ matrix.resolution }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.12.21"
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - name: Resolve published dependency bounds without the developer lock
+        run: >-
+          uv pip compile pyproject.toml --no-sources --group dev
+          --extra database --extra snowflake --extra databricks
+          --resolution "$RESOLUTION" -o requirements-compat.txt
+      - name: Test the installed distribution against that resolution
+        run: |
+          uv build --no-sources --out-dir dist
+          uv venv "$RUNNER_TEMP/compat-venv"
+          uv pip install --python "$RUNNER_TEMP/compat-venv" -r requirements-compat.txt
+          uv pip install --python "$RUNNER_TEMP/compat-venv" --no-deps dist/*.whl
+          uv pip check --python "$RUNNER_TEMP/compat-venv"
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          cd "$RUNNER_TEMP"
+          uv run --no-project --python "$RUNNER_TEMP/compat-venv" \
+            "$GITHUB_WORKSPACE/scripts/smoke_install.py" --extras database,snowflake,databricks --version "$version"
+          uv run --no-project --python "$RUNNER_TEMP/compat-venv" pytest \
+            "$GITHUB_WORKSPACE/tests/feature" \
+            "$GITHUB_WORKSPACE/tests/pql/test_parser.py" \
+            "$GITHUB_WORKSPACE/tests/pql/test_binding.py" \
+            "$GITHUB_WORKSPACE/tests/pql/test_dialects.py"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: dependencies-${{ matrix.python }}-${{ matrix.resolution }}
+          path: requirements-compat.txt
+          if-no-files-found: warn
+          retention-days: 14

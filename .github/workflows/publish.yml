@@ -1,0 +1,212 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag on protected main (for example v0.3.0)
+        required: true
+        type: string
+      target:
+        description: Package index
+        required: true
+        type: choice
+        default: testpypi
+        options: [testpypi, pypi]
+      candidate_run:
+        description: Successful TestPyPI run ID (required for PyPI; exact files reused)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.repository == 'Synthefy/nori-rel' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Require the reviewed version and main CI
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          TARGET: ${{ inputs.target }}
+          CANDIDATE_RUN: ${{ inputs.candidate_run }}
+        run: >-
+          python scripts/verify_release.py "$RELEASE_TAG"
+          --target "$TARGET" --candidate-run "$CANDIDATE_RUN"
+
+  security:
+    needs: verify
+    uses: ./.github/workflows/dependency-audit.yml
+
+  candidate:
+    needs: [verify, security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.verify.outputs.commit }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.12.21"
+          python-version: "3.12"
+      - name: Build the TestPyPI candidate once
+        if: inputs.target == 'testpypi'
+        run: |
+          uv sync --locked --only-group build
+          uv build --no-sources --out-dir release-artifacts/dist
+          uv run --no-sync python scripts/validate_artifacts.py release-artifacts/dist --manifest release-artifacts/manifest.json
+          uv run --no-sync twine check --strict release-artifacts/dist/*
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path("release-artifacts/manifest.json")
+          manifest = json.loads(path.read_text())
+          manifest["testpypi_run"] = os.environ["GITHUB_RUN_ID"]
+          path.write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
+      - name: Retrieve the already certified TestPyPI files for production
+        if: inputs.target == 'pypi'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-distributions
+          path: release-artifacts
+          run-id: ${{ inputs.candidate_run }}
+          github-token: ${{ github.token }}
+      - name: Validate the candidate's identity and immutable hashes
+        env:
+          RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+          CANDIDATE_RUN: ${{ inputs.target == 'pypi' && inputs.candidate_run || github.run_id }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          manifest = json.loads(Path("release-artifacts/manifest.json").read_text())
+          expected = {"commit": os.environ["RELEASE_COMMIT"], "version": os.environ["RELEASE_VERSION"], "testpypi_run": os.environ["CANDIDATE_RUN"]}
+          if any(str(manifest.get(key)) != value for key, value in expected.items()):
+              raise SystemExit("Candidate identity differs from the approved TestPyPI run")
+          dist = Path("release-artifacts/dist")
+          if {p.name for p in dist.iterdir()} != set(manifest["files"]):
+              raise SystemExit("Unexpected candidate files")
+          for name, metadata in manifest["files"].items():
+              if hashlib.sha256((dist / name).read_bytes()).hexdigest() != metadata["sha256"]:
+                  raise SystemExit(f"Candidate digest mismatch: {name}")
+          PY
+      - name: Test the exact release files outside the checkout
+        env:
+          PACKAGE_VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          for artifact in "$GITHUB_WORKSPACE"/release-artifacts/dist/*; do
+            uv venv --clear "$RUNNER_TEMP/release-smoke"
+            uv pip install --python "$RUNNER_TEMP/release-smoke" "${artifact}[database]"
+            uv pip check --python "$RUNNER_TEMP/release-smoke"
+            (cd "$RUNNER_TEMP" && uv run --no-project --python "$RUNNER_TEMP/release-smoke" \
+              "$GITHUB_WORKSPACE/scripts/smoke_install.py" --extras database --version "$PACKAGE_VERSION")
+          done
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-distributions
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 90
+
+  certify:
+    needs: [verify, candidate]
+    uses: ./.github/workflows/warehouse-tests.yml
+    with:
+      artifact_name: release-distributions
+
+  publish:
+    needs: [verify, candidate, certify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.target }}
+      url: ${{ inputs.target == 'pypi' && 'https://pypi.org/p/nori-rel' || 'https://test.pypi.org/p/nori-rel' }}
+    permissions:
+      id-token: write
+    steps:
+      # No checkout or project code executes in the publishing job.
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-distributions
+          path: release-artifacts
+      - name: Verify the validated artifact hashes
+        env:
+          RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          manifest = json.loads(Path("release-artifacts/manifest.json").read_text())
+          if manifest["commit"] != os.environ["RELEASE_COMMIT"] or manifest["version"] != os.environ["RELEASE_VERSION"]:
+              raise SystemExit("Artifact provenance differs from the approved release")
+          dist = Path("release-artifacts/dist")
+          if {p.name for p in dist.iterdir()} != set(manifest["files"]):
+              raise SystemExit("Unexpected release files")
+          for name, expected in manifest["files"].items():
+              if hashlib.sha256((dist / name).read_bytes()).hexdigest() != expected["sha256"]:
+                  raise SystemExit(f"Artifact digest mismatch: {name}")
+          PY
+      - name: Publish with the index's Trusted Publisher
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: release-artifacts/dist/
+          repository-url: ${{ inputs.target == 'pypi' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}
+          attestations: true
+
+  verify-published:
+    needs: [verify, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.verify.outputs.commit }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.12.21"
+          python-version: "3.12"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-distributions
+          path: release-artifacts
+      - name: Verify index file digests and exercise the downloaded wheel
+        env:
+          PACKAGE_VERSION: ${{ needs.verify.outputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          python scripts/verify_published.py --index "$TARGET" \
+            --manifest release-artifacts/manifest.json --output published-artifacts
+          uv venv "$RUNNER_TEMP/published-smoke"
+          wheel="$(find "$GITHUB_WORKSPACE/published-artifacts" -name '*.whl' -type f)"
+          uv pip install --python "$RUNNER_TEMP/published-smoke" "${wheel}[database]"
+          uv pip check --python "$RUNNER_TEMP/published-smoke"
+          cd "$RUNNER_TEMP"
+          uv run --no-project --python "$RUNNER_TEMP/published-smoke" \
+            "$GITHUB_WORKSPACE/scripts/smoke_install.py" --extras database --version "$PACKAGE_VERSION"

@@ -1,0 +1,115 @@
+[build-system]
+requires = ["uv_build>=0.11.15,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "nori-rel"
+version = "0.3.0"
+description = "Relational database prediction with Nori"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = "MIT AND Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "ATTRIBUTION.md", "src/nori_rel/pql/_vendor/kumo/LICENSE", "src/nori_rel/pql/_vendor/kumo/NOTICE"]
+authors = [{ name = "Synthefy" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+dependencies = [
+    "antlr4-python3-runtime==4.13.2",
+    "numpy>=2.0",
+    "pandas>=2.3.3,<3.0",
+    "pydantic>=2.10,<3",
+]
+
+[project.optional-dependencies]
+local = ["synthefy-nori==0.20.1", "fsspec>=2026.6.0"]
+database = [
+    "boto3>=1.34,<2",
+    "fastdfs>=1.1,<2",
+    "psycopg[binary]>=3.2,<4",
+    "sqlalchemy>=2.0,<3",
+    "synthefy>=7.2.0,<8",
+    "urllib3>=2.8,<3",
+]
+snowflake = [
+    "boto3>=1.34,<2",
+    "fastdfs>=1.1,<2",
+    "snowflake-connector-python>=4.8,<5",
+    "sqlalchemy>=2.0,<3",
+    "synthefy>=7.2.0,<8",
+    "urllib3>=2.8,<3",
+]
+databricks = [
+    "boto3>=1.34,<2",
+    "databricks-sdk>=0.151,<1",
+    "databricks-sql-connector>=4.6,<5",
+    "fastdfs>=1.1,<2",
+    "sqlalchemy>=2.0,<3",
+    "synthefy>=7.2.0,<8",
+    "urllib3>=2.8,<3",
+]
+
+[project.urls]
+Repository = "https://github.com/Synthefy/nori-rel"
+Issues = "https://github.com/Synthefy/nori-rel/issues"
+Changelog = "https://github.com/Synthefy/nori-rel/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1,<10",
+    "pytest-timeout>=2.3,<3",
+    "ruff==0.15.13",
+]
+build = ["twine>=6,<7", "packaging>=24"]
+cpu = ["torch"]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", group = "cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.build-backend]
+source-include = ["tests/**", "scripts/**", "docs/**", "examples/**", "CHANGELOG.md"]
+source-exclude = [".env", ".env.*", "__pycache__", "*.pyc", "*.ipynb", "*.pt", "*.safetensors"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+# Shared test helpers, such as run_control_fakes, import from here.
+pythonpath = ["tests"]
+# A hung worker fails its test instead of the whole CI job.
+timeout = 600
+markers = [
+    "warehouse: live warehouse integration (requires explicit test settings)",
+    "snowflake: Snowflake integration",
+    "databricks: Databricks integration",
+    "parity: shared relational correctness fixture",
+    "live_nori: real inference smoke test",
+]
+
+[tool.ruff]
+extend-exclude = ["src/nori_rel/pql/_generated"]
+required-version = "==0.15.13"
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["B", "D", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["nori_rel"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+"examples/**" = ["D100"]

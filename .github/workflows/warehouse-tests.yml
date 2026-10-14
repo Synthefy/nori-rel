@@ -1,0 +1,108 @@
+name: Live certification
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Validated candidate artifact from the calling release run
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-certification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    if: github.repository == 'Synthefy/nori-rel' && github.ref == 'refs/heads/main'
+    environment: warehouse
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: nori_rel_test
+          POSTGRES_PASSWORD: integration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nori_rel_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      NORI_REL_TEST_DATABASE_URL: postgresql://postgres:integration@127.0.0.1:5432/nori_rel_test
+      NORI_REL_TEST_MANAGED: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.12.21"
+          python-version: "3.12"
+          enable-cache: true
+      - run: >-
+          uv sync --locked --group dev --group cpu
+          --extra database --extra snowflake --extra databricks --extra local
+      - name: Retrieve the exact release candidate
+        if: inputs.artifact_name != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: release-artifacts
+      - name: Replace the editable install with the candidate wheel
+        if: inputs.artifact_name != ''
+        run: |
+          uv pip install --python .venv --no-deps --reinstall-package nori-rel release-artifacts/dist/*.whl
+          uv run --no-sync python -c 'from pathlib import Path; import nori_rel; assert "site-packages" in Path(nori_rel.__file__).parts, nori_rel.__file__'
+      - name: Certify both warehouses and cross-engine parity
+        env:
+          NORI_REL_TEST_SNOWFLAKE_CONFIG: ${{ vars.NORI_REL_TEST_SNOWFLAKE_CONFIG }}
+          NORI_REL_TEST_DATABRICKS_CONFIG: ${{ vars.NORI_REL_TEST_DATABRICKS_CONFIG }}
+          NORI_REL_TEST_SNOWFLAKE_READER: ${{ secrets.NORI_REL_TEST_SNOWFLAKE_READER }}
+          NORI_REL_TEST_SNOWFLAKE_WRITER: ${{ secrets.NORI_REL_TEST_SNOWFLAKE_WRITER }}
+          NORI_REL_TEST_DATABRICKS_READER: ${{ secrets.NORI_REL_TEST_DATABRICKS_READER }}
+          NORI_REL_TEST_DATABRICKS_WRITER: ${{ secrets.NORI_REL_TEST_DATABRICKS_WRITER }}
+        run: >-
+          uv run --no-sync pytest tests/connectors/test_warehouse_live.py
+          -m "warehouse and not live_nori" --require-warehouse
+          --junitxml=reports/warehouses.xml
+      - name: Fetch and record the public local checkpoint
+        run: |
+          uv run --no-sync python - <<'PY'
+          import json
+          from dataclasses import asdict
+          from pathlib import Path
+          from nori_rel._checkpoint import get_pinned_checkpoint
+          checkpoint = get_pinned_checkpoint("nori-30m")
+          provenance = asdict(checkpoint) | {"sha256": checkpoint.sha256}
+          Path("reports").mkdir(exist_ok=True)
+          Path("reports/local-checkpoint.json").write_text(json.dumps(provenance, indent=2) + "\n")
+          PY
+      - name: Certify real PostgreSQL to offline local inference
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: >-
+          uv run --no-sync pytest
+          tests/pql/test_local_postgres.py::test_offline_postgres_to_cached_local_nori
+          --require-local-model --junitxml=reports/local-inference.xml
+      - name: Certify real PostgreSQL to hosted inference
+        env:
+          NORI_REL_TEST_HOSTED_API_KEY: ${{ secrets.NORI_REL_TEST_HOSTED_API_KEY }}
+          NORI_REL_TEST_HOSTED_MODEL: ${{ vars.NORI_REL_TEST_HOSTED_MODEL || 'synthefy/nori-30m' }}
+        run: >-
+          uv run --no-sync pytest
+          tests/pql/test_client_e2e.py::test_live_hosted_pql_smoke
+          --require-hosted-model --junitxml=reports/hosted-inference.xml
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: live-certification-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30

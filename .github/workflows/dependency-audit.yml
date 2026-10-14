@@ -1,0 +1,56 @@
+name: Dependency audit
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.12.21"
+          python-version: ${{ matrix.python }}
+      - name: Export every retained locked dependency
+        run: |
+          mkdir audit
+          uv export --locked --all-extras --all-groups --no-emit-project \
+            --no-hashes --no-annotate -o audit/locked-requirements.txt
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          original = Path("audit/locked-requirements.txt").read_text()
+          # PyPI advisories identify the upstream Torch release, not its +cpu
+          # wheel flavor. Preserve the original export and audit the same public
+          # version; no package is omitted or changed in the actual lock/install.
+          requirements = re.sub(r"(?m)^(torch==[^+;\s]+)\+cpu(?=\s|$)", r"\1", original)
+          Path("audit/requirements.txt").write_text(requirements)
+          PY
+      - name: Fail on known vulnerabilities or unauditable dependencies
+        env:
+          AUDIT_PYTHON: ${{ matrix.python }}
+        run: >-
+          uvx --python "$AUDIT_PYTHON" --from pip-audit==2.10.1 pip-audit
+          --strict --no-deps --disable-pip --progress-spinner off
+          -r audit/requirements.txt --format json --output audit/report.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: dependency-audit-${{ matrix.python }}
+          path: audit/
+          if-no-files-found: error
+          retention-days: 30

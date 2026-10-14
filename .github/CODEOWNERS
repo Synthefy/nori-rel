@@ -1,0 +1,11 @@
+# Release controls and connection boundaries require maintainer review.
+/.github/ @raimishah
+/pyproject.toml @raimishah
+/uv.lock @raimishah
+/scripts/ @raimishah
+/src/nori_rel/connectors/ @raimishah
+/src/nori_rel/_credentials.py @raimishah
+/LICENSE @raimishah
+/NOTICE @raimishah
+/SECURITY.md @raimishah
+/RELEASING.md @raimishah
