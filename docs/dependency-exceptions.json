@@ -35,7 +35,7 @@
       "sha256": "fe816be0736ea291cc4bccb7c5e5dfa3898a48adbf00cab13aef3d219c48c0f7"
     },
     "scripts/validate_artifacts.py": {
-      "sha256": "034cc449cc503d34f204f5a7cdecba47b0f51697cce72d64ec68451a11033f45"
+      "sha256": "b5faaf80d86f3439c7f098fd8abfcf0e653c225ca1a2fea5d0683c5994dfecee"
     },
     "scripts/verify_release.py": {
       "sha256": "531ae23cae5b44769e02ec7db0b2defa86cb40e39ce81dba05b74dda298d2050"
@@ -56,10 +56,7 @@
       "sha256": "feaed26b361226225f513a6551bba0d8e69df2ce15b519fb182cd6fb59abc825"
     },
     "src/nori_rel/_feature_search.py": {
-      "sha256": "1af9e4ee8b5f175fda43eb67e5dc90f3c9b1a7cc5c7fcbe6a6be7b43a741d5f5"
-    },
-    "src/nori_rel/_features.py": {
-      "sha256": "1e421a9f6681a60d52262bcec6f8aed3e90eb126e69314661bc6387c07b9587d"
+      "sha256": "b945a4ac599075ea86be04040c6e56a6acfaef53e738a2a910aedbf548849a5d"
     },
     "src/nori_rel/_legacy.py": {
       "sha256": "414593e75f75778e064cfb5ba92096966a0d612fcf99c99dccce05046cfcc9d8"
@@ -77,7 +74,7 @@
       "sha256": "e94c8e073f8f40217ac4547281d6968caed8e2acb4e73a96b7110e4c77a89d32"
     },
     "src/nori_rel/client.py": {
-      "sha256": "178a069e37a7d138e30da5f88e83e67c163318f2b7eee22f65c50f22d2e64245"
+      "sha256": "96b274a30f9090505c2a8c50118bbccb20cf58cd0acdc13e7b31cda51c6c9ff1"
     },
     "src/nori_rel/connectors/__init__.py": {
       "sha256": "062b7b032c2a4d0d07484e5014b7dc46b6486887ecf158b3d101cb387abde71d"
@@ -113,7 +110,7 @@
       "sha256": "b3326b995532adde2c92f3e07a8b3353f33cbd29252c0366c601b08e7020789a"
     },
     "src/nori_rel/feature/agentic/_agent_base.py": {
-      "sha256": "2ba66f872ad8e1aaf6849d70927c4c02cf1041172066969c1b80dd8a5d3fc266"
+      "sha256": "3baa81ef2a9604985eb41963618ff53775a013eee367dc64285b2d9c2bae9a02"
     },
     "src/nori_rel/feature/agentic/agent_claude.py": {
       "sha256": "709ae16b7bf8fb328e765058a624b00de63f931c9aeaba3a2a936c02cd052e27"
@@ -122,13 +119,13 @@
       "sha256": "1a446430345d91d1802c5eec620386dfb8f7d6a87bdb54d91d3a68a8f0c442aa"
     },
     "src/nori_rel/feature/agentic/backend.py": {
-      "sha256": "5f952ccab6e48221407aa9d35ace97ac1dd0100b87cad5ce1d27248eef85792b"
+      "sha256": "de83e44d9d339f1927ec92a72eee6c1a087e21ca3f21a7fd4e00d8d2109e106c"
     },
     "src/nori_rel/feature/agentic/baseline.py": {
       "sha256": "f591c2dd5a6e76a58269bb078121a07f840210a507a9d5a6e79d203aec556d8a"
     },
     "src/nori_rel/feature/agentic/contracts.py": {
-      "sha256": "67056e8c1fa80b93b80cb4155477628853484baa46c5e98e1e990cf067651b34"
+      "sha256": "a2c682591170389f75af83fcd158dede52baa51a3a503a31ee3ace89a477d4f4"
     },
     "src/nori_rel/feature/agentic/executor.py": {
       "sha256": "702261b099b4eb3a425e6ffc184cd35fc36d6bf039cb0a789b7ce74670b1be89"
@@ -146,7 +143,7 @@
       "sha256": "3754a3be8083acb466612484bedd3c02ca769692473fdc2611ac168d452f4728"
     },
     "src/nori_rel/feature/agentic/session.py": {
-      "sha256": "fae33f791686cd0d17cdb369575375db106eb1f258cbb11e47f5d75dcd09ae80"
+      "sha256": "01060f5f5fc0d3e95eff31dcb8e848f6a79db193c2fa246948e677985e806313"
     },
     "src/nori_rel/feature/agentic/usage.py": {
       "sha256": "a9d912b15cc6eb627c75b2e27e60a91312ebe95ad826af0fe2aa564a3c924897"
@@ -308,7 +305,7 @@
       "sha256": "fddb8bde2ca6c213db4451fb2886dacd43dd76e43c3a0a9f635feeaab02defc5"
     },
     "src/nori_rel/run/models.py": {
-      "sha256": "3893ffcc605da14a662fc05a499ffe6ac69c80fd56e99c5422f816cbf7639c1f"
+      "sha256": "d95f4471eb562594eba452bbce739c1315111071ef2622b01c96c2b77211bc9a"
     },
     "src/nori_rel/run/progress.py": {
       "sha256": "8a729a7b9bae90f148a7de611d6e57c7d4e469e2ec3987d105ea178589d741ee"
