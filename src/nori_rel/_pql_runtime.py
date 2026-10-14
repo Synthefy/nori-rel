@@ -135,15 +135,6 @@ def predict_pql(
         if decision_threshold is not None:
             raise ValueError("decision_threshold requires binary PQL")
         output = RelationalOutputType(output_type or "median")
-    if metric is not None:
-        _require_agent_search_metric(
-            metric,
-            resolved,
-            searching=feature_program is None
-            and pipeline is None
-            and get_feature_strategy_name(runtime.features, replaying_program=False)
-            == "agentic",
-        )
         if output is RelationalOutputType.QUANTILES:
             if (
                 not quantiles
@@ -153,6 +144,15 @@ def predict_pql(
                 raise ValueError("quantiles must be sorted, unique and between 0 and 1")
         elif quantiles is not None:
             raise ValueError("quantiles requires output_type='quantiles'")
+    if metric is not None:
+        _require_agent_search_metric(
+            metric,
+            resolved,
+            searching=feature_program is None
+            and pipeline is None
+            and get_feature_strategy_name(runtime.features, replaying_program=False)
+            == "agentic",
+        )
     predictor = (
         runtime.predictor
         if pipeline is None
