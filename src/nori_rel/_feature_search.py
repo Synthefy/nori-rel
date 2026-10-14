@@ -39,7 +39,11 @@ from nori_rel.feature.agentic import (
 from nori_rel.feature.agentic._agent_base import (
     DEFAULT_MAX_AGENT_TURNS as MAX_MODEL_RESPONSES,
 )
-from nori_rel.feature.agentic.scoring import metric_name, task_score
+from nori_rel.feature.agentic.scoring import (
+    DEFAULT_REGRESSION_METRIC,
+    metric_name,
+    task_score,
+)
 from nori_rel.feature.agentic.usage import TokenUsage
 from nori_rel.feature.dfs.noridfs import NoriDFS
 from nori_rel.feature.dfs.noridfs.contracts import NativeFeatureConfig
@@ -252,17 +256,20 @@ class AgenticSearch:
         task: PredictionTask,
         predictor: Predictor,
         run_context: RunContext | None = None,
+        metric: str = DEFAULT_REGRESSION_METRIC,
     ) -> AgenticFeatures:
         """Return the search for one prediction; ``labels`` follow context order.
 
-        ``run_context`` receives the search's progress events.
+        ``run_context`` receives the search's progress events. ``metric`` is
+        the regression metric candidate programs are scored with; binary
+        targets always score ROC-AUC.
         """
         kind: TaskKind = (
             "binary" if task is PredictionTask.CLASSIFICATION else "regression"
         )
         return AgenticFeatures(
             agent=self.agent,
-            scorer=ClientProgramScorer(predictor=predictor, task=kind),
+            scorer=ClientProgramScorer(predictor=predictor, task=kind, metric=metric),
             train_target=labels.reset_index(drop=True),
             fallback=seed,
             config=self.config,
@@ -276,14 +283,16 @@ class AgenticSearch:
 class ClientProgramScorer:
     """Score a program with one call to the client's Nori predictor.
 
-    Regression scores negative MAE on the median, binary scores ROC-AUC on the
-    probability: the outputs the client returns. One call has no seed spread,
-    so the reported noise is zero. The client's acceptance checks also require
-    the configured minimum relative gain; zero noise does not remove that floor.
+    Regression scores the negative of ``metric`` (MAE by default, or WAPE or
+    MAPE) on the median, binary scores ROC-AUC on the probability: the outputs
+    the client returns. One call has no seed spread, so the reported noise is
+    zero. The client's acceptance checks also require the configured minimum
+    relative gain; zero noise does not remove that floor.
     """
 
     predictor: Predictor
     task: TaskKind = "regression"
+    metric: str = DEFAULT_REGRESSION_METRIC
 
     def __call__(
         self,
@@ -312,8 +321,8 @@ class ClientProgramScorer:
             raise ValueError("Nori returned invalid predictions or the wrong row count")
         target = holdout_target.to_numpy(dtype=float)
         return ScoreReport(
-            metric=metric_name(self.task),
-            score=task_score(self.task, target, values),
+            metric=metric_name(self.task, self.metric),
+            score=task_score(self.task, target, values, self.metric),
             noise=0.0,
             predictions=values,
         )

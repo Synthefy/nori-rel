@@ -1,7 +1,7 @@
 """Report an agent search's baseline, trials, spend and fallback to its run.
 
-The search scores higher-is-better (negative MAE, ROC-AUC); a run reports the
-metric people read, so negative MAE is shown as MAE.
+The search scores higher-is-better (negative MAE, WAPE or MAPE; ROC-AUC); a run
+reports the metric people read, so a negative error is shown as the error.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from nori_rel.run import EventKind, FallbackReason, RunContext
 from .contracts import ScoreReport, Trial
 from .session import PlanningSession
 
-_NEGATED_METRICS = {"neg_mae": "mae"}
+_NEGATED_METRICS = {"neg_mae": "mae", "neg_wape": "wape", "neg_mape": "mape"}
 
 
 def displayed_metric_score(metric: str, score: float) -> tuple[str, float]:

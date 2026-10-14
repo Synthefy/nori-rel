@@ -128,6 +128,19 @@ tokens and extra Nori calls. Bound it with `max_cost_usd` (which also needs
 `prices`) or the search's `limits`. It is not exercised against a live model provider in release certification. See
 [run control](docs/run-control.md) for `stop` and `steer`.
 
+The agent keeps a program only if it lowers the error on held-out history.
+`predict(..., metric=...)` chooses that error for a regression target: `"mae"`
+(mean absolute error, the default), `"wape"` (total absolute error divided by
+total actual) or `"mape"` (mean absolute percentage error over rows whose
+actual is not zero). On one holdout WAPE ranks programs as MAE does; MAPE
+weighs every row equally in relative terms, so small series count as much as
+large ones. The metric changes which program is kept, not how the forecast is
+made, and trial events report it (`Trial 3/24: WAPE 11.20% ...`).
+
+```python
+client.predict(source=source, query=query, metric="wape", ...)
+```
+
 ## Save and reload
 
 Request prediction details to obtain a pipeline, then reconnect when using it:

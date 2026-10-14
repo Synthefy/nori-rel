@@ -11,18 +11,75 @@ import pandas as pd
 from .contracts import ScoreReport, TaskKind
 
 _EPSILON = 1e-9
+#: Regression metrics a search can score candidate programs with.
+REGRESSION_METRICS: tuple[str, ...] = ("mae", "wape", "mape")
+#: The regression metric used when none is chosen.
+DEFAULT_REGRESSION_METRIC = "mae"
 
 
-def metric_name(task: TaskKind) -> str:
-    """Return the higher-is-better metric each task is scored with."""
-    return "roc_auc" if task == "binary" else "neg_mae"
+def metric_name(task: TaskKind, metric: str = DEFAULT_REGRESSION_METRIC) -> str:
+    """Return the higher-is-better metric each task is scored with.
+
+    Binary tasks score ``"roc_auc"``. Regression scores the negative of
+    ``metric``: ``"neg_mae"``, ``"neg_wape"`` or ``"neg_mape"``.
+    """
+    if task == "binary":
+        return "roc_auc"
+    require_regression_metric(metric)
+    return f"neg_{metric}"
 
 
-def task_score(task: TaskKind, target: np.ndarray, prediction: np.ndarray) -> float:
-    """Score predictions with negative MAE or rank-based ROC-AUC."""
+def task_score(
+    task: TaskKind,
+    target: np.ndarray,
+    prediction: np.ndarray,
+    metric: str = DEFAULT_REGRESSION_METRIC,
+) -> float:
+    """Return a higher-is-better score of ``prediction`` against ``target``.
+
+    Binary tasks score rank-based ROC-AUC; regression scores the negative of
+    ``metric`` (see ``get_regression_error``).
+    """
     if task == "binary":
         return roc_auc(target, prediction)
-    return -float(np.mean(np.abs(prediction - target)))
+    return -get_regression_error(metric, target, prediction)
+
+
+def get_regression_error(
+    metric: str, target: np.ndarray, prediction: np.ndarray
+) -> float:
+    """Return the error of ``prediction`` against ``target`` under ``metric``.
+
+    Lower is better. ``"mae"`` is the mean absolute error. ``"wape"`` is the
+    total absolute error divided by the total absolute target, as a fraction.
+    ``"mape"`` is the mean of absolute error divided by absolute target, as a
+    fraction, over rows whose target is not zero: a zero target has no
+    percentage error. Raises ``ValueError`` for an unknown metric, or when WAPE
+    or MAPE has no nonzero target to divide by.
+    """
+    require_regression_metric(metric)
+    actual = np.asarray(target, dtype=float)
+    errors = np.abs(np.asarray(prediction, dtype=float) - actual)
+    if metric == "mae":
+        return float(np.mean(errors))
+    magnitudes = np.abs(actual)
+    if metric == "wape":
+        total = float(magnitudes.sum())
+        if total == 0.0:
+            raise ValueError("WAPE needs a holdout whose targets are not all zero")
+        return float(errors.sum() / total)
+    nonzero = magnitudes > 0
+    if not nonzero.any():
+        raise ValueError("MAPE needs a holdout row whose target is not zero")
+    return float(np.mean(errors[nonzero] / magnitudes[nonzero]))
+
+
+def require_regression_metric(metric: str) -> None:
+    """Raise ``ValueError`` unless ``metric`` is one of ``REGRESSION_METRICS``."""
+    if metric not in REGRESSION_METRICS:
+        raise ValueError(
+            f"metric must be one of {', '.join(REGRESSION_METRICS)}, not {metric!r}"
+        )
 
 
 def roc_auc(target: np.ndarray, score: np.ndarray) -> float:
@@ -115,4 +172,13 @@ def _ridge(
     return holdout @ weights + intercept
 
 
-__all__ = ["RidgeScorer", "metric_name", "roc_auc", "task_score"]
+__all__ = [
+    "DEFAULT_REGRESSION_METRIC",
+    "REGRESSION_METRICS",
+    "RidgeScorer",
+    "get_regression_error",
+    "metric_name",
+    "require_regression_metric",
+    "roc_auc",
+    "task_score",
+]

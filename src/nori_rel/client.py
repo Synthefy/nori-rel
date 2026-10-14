@@ -36,6 +36,8 @@ if TYPE_CHECKING:
     from nori_rel.pipeline import NoriRelPipeline, PredictionDetails
 
 PredictionOperation = Literal["average", "total", "minimum", "maximum", "count"]
+#: How an agent search scores candidate feature programs on a regression target.
+AgentSearchMetric = Literal["mae", "wape", "mape"]
 
 
 class PredictionRequestArguments(TypedDict, total=False):
@@ -67,6 +69,7 @@ class PredictionRequestArguments(TypedDict, total=False):
     entity_created_at: str | None
     max_context_rows: int | None
     feature_program: Mapping[str, Any] | None
+    metric: AgentSearchMetric | None
     log_summary: bool
     pipeline: NoriRelPipeline | None
     expected_context_sha256: str | None
@@ -284,6 +287,7 @@ class NoriRelClient:
         entity_created_at: str | None = None,
         max_context_rows: int | None = None,
         feature_program: Mapping[str, Any] | None = None,
+        metric: AgentSearchMetric | None = None,
         log_summary: bool = True,
         pipeline: NoriRelPipeline | None = None,
         expected_context_sha256: str | None = None,
@@ -317,6 +321,16 @@ class NoriRelClient:
         works with any features setting and needs the agentic extra for DuckDB.
         Replay requires the same PQL text, entity_created_at, schema and NoriDFS
         columns. Version-1 records lack these checks and must be regenerated.
+
+        metric chooses how an agent search (features=AgenticSearch...) scores
+        each candidate SQL program on held-out history, and so which program it
+        keeps: "mae" (mean absolute error, the default), "wape" (total absolute
+        error divided by total actual) or "mape" (mean absolute percentage
+        error over rows whose actual is not zero). On one holdout, WAPE ranks
+        programs as MAE does; MAPE weighs every row equally in relative terms,
+        so small series count as much as large ones. It does not change the
+        forecast itself (the median, or output_type). It applies only to
+        regression targets with an agent search; otherwise it raises ValueError.
 
         pipeline predicts with a saved NoriRelPipeline and no feature search.
         Pass source, as_of (the prediction time) and observed_through, and
@@ -467,6 +481,7 @@ class NoriRelClient:
         entity_created_at: str | None = None,
         max_context_rows: int | None = None,
         feature_program: Mapping[str, Any] | None = None,
+        metric: AgentSearchMetric | None = None,
         log_summary: bool = True,
         pipeline: NoriRelPipeline | None = None,
         expected_context_sha256: str | None = None,
@@ -501,6 +516,7 @@ class NoriRelClient:
                     "entity_created_at": entity_created_at,
                     "max_context_rows": max_context_rows,
                     "feature_program": feature_program,
+                    "metric": metric,
                 },
                 log_summary=log_summary,
             )
@@ -599,6 +615,7 @@ class NoriRelClient:
                 query_filter=query_filter,
                 feature_program=program,
                 run_context=run_context,
+                metric=metric,
             )
 
         return predict_frame
