@@ -6,7 +6,7 @@ Version 0.3.0 defines the initial public database-client contract.
 | --- | --- |
 | Python | 3.11 and 3.12. |
 | Primary CI platform | Linux. CI also installs the wheel with the `database` extra on macOS and Windows and runs import checks only. Other operating systems require their own dependency/runtime validation. |
-| PostgreSQL | TLS-enabled PostgreSQL; read-only transactions and bounded extraction. CI server versions are specified in `.github/workflows/ci.yml`. |
+| PostgreSQL | TLS-enabled PostgreSQL; read-only transactions and bounded extraction. CI and release-matrix server versions are specified in `.github/workflows/ci.yml` and `.github/workflows/release-matrix.yml`. |
 | Snowflake | Standard tables with available Time Travel history. |
 | Databricks | Unity Catalog Delta tables on a SQL warehouse, with retained versions. |
 | Features | FastDFS (default) and NoriDFS. |

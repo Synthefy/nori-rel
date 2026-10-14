@@ -25,7 +25,13 @@ REQUIRED_REVIEW_FILES = frozenset(
         "scripts/validate_artifacts.py",
         *(
             f".github/workflows/{name}.yml"
-            for name in ("ci", "dependency-audit", "publish", "warehouse-tests")
+            for name in (
+                "ci",
+                "dependency-audit",
+                "publish",
+                "release-matrix",
+                "warehouse-tests",
+            )
         ),
     }
 )
