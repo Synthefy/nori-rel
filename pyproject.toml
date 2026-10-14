@@ -28,6 +28,11 @@ dependencies = [
 
 [project.optional-dependencies]
 local = ["synthefy-nori==0.20.1", "fsspec>=2026.6.0"]
+agentic = [
+    "anthropic>=1,<2",
+    "duckdb>=1.1,<2",
+    "openai>=1.60,<3",
+]
 database = [
     "boto3>=1.34,<2",
     "fastdfs>=1.1,<2",

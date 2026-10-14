@@ -36,7 +36,7 @@ jobs:
       - name: Resolve published dependency bounds without the developer lock
         run: >-
           uv pip compile pyproject.toml --no-sources --group dev
-          --extra database --extra snowflake --extra databricks
+          --extra database --extra snowflake --extra databricks --extra agentic
           --resolution "$RESOLUTION" -o requirements-compat.txt
       - name: Test the installed distribution against that resolution
         run: |
@@ -48,7 +48,7 @@ jobs:
           version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           cd "$RUNNER_TEMP"
           uv run --no-project --python "$RUNNER_TEMP/compat-venv" \
-            "$GITHUB_WORKSPACE/scripts/smoke_install.py" --extras database,snowflake,databricks --version "$version"
+            "$GITHUB_WORKSPACE/scripts/smoke_install.py" --extras database,snowflake,databricks,agentic --version "$version"
           uv run --no-project --python "$RUNNER_TEMP/compat-venv" pytest \
             "$GITHUB_WORKSPACE/tests/feature" \
             "$GITHUB_WORKSPACE/tests/pql/test_parser.py" \
