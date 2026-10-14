@@ -56,7 +56,7 @@
       "sha256": "feaed26b361226225f513a6551bba0d8e69df2ce15b519fb182cd6fb59abc825"
     },
     "src/nori_rel/_feature_search.py": {
-      "sha256": "61e20517911f414583dea95c45e9f1165f292c14a82bd5511272dc07d793df82"
+      "sha256": "1af9e4ee8b5f175fda43eb67e5dc90f3c9b1a7cc5c7fcbe6a6be7b43a741d5f5"
     },
     "src/nori_rel/_features.py": {
       "sha256": "1e421a9f6681a60d52262bcec6f8aed3e90eb126e69314661bc6387c07b9587d"
@@ -71,13 +71,13 @@
       "sha256": "ac7ebea5d01a1171c7d90e27b01baf6ad9e977a4b9c932cfa06f8b230b46d3d9"
     },
     "src/nori_rel/_pql_runtime.py": {
-      "sha256": "471f5edd09ab6d9bd36507805363e23440098cd2c4916c47a16a5f889d300f1f"
+      "sha256": "2be75cf4003aa2d9e33d2e694360b99105846484c83d09b7bb047db95bec42f7"
     },
     "src/nori_rel/_runtime.py": {
-      "sha256": "cf539d4641c277f624d77dae407d4545db893ac4217cac1d8a381a92b001a3cd"
+      "sha256": "e94c8e073f8f40217ac4547281d6968caed8e2acb4e73a96b7110e4c77a89d32"
     },
     "src/nori_rel/client.py": {
-      "sha256": "171b3cb6faecf52b57fd8540e0ef6974dae37b61c55e9518c7053c2a15303eed"
+      "sha256": "178a069e37a7d138e30da5f88e83e67c163318f2b7eee22f65c50f22d2e64245"
     },
     "src/nori_rel/connectors/__init__.py": {
       "sha256": "062b7b032c2a4d0d07484e5014b7dc46b6486887ecf158b3d101cb387abde71d"
@@ -101,7 +101,7 @@
       "sha256": "5afb497bfd57aacbe34eb97cd8da176c69a01913c06f034b3d5ded5536245f21"
     },
     "src/nori_rel/contracts.py": {
-      "sha256": "9c24e244570d0e59667d23010326665d6bf8f98364f2d47f57427f3dbd3dd37d"
+      "sha256": "88fb38d679e246db8db558c6fa45b383e1c3b91ff3c5dc1758f97901245a9a7d"
     },
     "src/nori_rel/feature/__init__.py": {
       "sha256": "9ea8ef98d0c71eafecc8f281d6dcf7ce866e40bbc491c73f71f5d86f1d2d691a"
@@ -140,10 +140,10 @@
       "sha256": "9870319e21e2a3193fe48bcf52719cb1cd977fc8171991550208417313d495ae"
     },
     "src/nori_rel/feature/agentic/run_reporting.py": {
-      "sha256": "f298eaedd6b833d33036cfe5fa9eb84d7b7952a035c89dd13d70d1ec8da9b0a2"
+      "sha256": "bbf778ca52bc752948cc63d7854372b14be1b4ba19d5414a3744d6f125d13e06"
     },
     "src/nori_rel/feature/agentic/scoring.py": {
-      "sha256": "77d95a5c4a149cd5b48584a1e73b3729d9344035e5fd044cdb133493b7ecb8c8"
+      "sha256": "3754a3be8083acb466612484bedd3c02ca769692473fdc2611ac168d452f4728"
     },
     "src/nori_rel/feature/agentic/session.py": {
       "sha256": "fae33f791686cd0d17cdb369575375db106eb1f258cbb11e47f5d75dcd09ae80"
@@ -305,7 +305,7 @@
       "sha256": "9fd535be61b9aced49690cd327843b33b09dba2bd159e3c724444aa0a65a9538"
     },
     "src/nori_rel/run/messages.py": {
-      "sha256": "098bb11a85479d5016c5ece10e9386afd32c80b7d7d76da110822793686c3771"
+      "sha256": "fddb8bde2ca6c213db4451fb2886dacd43dd76e43c3a0a9f635feeaab02defc5"
     },
     "src/nori_rel/run/models.py": {
       "sha256": "3893ffcc605da14a662fc05a499ffe6ac69c80fd56e99c5422f816cbf7639c1f"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import (
     BaseModel,
@@ -54,6 +54,15 @@ class RelationalOutputType(StrEnum):
     MEAN = "mean"
     MEDIAN = "median"
     QUANTILES = "quantiles"
+
+
+#: The errors an agent search can score its candidate programs with, on a
+#: regression target; lower is better for each. See ``predict``'s ``metric``.
+AgentSearchMetric = Literal[
+    "mae", "mse", "rmse", "nmae", "nrmse", "medae", "wape", "mape", "smape"
+]
+#: Every ``AgentSearchMetric``, in the order above.
+AGENT_SEARCH_METRICS: tuple[str, ...] = get_args(AgentSearchMetric)
 
 
 class AwsSecret(BaseModel):

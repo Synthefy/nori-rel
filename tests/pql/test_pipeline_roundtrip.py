@@ -327,6 +327,8 @@ def test_a_pipeline_rejects_changed_schemas_tasks_and_arguments(shop, checkpoint
         predict(anchor_times=ANCHORS, entity_created_at="created_at")
     with pytest.raises(ValueError, match="anchor_time cannot be passed"):
         predict(anchor_time=CUTOFF)
+    with pytest.raises(ValueError, match="metric cannot be passed"):
+        predict(metric="wape")
     with pytest.raises(PipelineModelError, match="uses local Nori"):
         predict(client={"mode": "hosted", "api_key": "test-only", "device": None})
     with pytest.raises(PipelineModelError, match="model 'nori-30m'"):
