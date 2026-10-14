@@ -28,6 +28,9 @@
     "scripts/audit_dependencies.py": {
       "sha256": "4e724bb1fb48d97ac2390f6c021e7cf1d79cf41e69c32f82e15b3864a71c3005"
     },
+    "scripts/smoke_install.py": {
+      "sha256": "8c7a39960cdc96b7dccba1d0800fa76d7c2846f8b484e6f555d3973d58771581"
+    },
     "scripts/validate_artifacts.py": {
       "sha256": "4c1359a89655b0a274cea816772b08328d0a64f0c670ee70b999a6d77a62b46f"
     },
