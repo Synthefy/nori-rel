@@ -128,7 +128,7 @@ def test_invalid_filter_values_fail_before_execution(schema, suffix):
     "target,suffix",
     [
         ("COUNT(orders.*,-30,0,days)", ""),
-        ("COUNT(orders.*,0,1,months)", ""),
+        ("COUNT(orders.*,0,1,weeks)", ""),
         ("COUNT(orders.*,0,30,days)", "WHERE users.age>18 OR users.active=true"),
         ("COUNT(orders.*,0,30,days)", "WHERE COUNT(orders.*,-30,0,days)>0"),
     ],
@@ -689,3 +689,12 @@ def test_arithmetic_ctes_are_combined_with_a_full_join(schema):
     )
     assert "FULL JOIN __nori_agg_1 AS a1 USING (context_row_id)" in sql
     assert "\nJOIN __nori_agg_" not in sql
+
+
+def test_month_windows_add_calendar_months(schema):
+    sql, params = compile_target("SUM(orders.amount,1,3,months)", schema)
+    assert params["start_months"] == 1 and params["horizon_months"] == 3
+    assert "horizon_days" not in params
+    lower = "e.anchor_time + %(start_months)s * INTERVAL '1 month'"
+    upper = "e.anchor_time + %(horizon_months)s * INTERVAL '1 month'"
+    assert f'\n AND o."event_time" > {lower}\n AND o."event_time" <= {upper}' in sql

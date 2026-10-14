@@ -509,7 +509,7 @@ class LocalRelationalRuntime:
             )
             return AgenticFeatures(
                 program=program.to_program(),
-                fallback=noridfs_backend(window.end - window.start),
+                fallback=noridfs_backend(window.get_length_in_days()),
                 config=config,
                 expected_baseline_columns=program.baseline_columns,
                 run_context=run_context,
@@ -520,7 +520,7 @@ class LocalRelationalRuntime:
             return FastDFS(max_depth=2, max_features=self.limits.max_features)
         from nori_rel._feature_search import AgenticSearch, noridfs_backend
 
-        seed = noridfs_backend(window.end - window.start)
+        seed = noridfs_backend(window.get_length_in_days())
         if self.features == "noridfs":
             return seed
         assert isinstance(self.features, AgenticSearch)

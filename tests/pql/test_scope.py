@@ -133,3 +133,13 @@ def test_backward_looking_start_is_named_as_such(start):
     with pytest.raises(PQLScopeError, match="backward-looking") as error:
         check_v0_syntax(parse_pql(query))
     assert query[error.value.start_offset : error.value.end_offset] == start
+
+
+def test_month_windows_are_in_scope_and_other_units_are_not():
+    check_v0_syntax(
+        parse_pql("PREDICT SUM(orders.amount,0,1,months) FOR EACH users.user_id")
+    )
+    with pytest.raises(PQLScopeError, match="months"):
+        check_v0_syntax(
+            parse_pql("PREDICT SUM(orders.amount,0,1,weeks) FOR EACH users.user_id")
+        )

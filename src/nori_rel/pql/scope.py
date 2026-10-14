@@ -89,7 +89,8 @@ def _condition(node: Grammar.ConditionContext, *, is_filter: bool) -> None:
 def _aggregate(node: Grammar.AggregationContext) -> None:
     """Check an AggregationContext, e.g. COUNT(orders.*,0,30,days).
 
-    Requires a supported operation and an explicit (start, end, days) window
+    Requires a supported operation and an explicit (start, end, days) or
+    (start, end, months) window
     whose start is a non-negative integer, so the label interval begins at or
     after the anchor; also checks any inline filter. Returns None or raises
     PQLScopeError. Whether end exceeds start, and database column types, are
@@ -99,9 +100,11 @@ def _aggregate(node: Grammar.AggregationContext) -> None:
     offsets = node.offset()
     unit = node.TIME_UNIT()
     _require(
-        len(offsets) == 2 and unit is not None and unit.getText().lower() == "days",
+        len(offsets) == 2
+        and unit is not None
+        and unit.getText().lower() in ("days", "months"),
         node,
-        "window must use (start, end, days)",
+        "window must use (start, end, days) or (start, end, months)",
     )
     start, end = offsets
     # -INF and negative starts are Kumo's lookback form: the interval would

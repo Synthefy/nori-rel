@@ -74,7 +74,7 @@
       "sha256": "2be75cf4003aa2d9e33d2e694360b99105846484c83d09b7bb047db95bec42f7"
     },
     "src/nori_rel/_runtime.py": {
-      "sha256": "e94c8e073f8f40217ac4547281d6968caed8e2acb4e73a96b7110e4c77a89d32"
+      "sha256": "550cf7f54178be1960abb2721d3c33c1407dbc91be52a4fc0a605a0990e691fb"
     },
     "src/nori_rel/client.py": {
       "sha256": "96b274a30f9090505c2a8c50118bbccb20cf58cd0acdc13e7b31cda51c6c9ff1"
@@ -245,10 +245,10 @@
       "sha256": "fbf3d0cb018ef2e7c06982e3e84c749a0ab750f94104bbaeeeeb3152936d43c1"
     },
     "src/nori_rel/pql/context_sql.py": {
-      "sha256": "f8f88e0de3a163cca45e35ec618c1d333cbd1e609ca18a7f6767d44d083da71b"
+      "sha256": "1ae1fedabf4a2be37fdf949221c897210a3e465fa8208074c4e544d72735b2e0"
     },
     "src/nori_rel/pql/dialects.py": {
-      "sha256": "010eb52a112b4140c19f88a8d2f82f9a0fcaeb54d56ccffd42095ed834bbf142"
+      "sha256": "e37fa8096ed1498cedc7e46f3b48a2ad3a672646e7be9b039577dd20aedc0aa5"
     },
     "src/nori_rel/pql/grammar/CHECKSUMS.txt": {
       "sha256": "9fe68acedbea2bd903726a8911baa4c88c2fd2a4a76b097645992994dad0d8f0"
@@ -269,7 +269,7 @@
       "sha256": "1dc361ab9366f4034dcb4051e5f0db9b4a30be1ac3fdf61f0d7a958ad4b2a086"
     },
     "src/nori_rel/pql/scope.py": {
-      "sha256": "851e66d28d53c0717cf784aff813fe5a66e86168e8aa54da6d8f4c192b0e4ec4"
+      "sha256": "ea726951d6fce880505403d2d10b841a2a41d9c48b5028b6fd49865a24a99ac5"
     },
     "src/nori_rel/pql/scoring_sql.py": {
       "sha256": "95f9a4d04b77625512bfb7a37661c843a102dcb9dd80b515c7d514df9f617668"
@@ -281,7 +281,7 @@
       "sha256": "df92360fae13b4e3d43ed322529ee669f105ee29725b1b730f07e4915b165c28"
     },
     "src/nori_rel/pql/window.py": {
-      "sha256": "691ad5495a4f7b969ea2011b7ea931a834c2fbe0e8d0c23ac8aa028345dd0335"
+      "sha256": "310f00e04a82797ebe755aa1636a57b355c4b742b2ebbe970186a01f83aaba9f"
     },
     "src/nori_rel/py.typed": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
