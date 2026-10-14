@@ -35,7 +35,7 @@
       "sha256": "fe816be0736ea291cc4bccb7c5e5dfa3898a48adbf00cab13aef3d219c48c0f7"
     },
     "scripts/validate_artifacts.py": {
-      "sha256": "f15bcd8ec09699dc736e7f920ecb4c6637af1b3114983b1f6921ff07099aebc4"
+      "sha256": "034cc449cc503d34f204f5a7cdecba47b0f51697cce72d64ec68451a11033f45"
     },
     "scripts/verify_release.py": {
       "sha256": "531ae23cae5b44769e02ec7db0b2defa86cb40e39ce81dba05b74dda298d2050"
