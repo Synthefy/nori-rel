@@ -188,7 +188,10 @@ jobs:
           selection="$artifact"
           if [ -n "$EXTRAS" ]; then selection="${artifact}[$EXTRAS]"; fi
           if [[ "$EXTRAS" == *local* ]]; then
+            # Fetch only the CPU wheel here; its pinned dependencies come from
+            # PyPI in the complete package install below.
             uv pip install --python "$RUNNER_TEMP/artifact-venv" \
+              --no-deps \
               --constraint "$RUNNER_TEMP/release-constraints.txt" \
               torch --index-url https://download.pytorch.org/whl/cpu
           fi

@@ -8,7 +8,7 @@
       "sha256": "bda54ce3589c2aedfd19abcfa572638aa15c73cfcf63a706e24de5f5d67b1773"
     },
     ".github/workflows/ci.yml": {
-      "sha256": "5e159d1a90dab1f7c43a4e33fa23125cb333c8fe490cc8a1c8fe6ec0c8559680"
+      "sha256": "9ea4d29827acb7a5155a4147c88ccae7b53a53e1853bbfc68dfc5eaa6432c155"
     },
     ".github/workflows/dependency-audit.yml": {
       "sha256": "9005e4394bf4e23af9f8ea5a33fe053b462e8f9cdcb533a97dac90f2e5bce078"
