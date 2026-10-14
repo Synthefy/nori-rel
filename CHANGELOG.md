@@ -2,6 +2,14 @@
 
 ## 0.4.0 — 2026-10-14
 
+- PQL label windows accept `months`: `SUM(orders.amount,0,1,months)` covers one
+  UTC calendar month from the anchor (a whole month from an anchor on the 1st),
+  rendered as calendar-month arithmetic on PostgreSQL, Snowflake, and
+  Databricks. Day windows are unchanged.
+- Warn when `anchor_times` give no training rows because their label window ends
+  after the earlier of `anchor_time` and `observed_through`, naming the dropped
+  anchors. Previously they were dropped silently, which with a 30-day window on
+  monthly data removed every February anchor.
 - Add the NoriDFS relationship feature search (`features="noridfs"`) beside
   FastDFS. It needs only the core dependencies.
 - Add `AgenticSearch` (`nori-rel[agentic]`). A language-model agent writes SQL

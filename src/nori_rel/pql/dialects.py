@@ -104,6 +104,17 @@ class SQLDialect:
             return f"{anchor} + {placeholder} * INTERVAL '24 hours'"
         return f"TIMESTAMPADD(HOUR, {placeholder} * 24, {anchor})"
 
+    def add_months(self, anchor: str, placeholder: str) -> str:
+        """Add calendar months to an anchor, in the session's UTC time zone.
+
+        Every connector sets its session to UTC, so month boundaries are UTC
+        calendar months. A day past the end of the target month becomes its
+        last day, as each engine adds months natively.
+        """
+        if self.is_postgresql:
+            return f"{anchor} + {placeholder} * INTERVAL '1 month'"
+        return f"TIMESTAMPADD(MONTH, {placeholder}, {anchor})"
+
     def numeric_cast(
         self,
         expression: str,

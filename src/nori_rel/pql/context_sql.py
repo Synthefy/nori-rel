@@ -1,5 +1,6 @@
 """Build bounded historical entity/anchor candidates for temporal PQL labels."""
 
+import warnings
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
@@ -101,11 +102,14 @@ def compile_context_sql(
         raise ValueError("max_context_rows must be a positive integer")
     cutoff = min(_utc(anchor_time), _utc(observed_through))
     # Every leaf's whole interval must be observed, so the furthest end governs;
-    # a delayed start does not bring an anchor forward.
-    latest_anchor = min(
-        target_window(a).latest_anchor(cutoff) for a in target_aggregates(tree)
+    # a delayed start does not bring an anchor forward. Calendar months vary in
+    # length, so each anchor's own interval end is checked, not one threshold.
+    windows = [target_window(a) for a in target_aggregates(tree)]
+    requested = sorted(set(map(_utc, anchor_times)))
+    anchors = [a for a in requested if all(w.is_observed(a, cutoff) for w in windows)]
+    _warn_about_unobserved_anchors(
+        requested, anchors, cutoff, in_days=any(w.unit == "days" for w in windows)
     )
-    anchors = sorted({a for a in map(_utc, anchor_times) if a <= latest_anchor})
 
     ids, bound = node_ids(tree), bind_columns(tree, schema)
     entity, key = bound[ids[parts["entity_column"]]]
@@ -148,3 +152,42 @@ SELECT ROW_NUMBER() OVER (ORDER BY anchor_time DESC, entity_id) AS context_row_i
 FROM selected
 ORDER BY context_row_id"""
     return sql, params
+
+
+#: How many dropped anchors a warning lists by date.
+_MAX_LISTED_ANCHORS = 5
+
+
+def _warn_about_unobserved_anchors(
+    requested: Sequence[datetime],
+    kept: Sequence[datetime],
+    cutoff: datetime,
+    *,
+    in_days: bool,
+) -> None:
+    """Warn when requested anchor_times give no training rows.
+
+    An anchor is dropped when its label interval ends after the cutoff, the
+    earlier of anchor_time and observed_through. Without a warning, a 30-day
+    window on monthly data silently loses every February anchor. ``in_days``
+    adds the suggestion of a calendar-month window.
+    """
+    dropped = [anchor for anchor in requested if anchor not in set(kept)]
+    if not dropped:
+        return
+    listed = ", ".join(a.isoformat() for a in dropped[:_MAX_LISTED_ANCHORS])
+    if len(dropped) > _MAX_LISTED_ANCHORS:
+        listed += f" and {len(dropped) - _MAX_LISTED_ANCHORS} more"
+    hint = (
+        " On monthly data, a window in months, such as (0, 1, months), holds "
+        "exactly one calendar month."
+        if in_days
+        else ""
+    )
+    warnings.warn(
+        f"{len(dropped)} of {len(requested)} anchor_times give no training rows "
+        f"because their label window ends after {cutoff.isoformat()}, the earlier "
+        f"of anchor_time and observed_through: {listed}.{hint}",
+        UserWarning,
+        stacklevel=3,
+    )
