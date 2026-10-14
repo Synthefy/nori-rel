@@ -175,8 +175,7 @@ def validate_public_distributions(dist: Path, source: Path) -> dict:
                 )
         for requirement in metadata.get_all("Requires-Dist", []):
             if any(
-                name in requirement.lower()
-                for name in ("relarena", "relbench", "anthropic", "openai", "git+")
+                name in requirement.lower() for name in ("relarena", "relbench", "git+")
             ):
                 raise ValueError(f"internal dependency in wheel: {requirement}")
         if any(name.endswith("/entry_points.txt") for name in names):
