@@ -5,9 +5,10 @@ releases. The initial public candidate is `0.3.0`; this repository stays private
 until the release gates below pass. Research, earlier history, and collaboration
 records remain in the private `Synthefy/nori-rel-internal` repository.
 
-The initial candidate also has unresolved
-[upstream dependency security blockers](docs/dependency-security.md). The
-publishing dependency audit must pass before either TestPyPI or PyPI upload.
+The initial candidate has scoped, expiring
+[dependency security assessments](docs/dependency-security.md). The dependency
+gate requires complete audit results and zero unassessed findings before either
+TestPyPI or PyPI upload; raw findings remain in the audit artifacts.
 Live-service certification and publisher setup also remain outstanding.
 
 ## One-time repository and index setup

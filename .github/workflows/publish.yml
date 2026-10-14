@@ -119,9 +119,12 @@ jobs:
         env:
           PACKAGE_VERSION: ${{ needs.verify.outputs.version }}
         run: |
+          uv export --locked --all-extras --all-groups --no-emit-project \
+            --no-hashes --no-annotate --output-file "$RUNNER_TEMP/release-constraints.txt" > /dev/null
           for artifact in "$GITHUB_WORKSPACE"/release-artifacts/dist/*; do
             uv venv --clear "$RUNNER_TEMP/release-smoke"
-            uv pip install --python "$RUNNER_TEMP/release-smoke" "${artifact}[database]"
+            uv pip install --python "$RUNNER_TEMP/release-smoke" \
+              --constraint "$RUNNER_TEMP/release-constraints.txt" "${artifact}[database]"
             uv pip check --python "$RUNNER_TEMP/release-smoke"
             (cd "$RUNNER_TEMP" && uv run --no-project --python "$RUNNER_TEMP/release-smoke" \
               "$GITHUB_WORKSPACE/scripts/smoke_install.py" --extras database --version "$PACKAGE_VERSION")
@@ -203,9 +206,12 @@ jobs:
         run: |
           python scripts/verify_published.py --index "$TARGET" \
             --manifest release-artifacts/manifest.json --output published-artifacts
+          uv export --locked --all-extras --all-groups --no-emit-project \
+            --no-hashes --no-annotate --output-file "$RUNNER_TEMP/release-constraints.txt" > /dev/null
           uv venv "$RUNNER_TEMP/published-smoke"
           wheel="$(find "$GITHUB_WORKSPACE/published-artifacts" -name '*.whl' -type f)"
-          uv pip install --python "$RUNNER_TEMP/published-smoke" "${wheel}[database]"
+          uv pip install --python "$RUNNER_TEMP/published-smoke" \
+            --constraint "$RUNNER_TEMP/release-constraints.txt" "${wheel}[database]"
           uv pip check --python "$RUNNER_TEMP/published-smoke"
           cd "$RUNNER_TEMP"
           uv run --no-project --python "$RUNNER_TEMP/published-smoke" \

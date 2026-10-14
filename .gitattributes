@@ -6,3 +6,5 @@ src/nori_rel/pql/_generated/*.py linguist-generated=true
 src/nori_rel/pql/_vendor/kumo/* text eol=lf
 src/nori_rel/pql/grammar/* text eol=lf
 src/nori_rel/pql/_generated/*.py text eol=lf
+# Release assessments hash exact source bytes on every supported OS.
+* text=auto eol=lf

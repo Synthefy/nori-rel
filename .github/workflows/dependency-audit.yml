@@ -11,12 +11,16 @@ permissions:
 
 jobs:
   audit:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         python: ["3.11", "3.12"]
+        os: [ubuntu-24.04, macos-14, windows-2022]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -40,17 +44,17 @@ jobs:
           requirements = re.sub(r"(?m)^(torch==[^+;\s]+)\+cpu(?=\s|$)", r"\1", original)
           Path("audit/requirements.txt").write_text(requirements)
           PY
-      - name: Fail on known vulnerabilities or unauditable dependencies
+      - name: Audit every dependency and enforce reviewed applicability
         env:
           AUDIT_PYTHON: ${{ matrix.python }}
         run: >-
-          uvx --python "$AUDIT_PYTHON" --from pip-audit==2.10.1 pip-audit
-          --strict --no-deps --disable-pip --progress-spinner off
-          -r audit/requirements.txt --format json --output audit/report.json
+          uvx --python "$AUDIT_PYTHON" --from pip-audit==2.10.1
+          python scripts/audit_dependencies.py
+          --requirements audit/requirements.txt --output audit
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
         with:
-          name: dependency-audit-${{ matrix.python }}
+          name: dependency-audit-${{ matrix.os }}-${{ matrix.python }}
           path: audit/
           if-no-files-found: error
           retention-days: 30

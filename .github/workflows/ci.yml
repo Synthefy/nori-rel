@@ -19,6 +19,9 @@ env:
   UV_VERSION: "0.12.21"
 
 jobs:
+  dependency-audit:
+    uses: ./.github/workflows/dependency-audit.yml
+
   lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -178,14 +181,22 @@ jobs:
           path: release-artifacts
       - name: Install only the selected extra from the distribution
         run: |
+          uv export --locked --all-extras --all-groups --no-emit-project \
+            --no-hashes --no-annotate --output-file "$RUNNER_TEMP/release-constraints.txt" > /dev/null
           uv venv "$RUNNER_TEMP/artifact-venv"
           artifact="$(find "$GITHUB_WORKSPACE/release-artifacts/dist" -name "*.$FORMAT" -type f)"
           selection="$artifact"
           if [ -n "$EXTRAS" ]; then selection="${artifact}[$EXTRAS]"; fi
           if [[ "$EXTRAS" == *local* ]]; then
-            uv pip install --python "$RUNNER_TEMP/artifact-venv" torch --index-url https://download.pytorch.org/whl/cpu
+            # Fetch only the CPU wheel here; its pinned dependencies come from
+            # PyPI in the complete package install below.
+            uv pip install --python "$RUNNER_TEMP/artifact-venv" \
+              --no-deps \
+              --constraint "$RUNNER_TEMP/release-constraints.txt" \
+              torch --index-url https://download.pytorch.org/whl/cpu
           fi
-          uv pip install --python "$RUNNER_TEMP/artifact-venv" "$selection"
+          uv pip install --python "$RUNNER_TEMP/artifact-venv" \
+            --constraint "$RUNNER_TEMP/release-constraints.txt" "$selection"
           uv pip check --python "$RUNNER_TEMP/artifact-venv"
           cd "$RUNNER_TEMP"
           uv run --no-project --python "$RUNNER_TEMP/artifact-venv" \
@@ -193,7 +204,7 @@ jobs:
 
   release-readiness:
     if: always()
-    needs: [lint, secrets, postgres, build, artifact-install]
+    needs: [dependency-audit, lint, secrets, postgres, build, artifact-install]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
