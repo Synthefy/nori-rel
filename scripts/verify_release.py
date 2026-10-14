@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -14,6 +15,11 @@ from pathlib import Path
 REPOSITORY = "Synthefy/nori-rel"
 PUBLISH_WORKFLOW_PATH = ".github/workflows/publish.yml"
 PACKAGE_INDEXES = ("testpypi", "pypi")
+CHANGELOG_PATH = Path("CHANGELOG.md")
+# "## 0.3.0 \u2014 2026-10-14"; an ASCII or en dash is also accepted.
+RELEASE_HEADING = re.compile(
+    r"## (?P<version>\S+) [\u2014\u2013-] (?P<date>\d{4}-\d{2}-\d{2})"
+)
 
 
 def read_github_repository_json(path: str) -> dict:
@@ -28,6 +34,29 @@ def read_github_repository_json(path: str) -> dict:
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)
+
+
+def require_changelog_entry(version: str, changelog: str) -> None:
+    """Require dated, non-empty release notes for the version being released."""
+    headings = list(re.finditer(r"^## .*$", changelog, flags=re.MULTILINE))
+    for index, heading in enumerate(headings):
+        match = RELEASE_HEADING.fullmatch(heading[0].rstrip())
+        if match is None or match["version"] != version:
+            continue
+        try:
+            datetime.date.fromisoformat(match["date"])
+        except ValueError:
+            break
+        notes_end = (
+            headings[index + 1].start() if index + 1 < len(headings) else len(changelog)
+        )
+        if changelog[heading.end() : notes_end].strip():
+            return
+        break
+    raise ValueError(
+        f"{CHANGELOG_PATH} needs release notes under a dated "
+        f"'## {version} \u2014 YYYY-MM-DD' heading"
+    )
 
 
 def build_candidate_provenance(run_id: str, target: str) -> dict[str, str]:
@@ -112,6 +141,7 @@ def main() -> None:
     version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
     if args.tag != f"v{version}":
         raise ValueError("release tag and project version differ")
+    require_changelog_entry(version, CHANGELOG_PATH.read_text(encoding="utf-8"))
     runs = read_github_repository_json(f"commits/{tag_commit}/check-runs?per_page=100")[
         "check_runs"
     ]

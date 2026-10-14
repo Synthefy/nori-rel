@@ -16,7 +16,7 @@ test-count target. The cleanup decisions below group comparable cases.
 | `tests/run/`, PQL run-stage/connection-lifecycle tests | Event ordering, background results, timeout, pause/resume/cancel, callback failures and client shutdown | Keep generic lifecycle cases; remove agent steering/trial/spend cases with their APIs |
 | Root checkpoint/local-inference tests and PQL client/inference tests | Local/hosted isolation, checkpoint integrity, predictions, output validation and transport contracts | Keep deterministic tests; require real local/hosted certification for releases |
 | `tests/test_legacy_adapter.py` | Deprecated aggregate-request migration behavior | Keep while the bridge remains public |
-| `tests/test_release_validation.py` and package validation scripts | Protected main/tag/version checks, exact candidate identity, stale/fork rejection, installed artifact boundaries | Keep behavior checks and package validation |
+| `tests/test_release_validation.py` and package validation scripts | Protected main/tag/version checks, changelog entry for the tagged version, exact candidate identity, stale/fork rejection, installed artifact boundaries | Keep behavior checks and package validation |
 | RelArena, NoriDFS, agentic, fine-tuning, Modal, and research end-to-end tests | Contracts of research implementations outside this distribution | Preserve with their code in the private internal repository |
 | Old workflow-routing and saved-notebook-output assertions | Mirrored retired draft/stacked-PR routing and research notebook output | Remove from `main`; use workflow validation and execution of the synthetic example |
 

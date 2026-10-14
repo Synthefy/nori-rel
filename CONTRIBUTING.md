@@ -36,9 +36,12 @@ service tests and [RELEASING.md](RELEASING.md) for mandatory release gates.
 
 Install `--extra local --group cpu` for local inference development on CPU.
 Resolve the latest stable `synthefy` SDK for new SDK work, update the constraint
-and lockfile, and verify the version in the interpreter running the code. See
-[the SDK policy](AGENTS.md#latest-synthefy-sdk). The separately pinned model
-runtime and weights are not implicitly upgraded with the SDK.
+and lockfile, and verify the version in the interpreter running the code. Read
+the installed version's API before writing a compatibility workaround; an old
+SDK is not evidence that a capability is missing. `synthefy` is the SDK, and
+`synthefy-nori` is the separate local runtime that `pyproject.toml` pins to one
+version. An SDK upgrade does not change the pinned runtime, model weights, or
+inference settings.
 
 ## Review expectations
 
@@ -49,11 +52,12 @@ duplicate cases; do not remove tests to meet a deletion or coverage target.
 Research implementations and their tests remain together in the private
 internal repository.
 
-Keep database drivers and the local model runtime optional. Check the relevant
-extra in a clean installed package when modifying dependency boundaries.
-Preserve vendored PQL notices and regenerate the parser/checksums together when
-changing the grammar. Document public API changes and migration guidance in
-`CHANGELOG.md`.
+Local inference is the default; never fall back to hosted inference unless the
+caller asks for it. Keep database drivers and the local model runtime optional.
+Check the relevant extra in a clean installed package when modifying dependency
+boundaries. Preserve vendored PQL notices and regenerate the parser/checksums
+together when changing the grammar. Document public API changes and migration
+guidance in `CHANGELOG.md`.
 
 Do not commit credentials, `.env` files, raw customer data, model weights, cached
 features, or generated build artifacts. Report security issues privately through
