@@ -8,7 +8,7 @@
       "sha256": "bda54ce3589c2aedfd19abcfa572638aa15c73cfcf63a706e24de5f5d67b1773"
     },
     ".github/workflows/ci.yml": {
-      "sha256": "7d7f42af5142d46c864a3419061675d4794c26aa8a7dceff1e35ad4fe78065d8"
+      "sha256": "9d2e21e152502af733e3d0fe3a0361477474d19cc457d0ed7575bf7437864f9e"
     },
     ".github/workflows/dependency-audit.yml": {
       "sha256": "9005e4394bf4e23af9f8ea5a33fe053b462e8f9cdcb533a97dac90f2e5bce078"
@@ -17,7 +17,10 @@
       "sha256": "890923d86c1b3ca2147896caf03c8700a259b663a4daac79777db113f63bd662"
     },
     ".github/workflows/publish.yml": {
-      "sha256": "1b55524c460c1f89400e7656948d9e524fd427dd5092a67768d7d35c82abbd63"
+      "sha256": "69db94768f01c859fa7c83ded9376d5c080a06d69f534a51581cfb99f1b67268"
+    },
+    ".github/workflows/release-matrix.yml": {
+      "sha256": "5d1a09de811b2aaabd0951e3532fbfa1d2ae88a3c5f2ac7113927c4e09ac8b6d"
     },
     ".github/workflows/warehouse-tests.yml": {
       "sha256": "c4c5f8685285ed24b3c89837718c0749153350f3a18a31a8240cefe0503137c4"
@@ -29,7 +32,7 @@
       "sha256": "4019017f08640599853bb37ed8138d2b0a699a36308b40d72cc6ca3f038ea831"
     },
     "scripts/audit_dependencies.py": {
-      "sha256": "4e724bb1fb48d97ac2390f6c021e7cf1d79cf41e69c32f82e15b3864a71c3005"
+      "sha256": "13e0a9dc3c0c87cdb3dc65e6bc6cd00f045db0f8361a1d36f5ab6afe364e8d12"
     },
     "scripts/smoke_install.py": {
       "sha256": "fe816be0736ea291cc4bccb7c5e5dfa3898a48adbf00cab13aef3d219c48c0f7"

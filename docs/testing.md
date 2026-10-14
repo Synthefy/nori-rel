@@ -42,10 +42,13 @@ uv run --no-sync pytest -m "not warehouse and not live_nori"
 ```
 
 Without PostgreSQL configuration, database tests skip and that run does not
-certify database behavior. CI supplies disposable PostgreSQL services. Its
-separate installation matrix checks base/connector/local extras from built
-distributions, outside the source checkout, on both supported Python versions.
-The aggregate `release-readiness` check requires all constituent jobs to pass.
+certify database behavior. CI on pull requests and main is one job,
+`release-readiness`: it runs these commands on Python 3.12 against a
+disposable PostgreSQL 18, builds the distributions, installs the wheel with
+every extra outside the source checkout, and audits dependencies. The release
+matrix (`release-matrix.yml`, run by `publish.yml` and on demand) installs each
+extra alone on both supported Python versions, the sdist, macOS and Windows, and
+tests against PostgreSQL 16 as well.
 
 ## Required release certification
 

@@ -73,10 +73,16 @@ from the source-code license.
    `main` commit; do not move or reuse a published tag/version. The release
    check fails unless `CHANGELOG.md` has a dated `## X.Y.Z — YYYY-MM-DD`
    heading with release notes for the tagged version.
-2. Require `release-readiness` to pass for that exact commit. Check Python
-   3.11/3.12, each connector extra independently, real PostgreSQL tests, clean
-   wheel/sdist installation outside the checkout, public import/typing checks,
-   license/package-content checks, lock consistency, and secret scanning.
+2. Require `release-readiness` to pass for that exact commit. This one CI job
+   runs on every pull request and main push: lint, workflow validation, secret
+   scanning, the test suite on Python 3.12 against real PostgreSQL 18, the
+   wheel/sdist build with package-content and candidate checks, an install of
+   the built wheel with every extra outside the checkout, and the dependency
+   audit on Linux. The full matrix (Python 3.11/3.12, PostgreSQL 16/18, each
+   connector extra installed alone, the sdist, macOS and Windows) is
+   `release-matrix.yml`: `publish.yml` runs it before building a candidate, so
+   nothing is uploaded without it. Dispatch it on the candidate commit to find
+   failures before tagging.
 3. Run protected live warehouse and real inference certification for the exact
    candidate. Missing credentials, model weights, or services must fail the
    certification; a skipped test is not a pass. Record the actual database,
