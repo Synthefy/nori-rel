@@ -128,6 +128,33 @@ tokens and extra Nori calls. Bound it with `max_cost_usd` (which also needs
 `prices`) or the search's `limits`. It is not exercised against a live model provider in release certification. See
 [run control](docs/run-control.md) for `stop` and `steer`.
 
+The agent keeps a program only if it lowers the error on held-out history.
+`predict(..., metric=...)` chooses that error for a regression target:
+
+| `metric` | Error (lower is better) |
+|---|---|
+| `"mae"` (default) | Mean absolute error |
+| `"mse"` | Mean squared error |
+| `"rmse"` | Root mean squared error |
+| `"nmae"` | MAE divided by the range (max minus min) of the actuals |
+| `"nrmse"` | RMSE divided by the range of the actuals |
+| `"medae"` | Median absolute error |
+| `"wape"` | Total absolute error divided by total actual |
+| `"mape"` | Mean absolute percentage error, over rows whose actual is not zero |
+| `"smape"` | Symmetric MAPE: mean of 2\|error\| / (\|actual\| + \|forecast\|) |
+
+On one holdout, NMAE and WAPE rank programs as MAE does and NRMSE as RMSE
+does: each divides by the same constant for every candidate. MSE and RMSE
+weigh large misses more. MAPE and SMAPE weigh every row equally in relative
+terms, so small series count as much as large ones. The metric changes which
+program is kept, not how the forecast is made. Trial and baseline events report
+it, with relative and normalized errors as percentages
+(`Trial 3/24: WAPE 11.20% ...`).
+
+```python
+client.predict(source=source, query=query, metric="wape", ...)
+```
+
 ## Save and reload
 
 Request prediction details to obtain a pipeline, then reconnect when using it:

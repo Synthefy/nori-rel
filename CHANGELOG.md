@@ -14,6 +14,12 @@
 - Add `stop` and `steer` run commands, trial, spend, and fallback events, and
   `max_runtime_seconds` and `max_spend_usd` limits for agent searches.
 - Add the `agentic` extra: `anthropic`, `duckdb`, and `openai`.
+- Add `predict(..., metric=...)`: an agent search on a regression target scores
+  its candidate programs with `"mae"` (the default), `"mse"`, `"rmse"`,
+  `"nmae"`, `"nrmse"`, `"medae"`, `"wape"`, `"mape"` or `"smape"`
+  (`AgentSearchMetric`). Events report relative and range-normalized errors as
+  percentages. An unknown metric, or one passed without an agent search, for a
+  binary target, or with a saved program or pipeline, raises `ValueError`.
 
 Existing code is unaffected: `features` still defaults to `"fastdfs"`.
 

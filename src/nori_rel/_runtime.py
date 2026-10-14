@@ -20,6 +20,7 @@ from nori_rel._checkpoint import NoriCheckpoint, get_pinned_checkpoint
 from nori_rel.connectors import create_connector
 from nori_rel.connectors.base import RelationalConnector
 from nori_rel.contracts import (
+    AgentSearchMetric,
     ConnectionStatus,
     Database,
     DatabaseCreateRequest,
@@ -477,15 +478,22 @@ class LocalRelationalRuntime:
         labels: pd.Series,
         program: SavedFeatureProgram | None = None,
         run_context: RunContext | None = None,
+        metric: AgentSearchMetric | None = None,
     ) -> FeatureBackend:
         """Return the feature backend for one prediction.
 
         A saved ``program`` runs on top of NoriDFS with no search, whatever
         ``features`` is. NoriDFS windows scale with the target's label
         interval. An agent search also needs the context labels, in context
-        order, to score its programs. The planning session validates the
-        context and validation slices according to the search configuration.
+        order, to score its programs, and scores them with ``metric`` (MAE
+        when ``None``); a metric outside ``AGENT_SEARCH_METRICS`` raises
+        ``ValueError``. The planning session validates the context and
+        validation slices according to the search configuration.
         """
+        if metric is not None:
+            from nori_rel.feature.agentic.scoring import require_agent_search_metric
+
+            require_agent_search_metric(metric)
         if program is not None:
             from nori_rel._feature_search import (
                 DEFAULT_SEARCH_CONFIG,
@@ -516,12 +524,15 @@ class LocalRelationalRuntime:
         if self.features == "noridfs":
             return seed
         assert isinstance(self.features, AgenticSearch)
+        from nori_rel.feature.agentic.scoring import DEFAULT_REGRESSION_METRIC
+
         return self.features.backend(
             seed,
             labels=labels,
             task=task,
             predictor=self.predictor,
             run_context=run_context,
+            metric=DEFAULT_REGRESSION_METRIC if metric is None else metric,
         )
 
     def get_pipeline_predictor(self, record: Any) -> Predictor:
