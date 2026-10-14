@@ -23,15 +23,84 @@ FORBIDDEN_COMPONENTS = {
     "__pycache__",
 }
 SOURCE_ROOT_FILES = {
-    "PKG-INFO",
     "pyproject.toml",
-    "pyproject.toml.orig",
     "README.md",
     "LICENSE",
     "NOTICE",
     "ATTRIBUTION.md",
     "CHANGELOG.md",
 }
+SOURCE_DIRECTORIES = ("src/nori_rel/", "tests/", "scripts/", "docs/", "examples/")
+GENERATED_SOURCE_FILES = {"PKG-INFO", "pyproject.toml.orig"}
+
+
+def read_committed_distribution_sources(source: Path) -> dict[str, bytes]:
+    """Read the complete distribution input inventory from the reviewed HEAD."""
+    entries = subprocess.check_output(
+        ["git", "ls-tree", "-rz", "--full-tree", "HEAD"], cwd=source
+    )
+    source_bytes_by_path = {}
+    for entry in entries.split(b"\0"):
+        if not entry:
+            continue
+        attributes, raw_name = entry.split(b"\t", 1)
+        mode, object_type, object_id = attributes.decode("ascii").split()
+        name = raw_name.decode("utf-8")
+        if name not in SOURCE_ROOT_FILES and not name.startswith(SOURCE_DIRECTORIES):
+            continue
+        validate_archive_member_path(name)
+        if mode not in {"100644", "100755"} or object_type != "blob":
+            raise ValueError(f"distribution source is not a regular Git file: {name}")
+        source_bytes_by_path[name] = subprocess.check_output(
+            ["git", "cat-file", "blob", object_id], cwd=source
+        )
+    return source_bytes_by_path
+
+
+def toml_values_match(reviewed: object, normalized: object) -> bool:
+    """Compare parsed TOML without treating booleans, integers, and floats alike."""
+    if type(reviewed) is not type(normalized):
+        return False
+    if isinstance(reviewed, dict):
+        return reviewed.keys() == normalized.keys() and all(
+            toml_values_match(value, normalized[key]) for key, value in reviewed.items()
+        )
+    if isinstance(reviewed, list):
+        return len(reviewed) == len(normalized) and all(
+            toml_values_match(left, right)
+            for left, right in zip(reviewed, normalized, strict=True)
+        )
+    return reviewed == normalized
+
+
+def contains_toml_comment(document: str) -> bool:
+    """Find comments outside TOML strings, including multiline string forms."""
+    delimiter = ""
+    offset = 0
+    while offset < len(document):
+        character = document[offset]
+        if not delimiter:
+            if character == "#":
+                return True
+            if character in {"'", '"'}:
+                delimiter = character * (
+                    3 if document.startswith(character * 3, offset) else 1
+                )
+                offset += len(delimiter)
+                continue
+        elif delimiter.startswith('"') and character == "\\":
+            offset += 2
+            continue
+        elif document.startswith(delimiter, offset):
+            offset += len(delimiter)
+            if len(delimiter) == 3:
+                # Four/five ending quotes include one/two literal quote characters.
+                while offset < len(document) and document[offset] == delimiter[0]:
+                    offset += 1
+            delimiter = ""
+            continue
+        offset += 1
+    return False
 
 
 def validate_archive_member_path(name: str) -> None:
@@ -49,12 +118,15 @@ def validate_archive_member_path(name: str) -> None:
 
 def validate_public_distributions(dist: Path, source: Path) -> dict:
     """Check metadata, the reviewed package inventory, and wheel/sdist parity."""
-    project = tomllib.loads((source / "pyproject.toml").read_text())["project"]
+    committed_sources = read_committed_distribution_sources(source)
+    original_pyproject = committed_sources["pyproject.toml"]
+    source_configuration = tomllib.loads(original_pyproject.decode("utf-8"))
+    project = source_configuration["project"]
     version = project["version"]
     expected = {
         line
-        for line in (source / "scripts/public-package-files.txt")
-        .read_text()
+        for line in committed_sources["scripts/public-package-files.txt"]
+        .decode("utf-8")
         .splitlines()
         if line and not line.startswith("#")
     }
@@ -83,9 +155,8 @@ def validate_public_distributions(dist: Path, source: Path) -> dict:
                 f"package inventory changed; added={sorted(set(package) - expected)}, "
                 f"missing={sorted(expected - set(package))}"
             )
-        metadata = BytesParser().parsebytes(
-            archive.read(f"nori_rel-{version}.dist-info/METADATA")
-        )
+        wheel_metadata = archive.read(f"nori_rel-{version}.dist-info/METADATA")
+        metadata = BytesParser().parsebytes(wheel_metadata)
         if metadata["Name"] != "nori-rel" or metadata["Version"] != version:
             raise ValueError("wheel name/version does not match pyproject.toml")
         if metadata["License-Expression"] != "MIT AND Apache-2.0":
@@ -95,8 +166,16 @@ def validate_public_distributions(dist: Path, source: Path) -> dict:
         license_files = metadata.get_all("License-File", [])
         if not {"LICENSE", "NOTICE", "ATTRIBUTION.md"}.issubset(license_files):
             raise ValueError("project license or notices are missing")
+        if len(license_files) != len(set(license_files)) or set(license_files) != set(
+            project["license-files"]
+        ):
+            raise ValueError("wheel license inventory differs from reviewed project")
         for name in license_files:
-            archive.read(f"nori_rel-{version}.dist-info/licenses/{name}")
+            contents = archive.read(f"nori_rel-{version}.dist-info/licenses/{name}")
+            if contents != committed_sources[name]:
+                raise ValueError(
+                    f"wheel license differs from reviewed Git source: {name}"
+                )
         for requirement in metadata.get_all("Requires-Dist", []):
             if any(
                 name in requirement.lower()
@@ -110,29 +189,69 @@ def validate_public_distributions(dist: Path, source: Path) -> dict:
     with tarfile.open(sdist) as archive:
         source_package = {}
         seen = set()
-        source_tests = []
+        sdist_bytes_by_path = {}
+        permitted_names = set(committed_sources) | GENERATED_SOURCE_FILES
+        permitted_directories = {
+            parent.as_posix()
+            for name in permitted_names
+            for parent in PurePosixPath(name).parents
+            if parent.as_posix() != "."
+        }
+        expected_root = f"nori_rel-{version}"
         for member in archive.getmembers():
             validate_archive_member_path(member.name)
             if member.name in seen or not (member.isfile() or member.isdir()):
                 raise ValueError(f"duplicate or linked sdist member: {member.name}")
             seen.add(member.name)
-            if member.isdir():
-                continue
-            prefix, name = member.name.split("/", 1)
-            if prefix != f"nori_rel-{version}":
+            prefix, separator, name = member.name.partition("/")
+            if prefix != expected_root:
                 raise ValueError("sdist root does not match the release version")
+            if member.isdir():
+                if separator and name not in permitted_directories:
+                    raise ValueError(f"unexpected sdist directory: {member.name}")
+                continue
+            if not separator or name not in permitted_names:
+                raise ValueError(f"unexpected sdist member: {member.name}")
+            stream = archive.extractfile(member)
+            assert stream is not None
+            contents = stream.read()
+            sdist_bytes_by_path[name] = contents
+            if name == "PKG-INFO":
+                if contents != wheel_metadata:
+                    raise ValueError("sdist PKG-INFO differs from wheel METADATA")
+            elif name == "pyproject.toml.orig":
+                if contents != original_pyproject:
+                    raise ValueError(
+                        "sdist pyproject.toml.orig differs from reviewed Git source"
+                    )
+            elif name == "pyproject.toml" and contents != original_pyproject:
+                normalized_document = contents.decode("utf-8")
+                if (
+                    source_configuration.get("build-system", {}).get("build-backend")
+                    != "uv_build"
+                    or not toml_values_match(
+                        source_configuration, tomllib.loads(normalized_document)
+                    )
+                    or contains_toml_comment(normalized_document)
+                ):
+                    raise ValueError(
+                        "sdist pyproject.toml is not verified uv_build normalization"
+                    )
+            elif contents != committed_sources[name]:
+                raise ValueError(f"sdist bytes differ from reviewed Git source: {name}")
             if name.startswith("src/nori_rel/"):
-                stream = archive.extractfile(member)
-                assert stream is not None
-                source_package[name.removeprefix("src/")] = stream.read()
-            elif name.startswith(("tests/", "scripts/", "docs/", "examples/")):
-                if name.startswith("tests/"):
-                    source_tests.append(name)
-            elif name not in SOURCE_ROOT_FILES:
-                raise ValueError(f"unexpected sdist member: {name}")
+                source_package[name.removeprefix("src/")] = contents
+        missing = (set(committed_sources) | {"PKG-INFO"}) - set(sdist_bytes_by_path)
+        if missing:
+            raise ValueError(f"sdist omits reviewed source files: {sorted(missing)}")
+        if (
+            sdist_bytes_by_path["pyproject.toml"] != original_pyproject
+            and "pyproject.toml.orig" not in sdist_bytes_by_path
+        ):
+            raise ValueError("normalized pyproject.toml requires the reviewed original")
         if source_package != package:
             raise ValueError("wheel and sdist package contents differ")
-        if not source_tests:
+        if not any(name.startswith("tests/") for name in sdist_bytes_by_path):
             raise ValueError("source distribution omits the public regression tests")
     return {
         "name": "nori-rel",

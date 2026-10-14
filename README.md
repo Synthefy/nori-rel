@@ -8,8 +8,8 @@ The supported package covers PostgreSQL, Snowflake standard tables, and
 Databricks Unity Catalog Delta tables. Releases come from reviewed commits on
 `main`.
 
-Version 0.3.0 is an unreleased candidate. Publication is blocked by
-[upstream dependency advisories](docs/dependency-security.md), live-service
+Version 0.3.0 is an unreleased candidate. Publication requires passing
+[dependency security review](docs/dependency-security.md), live-service
 certification, and publisher setup. The installation commands below describe the
 planned release; see [CONTRIBUTING.md](CONTRIBUTING.md) to work with the candidate.
 

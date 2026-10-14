@@ -19,6 +19,7 @@ agent programs, and research pipeline variants are outside the supported package
 Install `nori-rel[<connector>,local]` for local inference (`database` is the
 PostgreSQL extra). The old research `nori-rel` command is no longer installed.
 
-Publication remains blocked by upstream dependency advisories, live-service
-certification, and publisher setup. The repository stays private until the
-release gates pass.
+Publication requires the dependency applicability gate, live-service
+certification, and publisher setup. The repository stays private until all
+release gates pass. Dependency findings and their expiring, version-specific
+assessments are documented in [the security review](docs/dependency-security.md).

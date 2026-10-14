@@ -1,31 +1,108 @@
-# Dependency release blockers
+# Dependency security review
 
-The first-public-release audit on 2026-10-14 found upstream dependency bounds
-that prevent installing patched versions. These are release blockers. Passing
-client tests does not resolve a dependency advisory, and the publishing workflow
-must pass the separate dependency audit before uploading any files.
+The release gate requires **zero unassessed findings**, complete audit results,
+and a current applicability review. It does not claim that every installed
+package is free of advisories. This review covers Nori-Rel's supported client
+and release paths.
 
-| Dependency | Patched version | Blocking upstream requirement |
+## Reviewed findings, 2026-10-14
+
+The locked candidate reports three advisory IDs across three dependencies.
+Repeated PyArrow and Setuptools findings remain in the raw scanner output.
+Compatible upstream bounds still exclude the reported fixes:
+
+| Locked dependency | Reported fix | Upstream constraint |
 | --- | --- | --- |
-| PyArrow | 23.0.1 | FastDFS 1.1 and the latest 1.2 require `pyarrow<21`. |
-| OAuthlib | 4.0.0 | Databricks SQL Connector 4.6.0 requires `oauthlib<4`. |
-| Setuptools | 83.0.0 | The pinned local runtime `synthefy-nori==0.20.1` requires `setuptools<81`. |
+| PyArrow 20.0.0 | 23.0.1 | FastDFS 1.1 and 1.2 require `pyarrow<21`. |
+| OAuthlib 3.3.1 | 4.0.0 | Databricks SQL Connector 4.6.0 requires `oauthlib<4`. |
+| Setuptools 80.10.2 | 83.0.0 | `synthefy-nori==0.20.1` requires `setuptools<81`. |
 
-The applicable advisories are
-[PyArrow IPC pre-buffering](https://github.com/advisories/GHSA-rgxp-2hwp-jwgg),
-[OAuthlib PKCE comparison](https://github.com/advisories/GHSA-xpv3-w29h-x7cv),
-[OAuthlib revocation callbacks](https://github.com/advisories/GHSA-hj66-6f7g-4r5v),
-and [Setuptools source archive exclusions](https://github.com/advisories/GHSA-h35f-9h28-mq5c).
-The dependency findings do not by themselves establish that a particular
-Nori-Rel call reaches each vulnerable path.
+No resolver overrides, runtime changes, or model changes bypass these bounds.
+The stable `synthefy` SDK was checked against PyPI and remains 7.2.0 for this
+review.
 
-The candidate raises compatible security floors for urllib3 to 2.8.0 and fsspec
-to 2026.6.0. Research-only dependencies were removed from the supported package.
-There are no advisory suppressions or overrides of upstream version bounds.
+The isolated build backend is pinned to `uv_build==0.12.24` and included in the
+audited build group. Artifact installation and publication smoke checks use
+constraints exported from the same reviewed lockfile. This keeps their actual
+dependency versions aligned with the applicability assessment.
 
-Before publication, obtain upstream releases that accept patched dependencies,
-update the relevant constraints and lockfile, and repeat the installed-artifact,
-client, and live certification checks. Any change to the pinned local runtime
-also requires explicit runtime/checkpoint compatibility review. Keep this record
-current as blockers are resolved and retain the final audit report with the
-release evidence.
+### PyArrow: Python bindings exclude the affected API
+
+[GHSA-rgxp-2hwp-jwgg / CVE-2026-25087](https://github.com/advisories/GHSA-rgxp-2hwp-jwgg)
+affects Arrow C++ IPC **file** reading with explicit metadata pre-buffering.
+The advisory excludes Python bindings and IPC streams. The reviewed PyArrow
+20.0.0 Python API exposes no affected pre-buffering method. Nori-Rel passes
+in-memory data to FastDFS; Databricks SQL Connector 4.6.0 uses
+`pyarrow.ipc.open_stream`.
+
+The exception covers this finding on the reviewed Python client paths. It does
+not cover applications linking Arrow C++ directly and enabling
+`RecordBatchFileReader::PreBufferMetadata`.
+
+### OAuthlib: supported authentication uses client flows
+
+[GHSA-xpv3-w29h-x7cv / CVE-2026-49265](https://github.com/advisories/GHSA-xpv3-w29h-x7cv)
+affects server-side authorization-code PKCE verification. Nori-Rel accepts only
+Databricks PAT or service-principal M2M authentication. Reviewed SQL connector
+4.6.0 and SDK 0.151.0 paths select token authentication or the SDK's
+`client_credentials` flow. Source inspection and offline provider/header probes
+did not invoke the affected server grant implementation. These probes do not
+replace live authentication certification.
+
+The [upstream advisory](https://github.com/oauthlib/oauthlib/security/advisories/GHSA-xpv3-w29h-x7cv)
+names 3.3.2 as patched; the newer global record names 4.0.0. PyPI's release
+catalog and version endpoint contain no 3.3.2 release as of this review, so no
+published patched upgrade currently satisfies the connector's `<4` bound.
+
+The separate [revocation-callback advisory](https://github.com/oauthlib/oauthlib/security/advisories/GHSA-hj66-6f7g-4r5v)
+also concerns an OAuth server endpoint. It is absent from the current scanner
+report and is **not** preemptively exempted. A new reported finding requires
+review. The exception does not cover applications hosting an OAuth server in
+the same environment.
+
+### Setuptools: release builds use a different backend
+
+[GHSA-h35f-9h28-mq5c / CVE-2026-59890](https://github.com/advisories/GHSA-h35f-9h28-mq5c)
+affects Unicode filename matching for `MANIFEST.in` exclusions when producing
+source distributions, especially on macOS filesystems. The installed version's
+matcher exhibits the reported exclusion failure in a synthetic probe.
+
+Nori-Rel builds with isolated `uv_build` on Ubuntu, has no `MANIFEST.in` or
+`setup.py`, and validates package contents and licenses. The pinned model
+runtime uses Setuptools compatibility APIs but does not build source
+distributions in the inspected prediction paths. Its isolated build
+requirements do not carry the runtime's `<81` bound.
+
+This accepts the finding for Nori-Rel release and prediction; it does not fix
+Setuptools. Installing the local runtime selects the affected Setuptools range.
+Users building other projects in that environment, including on macOS, remain
+exposed to the packaging issue. Use a separate build environment with patched
+Setuptools for those projects. The newer model runtime retains the same upper
+bound and would not resolve this finding.
+
+## Enforced review scope
+
+[`dependency-exceptions.json`](dependency-exceptions.json) records the owner,
+review date, expiry, exact versions, advisory identities, scanner description
+fingerprints, and rationale. The review expires on **2026-11-13 (UTC)**. SHA-256
+hashes bind the complete package source inventory, dependency lockfile, project
+configuration, audit checker, artifact validator, and release workflows. A
+relevant edit requires another review.
+
+The checker runs unfiltered `pip-audit --strict` on all retained locked extras
+and development groups, evaluating markers on Python 3.11/3.12 on Linux, macOS,
+and Windows. Every applicable pinned requirement must appear in the raw result.
+Missing, skipped, duplicate, malformed, or unexpected dependency records,
+scanner errors, and inconsistent exit statuses fail the gate. New advisories,
+changed descriptions or aliases, changed versions or reviewed files, and expired
+reviews also fail. Raw reports, diagnostics, and assessments remain available as
+Actions artifacts.
+
+This evaluates the checked-in resolution, not arbitrary downstream resolutions
+or unrelated uses of the same environment. Prefer compatible upstream fixes;
+remove exceptions after upgrading and repeating affected checks. Runtime changes
+require separate compatibility review.
+
+Assessment is required on PRs, on `main`, and before each TestPyPI upload or PyPI
+promotion. Passing does not replace live connector/inference certification,
+publisher registration, or the final public exposure review.
