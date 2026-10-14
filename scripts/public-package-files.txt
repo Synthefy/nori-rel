@@ -69,3 +69,4 @@ nori_rel/run/messages.py
 nori_rel/run/models.py
 nori_rel/run/progress.py
 nori_rel/run/redact.py
+nori_rel/skills/nori-rel-prepare-data/SKILL.md

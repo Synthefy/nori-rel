@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — 2026-10-14
+
+- Ship the `nori-rel-prepare-data` agent skill in the package, at
+  `nori_rel/skills/nori-rel-prepare-data/SKILL.md`. It guides an AI agent from
+  CSV, Excel, Parquet or JSON files to a PostgreSQL schema Nori-Rel can predict
+  from, and has the agent confirm every table, column and relationship with the
+  user before it creates anything. See "Start from CSV or Excel files" in the
+  README.
+
+No API or dependency changes.
+
 ## 0.3.0 — 2026-10-14
 
 Initial public database-client release.
