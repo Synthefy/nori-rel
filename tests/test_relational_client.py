@@ -439,10 +439,16 @@ def test_details_carry_the_scored_rows_features_and_frames_do_not() -> None:
 
 
 def test_the_feature_table_names_each_column_source_and_definition() -> None:
+    windowed_mean = "nr|path|users%3C-orders.user_id|amount|mean|2592000000000000ns"
+    team_name = "nr|path|users%3D%3Eusers.team_id-%3Eteams.team_id|name|lookup|all"
     features = pd.DataFrame(
         {
             "recent__qty_ly": [10.0, None],
-            "nr|path|users%3C-orders.user_id|amount|mean|30d": [2.0, 4.0],
+            windowed_mean: [2.0, 4.0],
+            "nr|path|users%3C-orders.user_id|rows|count|all": [3.0, 1.0],
+            team_name: ["a", "b"],
+            "nr|anchor|cutoff_month": [9.0, 9.0],
+            "nr|direct|users.created_at": [100.0, 50.0],
             "d1__users.country": ["US", "CA"],
         },
         index=pd.Index([1, 2], name="entity_id"),
@@ -459,16 +465,18 @@ def test_the_feature_table_names_each_column_source_and_definition() -> None:
     table = details.get_feature_table().set_index("feature")
     assert table.loc["recent__qty_ly", ["source", "definition"]].tolist() == [
         "agent",
-        "SELECT 1",
+        "qty_ly, from the agent's 'recent' query",
     ]
     assert table.loc["recent__qty_ly", "missing_share"] == 0.5
-    noridfs = "nr|path|users%3C-orders.user_id|amount|mean|30d"
-    assert table.loc[noridfs, "source"] == "noridfs"
-    assert (
-        table.loc[noridfs, "definition"]
-        == "nr|path|users<-orders.user_id|amount|mean|30d"
-    )
-    assert table.loc[noridfs, ["mean", "min", "max"]].tolist() == [3.0, 2.0, 4.0]
+    assert table.loc[windowed_mean, "source"] == "noridfs"
+    assert table["definition"].tolist()[1:6] == [
+        "mean of amount over the last 30 days, in orders matched on user_id",
+        "number of rows over all history, in orders matched on user_id",
+        "name, looked up from teams through team_id",
+        "the anchor time's month",
+        "users.created_at, the entity's own column",
+    ]
+    assert table.loc[windowed_mean, ["mean", "min", "max"]].tolist() == [3.0, 2.0, 4.0]
     assert table.loc["d1__users.country", "source"] == "agentic"
     assert pd.isna(table.loc["d1__users.country", "mean"])
 

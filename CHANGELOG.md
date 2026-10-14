@@ -6,8 +6,10 @@
   `PredictionDetails.features` (one row per `entity_id`), and
   `PredictionDetails.get_feature_table()` describes each feature column: its
   source (an agent query, NoriDFS, or the run's feature strategy), its
-  definition (the agent's SQL or the decoded NoriDFS name), and its missing
-  share, mean, min and max over the scored entities.
+  definition in words (the agent query that produced it, or for NoriDFS the
+  aggregation, column, window and table, such as "mean of QTY_CANS over the
+  last 30 days, in SHIPMENTS matched on CUSTOMER_ID"), and its missing share,
+  mean, min and max over the scored entities.
 - PQL label windows accept `months`: `SUM(orders.amount,0,1,months)` covers one
   UTC calendar month from the anchor (a whole month from an anchor on the 1st),
   rendered as calendar-month arithmetic on PostgreSQL, Snowflake, and
