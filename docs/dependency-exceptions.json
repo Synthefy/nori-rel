@@ -29,7 +29,7 @@
       "sha256": "e98edb7c76868352a37e2e71c3c7f15c907516de649b0759a4d027a8b954152a"
     },
     "pyproject.toml": {
-      "sha256": "1033dfd41d8cd6ed5cb0daeceed8d74ef697ef458ca99c39d3c91554dd9098fb"
+      "sha256": "bac3f51cc3745ad7dc63c452ecd163c64fa335b03b67791d9e09034169e3d5ae"
     },
     "scripts/audit_dependencies.py": {
       "sha256": "13e0a9dc3c0c87cdb3dc65e6bc6cd00f045db0f8361a1d36f5ab6afe364e8d12"
@@ -317,7 +317,7 @@
       "sha256": "74bca3696c360d807bc0b742ad83180ca19b8ea8a34c614ec8aef35ceaaca968"
     },
     "uv.lock": {
-      "sha256": "42d485c8592ee2e3c71747bb9293df78da5b8d92635c19f4e493ef7bb4c224f7"
+      "sha256": "8520aa3b4cae8c5c3cc39df42b4e83d3bc534f143ee73d621dfefab218eadd97"
     }
   },
   "exceptions": [
