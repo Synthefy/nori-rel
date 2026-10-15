@@ -95,7 +95,7 @@ fails the operation instead of silently truncating source data.
 | `pipeline` | a `NoriRelPipeline` to save and replay, or `None` |
 | `features` | the feature matrix Nori scored, one row per `entity_id`, one column per feature |
 | `internal_feature_names` | the model's name for each column of `features`, in order |
-| `feature_sql` | the SQL FastDFS ran for each feature, by internal name |
+| `feature_sql` | the SQL behind each FastDFS or NoriDFS feature, by internal name |
 
 `features` names each column in dots: the tables the feature reads through
 from the entity, then the column, then the aggregate and its window, such as
@@ -115,7 +115,17 @@ use the internal names.
 order: `feature`, `internal_name`, `source`, `sql`, `dtype`, `missing_share`,
 `mean`, `min` and `max`. `sql` holds the agent's query for an agent column and
 the statements FastDFS ran on its DuckDB copy of the snapshot for a FastDFS
-column. NoriDFS computes in pandas, so its `sql` is `None`.
+column.
+
+For a NoriDFS column, `sql` is a DuckDB query that gives the values NoriDFS
+computed in pandas. It reads the snapshot tables and `eval_table`, the table
+an agent's SQL reads: one row per prediction row, with `row_id`, the entity key
+under its own column name, and `cutoff`. NoriDFS counts a row only when its
+time is before the cutoff; FastDFS also counts rows at the cutoff. Two helper
+columns keep NoriDFS's tie-breaks exact. `__nr_tie_p<n>` orders rows with equal
+times in a `last` column; it is NoriDFS's own row hash. `<column>__nr_rank`
+orders values with equal counts in a `mode` column, by Python type and then
+`repr`. `NoriDFS.last_feature_sql` returns the same queries after a `compute`.
 
 ## Errors and compatibility
 

@@ -205,13 +205,14 @@ def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
     assert table["internal_name"].tolist() == list(pipeline.feature_names)
     assert not any(name.startswith(("nr|", "d2__")) for name in first.features.columns)
     if kind == "noridfs":
-        assert table["sql"].isna().all()
+        assert table["sql"].str.contains("FROM eval_table AS e").all()
     if kind == "fastdfs":
         assert "orders.count" in first.features.columns
         assert table["sql"].str.contains("SELECT").all()
     if kind == "agentic":
         assert first.features.columns[-1] == "web_orders.web_orders"
         assert table["sql"].iloc[-1] == program.queries[0].sql
+        assert table["sql"].iloc[:-1].str.contains("FROM eval_table AS e").all()
 
 
 def _later_prediction(schema, pipeline, **options):

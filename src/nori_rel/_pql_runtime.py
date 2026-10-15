@@ -2,6 +2,7 @@
 
 import logging
 import sys
+from collections.abc import Sequence
 from dataclasses import replace
 
 import numpy as np
@@ -10,6 +11,7 @@ import pandas as pd
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
 from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
 from nori_rel.feature import FeatureBackend
+from nori_rel.feature.dfs.noridfs import NoriDFS
 from nori_rel.pipeline import (
     PIPELINE_ATTR,
     SCORING_FEATURE_SQL_ATTR,
@@ -111,8 +113,8 @@ def predict_pql(
     metric chooses how an agent search scores its candidate programs on a
     regression target ("mae" when None); it is refused for any other run.
     keep_scoring_features puts the scored rows' feature matrix, indexed by
-    entity_id, in attrs[SCORING_FEATURES_ATTR] and the SQL of each feature,
-    for FastDFS, in attrs[SCORING_FEATURE_SQL_ATTR]; both stay out of the
+    entity_id, in attrs[SCORING_FEATURES_ATTR] and the SQL of each FastDFS or
+    NoriDFS feature in attrs[SCORING_FEATURE_SQL_ATTR]; both stay out of the
     pipeline.
     feature_strategy is this prediction's feature search; None uses the
     runtime's.
@@ -368,21 +370,32 @@ def predict_pql(
         result.attrs[SCORING_FEATURES_ATTR] = get_scoring_feature_frame(
             matrices.query, scoring
         )
-        result.attrs[SCORING_FEATURE_SQL_ATTR] = get_feature_sql_by_name(backend)
+        result.attrs[SCORING_FEATURE_SQL_ATTR] = get_feature_sql_by_name(
+            backend, matrices.feature_names
+        )
     return result
 
 
-def get_feature_sql_by_name(backend: FeatureBackend) -> dict[str, str]:
-    """Return the SQL that computed each feature column, by column name.
+def get_feature_sql_by_name(
+    backend: FeatureBackend, feature_names: Sequence[str]
+) -> dict[str, str]:
+    """Return the SQL behind each of ``feature_names`` that has one, by name.
 
-    Only FastDFS reports it, since it runs one query per feature; the result is
-    empty for any other backend. NoriDFS computes in pandas, and an agent's
-    SQL is already in the prediction's ``agentic_program`` metadata.
+    FastDFS reports the statements it ran for each feature. NoriDFS reports a
+    DuckDB query per feature that gives the values its pandas executor
+    computed, and an agent search reports those of its NoriDFS baseline. An
+    agent's own SQL is already in the prediction's ``agentic_program``
+    metadata. Any other backend reports none.
     """
     fastdfs = sys.modules.get("nori_rel.feature.dfs.fastdfs")
     if fastdfs is not None and isinstance(backend, fastdfs.FastDFS):
-        return dict(backend.last_feature_sql)
-    return {}
+        sql_by_name = backend.last_feature_sql
+    else:
+        agentic = sys.modules.get("nori_rel.feature.agentic.backend")
+        if agentic is not None and isinstance(backend, agentic.AgenticFeatures):
+            backend = backend.fallback
+        sql_by_name = backend.last_feature_sql if isinstance(backend, NoriDFS) else {}
+    return {name: sql_by_name[name] for name in feature_names if name in sql_by_name}
 
 
 def get_scoring_feature_frame(

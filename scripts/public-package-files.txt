@@ -43,6 +43,7 @@ nori_rel/feature/dfs/noridfs/backend.py
 nori_rel/feature/dfs/noridfs/contracts.py
 nori_rel/feature/dfs/noridfs/engine.py
 nori_rel/feature/dfs/noridfs/planner.py
+nori_rel/feature/dfs/noridfs/sql.py
 nori_rel/limits.py
 nori_rel/pipeline/__init__.py
 nori_rel/pipeline/artifact.py

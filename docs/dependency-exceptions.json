@@ -71,7 +71,7 @@
       "sha256": "ac7ebea5d01a1171c7d90e27b01baf6ad9e977a4b9c932cfa06f8b230b46d3d9"
     },
     "src/nori_rel/_pql_runtime.py": {
-      "sha256": "5b12eb8eebfbebe7d9b3c8a1995bbf69c75c2343c59836a49046264620581ba8"
+      "sha256": "47f7eed164a0f35aa49a49b43054f7f24be3daa6abac4dd8d769abb8992bebc4"
     },
     "src/nori_rel/_runtime.py": {
       "sha256": "94bd1339cf4f88aa99eede2f3f2d4a87d577524ad2fe6d813a861f21622b9454"
@@ -164,16 +164,19 @@
       "sha256": "87a160dd1e226eb021248ca49c437dd47c1aad7293aef63b364525350b9bbaf4"
     },
     "src/nori_rel/feature/dfs/noridfs/backend.py": {
-      "sha256": "5d264e067352ad096c9f590109fc84e9b31d60a949ac041ad4091709134dc87e"
+      "sha256": "39064e368d2fd95f6c30f1792f318b3d26862ada735db84c6ce80db6dfaf9914"
     },
     "src/nori_rel/feature/dfs/noridfs/contracts.py": {
       "sha256": "0cf562236e2b746725feb2cef37c9611260dd94901cd5c94a6b7c98d4f94adad"
     },
     "src/nori_rel/feature/dfs/noridfs/engine.py": {
-      "sha256": "55c021a895c970b9868c496b2b18899a254c715b86969063d19714f07ea4be3c"
+      "sha256": "2ec5b85b50c9bb468ef421092a01a7a2cd966f20216e1c8a1dd655d1217f7fa9"
     },
     "src/nori_rel/feature/dfs/noridfs/planner.py": {
       "sha256": "7407a40a2ebc322f71254c47e0de73d17ac3a450578dc8cad8a573ed92e1262d"
+    },
+    "src/nori_rel/feature/dfs/noridfs/sql.py": {
+      "sha256": "0f7cba9c077db9a185a5d946d4fdc15a0c9e27014a68dbbabd62e7cb8a5a8fec"
     },
     "src/nori_rel/limits.py": {
       "sha256": "19ba86234b51ee680dcfc5da504568f788bc18106ac2b0bab61491fb555674a2"
@@ -194,7 +197,7 @@
       "sha256": "dada632404fe1c23fd7b608f1626ff9d37c84d6df36e5be258786df1ea536b3e"
     },
     "src/nori_rel/pipeline/details.py": {
-      "sha256": "84b1e213613cfbbf02dc45c03f29cbdae09358f45081a14b2a776d110dcd6fac"
+      "sha256": "f11a2ec17f3ceb2fc4f6cef782cb4ef21228f50cd09941ef343fe62a640fec5c"
     },
     "src/nori_rel/pipeline/errors.py": {
       "sha256": "56316f40aa103274198842ce81d4cbbd28075d3ef0439c32650ffac802f1ab7c"
