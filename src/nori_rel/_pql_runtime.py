@@ -50,8 +50,8 @@ def _require_agent_search_metric(
     if not searching:
         raise ValueError(
             "metric chooses how an agent search scores its feature programs; "
-            "create the client with features=AgenticSearch.claude(...) or "
-            "AgenticSearch.openai(...), and do not pass feature_program or pipeline"
+            "pass features=AgenticSearch.claude(...) or AgenticSearch.openai(...) "
+            "to predict or the client, and do not pass feature_program or pipeline"
         )
 
 
@@ -77,6 +77,7 @@ def predict_pql(
     expected_context_sha256=None,
     metric: AgentSearchMetric | None = None,
     keep_scoring_features: bool = False,
+    features=None,
 ) -> pd.DataFrame:
     """Run temporal PQL through preparation, features and Nori inference.
 
@@ -105,14 +106,16 @@ def predict_pql(
     regression target ("mae" when None); it is refused for any other run.
     keep_scoring_features puts the scored rows' feature matrix, indexed by
     entity_id, in attrs[SCORING_FEATURES_ATTR]; it stays out of the pipeline.
+    features is this prediction's feature search; None uses the runtime's.
     """
     run_context = run_context or RunContext.unobserved()
+    chosen_features = runtime.features if features is None else features
     # An agent search holds steering from the run's first boundary until its
     # agent delivers it; a DFS run or a saved program rejects steering.
     run_context.steering_enabled = (
         feature_program is None
         and pipeline is None
-        and get_feature_strategy_name(runtime.features, replaying_program=False)
+        and get_feature_strategy_name(chosen_features, replaying_program=False)
         == "agentic"
     )
     if feature_program is not None:
@@ -153,7 +156,7 @@ def predict_pql(
             resolved,
             searching=feature_program is None
             and pipeline is None
-            and get_feature_strategy_name(runtime.features, replaying_program=False)
+            and get_feature_strategy_name(chosen_features, replaying_program=False)
             == "agentic",
         )
     predictor = (
@@ -196,7 +199,7 @@ def predict_pql(
             get_pipeline_strategy_name(pipeline.features)
             if pipeline is not None
             else get_feature_strategy_name(
-                runtime.features, replaying_program=feature_program is not None
+                chosen_features, replaying_program=feature_program is not None
             )
         ),
         **counts,
@@ -251,6 +254,7 @@ def predict_pql(
             feature_program,
             run_context=run_context,
             metric=metric,
+            features=chosen_features,
         )
     else:
         backend = get_saved_feature_backend(pipeline.features)

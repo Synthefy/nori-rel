@@ -13,7 +13,7 @@ pick up rotated database credentials.
 | `model` | `"nori-30m"`; local supports `nori-6m`, `nori-30m`, and `nori-100m`. |
 | `api_key` | Hosted mode uses this value or `SYNTHEFY_NORI_API_KEY`. |
 | `device` | Local only; automatic CUDA, then MPS, then CPU. An explicit PyTorch device can be supplied. |
-| `features` | `"fastdfs"` (default), `"noridfs"`, or an `AgenticSearch`. A custom `FeatureBackend` instance is also accepted but has no pipeline format. |
+| `features` | The feature search for predictions that do not pass `predict(..., features=...)`: `"fastdfs"` (default), `"noridfs"`, or an `AgenticSearch`. A custom `FeatureBackend` instance is also accepted but has no pipeline format. |
 | `timeout` | 300 seconds for inference transport configuration. |
 | `max_retries` | 2 for hosted transport retries. |
 | `limits` | `RelationalLimits()` for extraction/context ceilings. |

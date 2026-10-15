@@ -87,6 +87,19 @@ def test_fastdfs_stays_the_default_backend() -> None:
     assert isinstance(backend, FastDFS)
 
 
+def test_a_prediction_can_choose_its_own_feature_search() -> None:
+    runtime = _runtime()
+    backend = runtime.feature_backend(
+        TargetWindow(0, 30),
+        PredictionTask.REGRESSION,
+        _context(1),
+        pd.Series(),
+        features="noridfs",
+    )
+    assert isinstance(backend, NoriDFS)
+    assert runtime.features == "fastdfs"
+
+
 def test_noridfs_windows_scale_with_the_label_interval() -> None:
     backend = _runtime(features="noridfs").feature_backend(
         TargetWindow(30, 60), PredictionTask.REGRESSION, _context(1), pd.Series()

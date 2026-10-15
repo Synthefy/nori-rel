@@ -493,3 +493,44 @@ def test_scoring_features_are_indexed_by_entity() -> None:
     frame = get_scoring_feature_frame(query, scoring)
     assert frame.index.tolist() == ["a", "b"] and frame.index.name == "entity_id"
     assert frame["x"].tolist() == [1.0, 2.0]
+
+
+def test_predict_passes_its_own_feature_search_to_the_runtime() -> None:
+    runtime = FakeRuntime()
+    with _client(runtime) as client:
+        _predict(client, features="noridfs")
+    assert runtime.options["features"] == "noridfs"
+
+
+def test_predict_without_features_uses_the_client_feature_search() -> None:
+    runtime = FakeRuntime()
+    with _client(runtime) as client:
+        _predict(client)
+    assert runtime.options["features"] is None
+
+
+def test_an_unknown_feature_search_fails_before_the_run_starts() -> None:
+    runtime = FakeRuntime()
+    with (
+        _client(runtime) as client,
+        pytest.raises(ValueError, match="features must be one of"),
+    ):
+        _predict(client, features="unknown")
+    assert runtime.prediction is None
+
+
+def test_start_predict_takes_an_agent_search_for_one_run() -> None:
+    from nori_rel.run import RunLimits
+
+    limits = RunLimits(max_runtime_seconds=120, stop_grace_s=10)
+    search = AgenticSearch(agent=object(), limits=limits)
+    runtime = BlockingRuntime()
+    client = _client(runtime)
+
+    run = client.start_predict(source=runtime.source, features=search, **PQL_OPTIONS)
+    runtime.release_predictions.set()
+    run.result(timeout=5)
+
+    assert runtime.features == "fastdfs"
+    assert runtime.options["features"] is search
+    assert run._context.limits is limits
