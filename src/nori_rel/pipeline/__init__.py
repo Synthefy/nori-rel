@@ -24,6 +24,9 @@ PIPELINE_ATTR = "pipeline"
 #: ``DataFrame.attrs`` key that carries the scored rows' feature matrix from
 #: ``predict_pql`` to ``predict``, which moves it to ``PredictionDetails``.
 SCORING_FEATURES_ATTR = "scoring_features"
+#: ``DataFrame.attrs`` key that carries the SQL of each scored feature, by
+#: feature name, along the same way. Only FastDFS reports SQL per feature.
+SCORING_FEATURE_SQL_ATTR = "scoring_feature_sql"
 
 if TYPE_CHECKING:
     from nori_rel.pipeline.artifact import NoriRelPipeline
@@ -59,6 +62,7 @@ __all__ = [
     "PIPELINE_FORMAT",
     "PIPELINE_FORMAT_VERSION",
     "SCORING_FEATURES_ATTR",
+    "SCORING_FEATURE_SQL_ATTR",
     "NoriRelPipeline",
     "PipelineContextError",
     "PipelineError",

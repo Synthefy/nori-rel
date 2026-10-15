@@ -375,11 +375,12 @@ class NoriRelClient:
         quantile output adds quantiles. attrs holds task/model and context counts.
         return_details=True returns PredictionDetails with predictions
         (DataFrame), metadata (dict), pipeline (NoriRelPipeline or None) and
-        features, the scored rows' feature matrix (one row per entity_id);
-        details.get_feature_table() describes each feature column, with its
-        source, definition and value summary. details["predictions"] works
-        too. Save the pipeline to predict again in another process without a
-        feature search.
+        features, the scored rows' feature matrix (one row per entity_id, one
+        column per feature, under dotted names such as results.grid.mean);
+        details.get_feature_table() lists each feature column with its
+        internal name, source, SQL and value summary. details["predictions"]
+        works too. Save the pipeline to predict again in another process
+        without a feature search.
         log_summary emits INFO records through Python logging. Task is resolved
         explicitly from the target; conflicting task overrides error. Direct PQL
         and larger-context retrieval are not implemented yet.
@@ -414,12 +415,14 @@ class NoriRelClient:
             return frame
         from nori_rel.pipeline import (
             PIPELINE_ATTR,
+            SCORING_FEATURE_SQL_ATTR,
             SCORING_FEATURES_ATTR,
             NoriRelPipeline,
             PredictionDetails,
         )
 
         features = frame.attrs.pop(SCORING_FEATURES_ATTR, None)
+        feature_sql = frame.attrs.pop(SCORING_FEATURE_SQL_ATTR, None) or {}
         return PredictionDetails(
             predictions=frame,
             metadata={
@@ -427,6 +430,7 @@ class NoriRelClient:
             },
             pipeline=NoriRelPipeline.from_prediction(frame),
             features=features,
+            feature_sql=feature_sql,
         )
 
     def start_predict(

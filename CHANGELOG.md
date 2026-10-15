@@ -12,6 +12,19 @@
   "The best program did not beat the baseline on the confirmation rows". It
   used to say "No program beat the baseline", even when one had on the
   search's holdout.
+- `details.features` names its columns in dots instead of the internal
+  encoding: `results.grid.mean` instead of
+  `nr|path|drivers%3C-results.driverId|grid|mean|all`,
+  `qualifying.constructors.count` for a two-step path, `results.grid.max`
+  instead of `d2__drivers.MAX(results.grid)`, and `<query>.<column>` for an
+  agent's column. This changes the column names from 0.4.x. The model,
+  pipelines, saved programs and `feature_matrix_sha256` keep the internal
+  names, now in `details.internal_feature_names`.
+- `get_feature_table()` returns `feature` (the dotted name), `internal_name`,
+  `source`, `sql`, `dtype`, `missing_share`, `mean`, `min` and `max`. The
+  `definition` column is gone; `sql` holds the agent's query or the statements
+  FastDFS ran for each feature, and `None` for NoriDFS, which computes in
+  pandas.
 
 ## 0.4.2 — 2026-10-15
 

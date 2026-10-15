@@ -198,6 +198,20 @@ def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
     assert child["metadata"]["pipeline_id"] == pipeline.pipeline_id
     if kind == "agentic":
         assert pipeline.feature_names[-1] == "web_orders__web_orders"
+    # The details rename only their own copy of the matrix; the table maps
+    # each dotted name back to the name the pipeline saved.
+    table = first.get_feature_table()
+    assert table["feature"].tolist() == first.features.columns.tolist()
+    assert table["internal_name"].tolist() == list(pipeline.feature_names)
+    assert not any(name.startswith(("nr|", "d2__")) for name in first.features.columns)
+    if kind == "noridfs":
+        assert table["sql"].isna().all()
+    if kind == "fastdfs":
+        assert "orders.count" in first.features.columns
+        assert table["sql"].str.contains("SELECT").all()
+    if kind == "agentic":
+        assert first.features.columns[-1] == "web_orders.web_orders"
+        assert table["sql"].iloc[-1] == program.queries[0].sql
 
 
 def _later_prediction(schema, pipeline, **options):

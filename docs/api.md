@@ -93,12 +93,29 @@ fails the operation instead of silently truncating source data.
 | `predictions` | one row per scored entity: `entity_id`, `anchor_time`, `prediction` |
 | `metadata` | run facts; `metadata["features"]` names the feature search that ran |
 | `pipeline` | a `NoriRelPipeline` to save and replay, or `None` |
-| `features` | the feature matrix Nori scored, one row per `entity_id` |
+| `features` | the feature matrix Nori scored, one row per `entity_id`, one column per feature |
+| `internal_feature_names` | the model's name for each column of `features`, in order |
+| `feature_sql` | the SQL FastDFS ran for each feature, by internal name |
 
-`get_feature_table()` describes each column of `features`: `feature`, `source`,
-`definition`, `dtype`, `missing_share`, `mean`, `min` and `max`. Only NoriDFS
-features one link from the entity get a definition in words; other NoriDFS
-features show their path text.
+`features` names each column in dots: the tables the feature reads through
+from the entity, then the column, then the aggregate and its window, such as
+`results.grid.mean`, `results.count`, `qualifying.constructors.count` (the
+constructors reached through the entity's qualifying rows) or
+`orders.amount.mean_30d`. The entity's own columns keep their table name
+(`drivers.dob`), anchor-time fields start with `anchor.`, FastDFS columns read
+the same way (`results.grid.max`), and an agent's column is
+`<query>.<column>`. Names are unique within a prediction: when two features
+would share one, each table they reach through a different foreign key shows
+that key in brackets (`matches[home_team_id].count`), and a name that still
+collides stays the internal name. Only this copy of the matrix is renamed; the
+model, the pipeline, a saved agent program and `metadata["feature_matrix_sha256"]`
+use the internal names.
+
+`get_feature_table()` returns one row per column of `features`, in the same
+order: `feature`, `internal_name`, `source`, `sql`, `dtype`, `missing_share`,
+`mean`, `min` and `max`. `sql` holds the agent's query for an agent column and
+the statements FastDFS ran on its DuckDB copy of the snapshot for a FastDFS
+column. NoriDFS computes in pandas, so its `sql` is `None`.
 
 ## Errors and compatibility
 
