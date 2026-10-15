@@ -72,16 +72,19 @@ NORIDFS_CONFIG = NativeFeatureConfig(
 )
 
 #: The search settings this agent was developed with, with client text
-#: disabled. The 1% gain floor and three context cutoffs are safeguards that
-#: have not been benchmarked.
+#: disabled. A trial becomes the best when it scores higher at all, and the
+#: best is kept when it beats the baseline on the confirmation rows, which the
+#: search never scored it on; there is no noise margin or minimum gain. The
+#: three context cutoffs are a safeguard that has not been benchmarked.
 DEFAULT_SEARCH_CONFIG = AgenticFeatureConfig(
     max_trials=24,
     holdout_fraction=0.15,
     confirmation_fraction=0.15,
+    noise_margin=0.0,
     extend_baseline=True,
     align_to_cutoffs=True,
     allow_text=False,
-    min_relative_gain=0.01,
+    min_relative_gain=0.0,
     min_context_cutoffs=3,
 )
 

@@ -70,9 +70,9 @@ everything else: join the entity's point-in-time row, never its latest.
 
 Work in this order: describe_schema, profile the columns that look relevant,
 run_sql to check assumptions, then validate_program. Read the score, its
-noise, and the per-query coverage, then revise. A change is real only when it
-beats the best by more than the noise margin. Stop when the score plateaus or
-the trial budget is spent, and finish with a short rationale.
+noise, and the per-query coverage, then revise. validate_program says whether
+a program became the new best. Stop when the score plateaus or the trial
+budget is spent, and finish with a short rationale.
 """
 
 

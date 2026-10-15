@@ -25,7 +25,9 @@ STAGE_LABELS: Final[dict[Stage, str]] = {
 
 FALLBACK_MESSAGES: Final[dict[FallbackReason, str]] = {
     FallbackReason.NO_PROGRAM_FOUND: "The agent found no program",
-    FallbackReason.NO_PROGRAM_CONFIRMED: "No program beat the baseline",
+    FallbackReason.NO_PROGRAM_CONFIRMED: (
+        "The best program did not beat the baseline on the confirmation rows"
+    ),
     FallbackReason.STOPPED_BEFORE_CONFIRMATION: (
         "Stopped before the best program was confirmed"
     ),

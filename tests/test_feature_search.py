@@ -157,7 +157,8 @@ def test_default_search_has_explicit_budgets() -> None:
     assert DEFAULT_SEARCH_CONFIG.align_to_cutoffs
     assert DEFAULT_SEARCH_CONFIG.max_trials == 24
     assert DEFAULT_SEARCH_CONFIG.n_folds == 1
-    assert DEFAULT_SEARCH_CONFIG.min_relative_gain == 0.01
+    assert DEFAULT_SEARCH_CONFIG.min_relative_gain == 0.0
+    assert DEFAULT_SEARCH_CONFIG.noise_margin == 0.0
     assert DEFAULT_SEARCH_CONFIG.min_context_cutoffs == 3
     assert not DEFAULT_SEARCH_CONFIG.allow_target_transform
     assert not DEFAULT_SEARCH_CONFIG.allow_text

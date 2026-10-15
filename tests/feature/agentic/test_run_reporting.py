@@ -144,7 +144,10 @@ def test_a_losing_search_reports_the_fallback(snapshot, anchors, sql) -> None:
         "reason": "no_program_confirmed",
         "to_strategy": "noridfs",
     }
-    assert events[-1].message == "No program beat the baseline; using noridfs."
+    assert events[-1].message == (
+        "The best program did not beat the baseline on the confirmation rows; "
+        "using noridfs."
+    )
 
 
 def test_a_trial_that_fails_the_point_in_time_check_is_reported_as_rejected(
