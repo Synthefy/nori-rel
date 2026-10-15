@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,7 +14,10 @@ from nori_rel._feature_search import program_from_record
 from nori_rel._runtime import LocalRelationalRuntime
 from nori_rel.feature.agentic import FeatureProgram, FeatureQuery
 from nori_rel.feature.agentic.usage import AgentRunResult, TokenUsage
+from nori_rel.feature.dfs.noridfs import DatabaseView, NoriDFS
+from nori_rel.feature.dfs.noridfs.sql import get_features_from_sql
 from nori_rel.limits import RelationalLimits
+from nori_rel.pipeline import SCORING_FEATURE_SQL_ATTR, SCORING_FEATURES_ATTR
 from nori_rel.run import RunContext, RunEvent
 
 QUERY = "PREDICT COUNT(orders.*,0,30,days) FOR EACH users.user_id"
@@ -124,6 +128,69 @@ def test_a_prediction_overrides_the_runtime_feature_search(source, monkeypatch):
     assert runtime.features == "fastdfs"
 
 
+def _record_noridfs_inputs(monkeypatch) -> dict:
+    """Keep what the last NoriDFS compute read and returned."""
+    recorded: dict = {}
+    compute = NoriDFS.compute
+
+    def recording_compute(
+        backend, snapshot, train_rows, query_rows, entity_table, **kw
+    ):
+        matrices = compute(
+            backend, snapshot, train_rows, query_rows, entity_table, **kw
+        )
+        recorded.update(
+            backend=backend,
+            snapshot=snapshot,
+            rows=pd.concat([train_rows, query_rows], ignore_index=True),
+            matrices=matrices,
+        )
+        return matrices
+
+    monkeypatch.setattr(NoriDFS, "compute", recording_compute)
+    return recorded
+
+
+def test_noridfs_details_carry_sql_that_gives_each_feature(source, monkeypatch):
+    _agentic()
+    recorded = _record_noridfs_inputs(monkeypatch)
+    runtime, database, _ = _runtime(source, monkeypatch, "noridfs", lambda _: 1.0)
+    try:
+        result = runtime.predict_pql(
+            database, QUERY, keep_scoring_features=True, **OPTIONS
+        )
+    finally:
+        runtime.close()
+    backend, matrices = recorded["backend"], recorded["matrices"]
+    sql = result.attrs[SCORING_FEATURE_SQL_ATTR]
+    assert list(sql) == matrices.feature_names
+    assert sql == backend.last_feature_sql
+    snapshot, plan = recorded["snapshot"], backend.last_plan
+    view = DatabaseView.from_parts(
+        tables=snapshot.tables,
+        primary_keys=snapshot.primary_keys,
+        foreign_keys=snapshot.foreign_keys,
+        time_columns=snapshot.time_columns,
+    )
+    anchors = recorded["rows"][[plan.anchors.entity_column, plan.anchors.cutoff_column]]
+    from_sql = get_features_from_sql(view, plan, anchors)
+    expected = pd.concat([matrices.train, matrices.query], ignore_index=True)
+    for feature in plan.features:
+        if feature.kind == "categorical":
+            assert [None if pd.isna(v) else v for v in from_sql[feature.name]] == [
+                None if pd.isna(v) else v for v in expected[feature.name]
+            ], feature.name
+        else:
+            np.testing.assert_allclose(
+                pd.to_numeric(from_sql[feature.name]).to_numpy(dtype=float),
+                pd.to_numeric(expected[feature.name]).to_numpy(dtype=float),
+                rtol=1e-9,
+                atol=1e-4 if feature.operation == "std" else 1e-9,
+                equal_nan=True,
+                err_msg=feature.name,
+            )
+
+
 def _with_program(train: pd.DataFrame) -> float:
     """Predict the context labels exactly once the program's column is there."""
     return 0.0 if "history__n_orders" in train else 50.0
@@ -174,6 +241,23 @@ def test_an_agent_program_that_beats_noridfs_is_kept(source, monkeypatch):
     assert "nr|anchor|entity_key" in options["categorical_columns"]
     assert "history__n_orders" not in options["categorical_columns"]
     assert result["prediction"].tolist() == [0.0] * 4
+
+
+def test_an_agent_search_reports_sql_for_its_noridfs_columns(source, monkeypatch):
+    _agentic()
+    search = AgenticSearch(agent=_ScriptedAgent())
+    runtime, database, _ = _runtime(source, monkeypatch, search, _with_program)
+    try:
+        result = runtime.predict_pql(
+            database, QUERY, keep_scoring_features=True, **OPTIONS
+        )
+    finally:
+        runtime.close()
+    columns = result.attrs[SCORING_FEATURES_ATTR].columns
+    assert "history__n_orders" in columns
+    assert set(result.attrs[SCORING_FEATURE_SQL_ATTR]) == {
+        column for column in columns if column.startswith("nr|")
+    }
 
 
 def test_a_program_that_does_not_beat_noridfs_falls_back(source, monkeypatch):

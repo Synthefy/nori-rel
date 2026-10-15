@@ -7,6 +7,7 @@ import pandas as pd
 from .._basedfs import CUTOFF_COLUMN, BaseDFS, FeatureMatrices, RelationalData
 from .contracts import AnchorDefinition, DatabaseView, FeaturePlan, NativeFeatureConfig
 from .engine import NativeRelationalFeaturizer
+from .sql import SQLSchema, get_plan_sql, get_sql_schema
 
 
 class NoriDFS(BaseDFS):
@@ -30,6 +31,22 @@ class NoriDFS(BaseDFS):
         #: The plan from the last ``compute``, for callers that describe or
         #: extend its columns rather than only read the matrix.
         self.last_plan: FeaturePlan | None = None
+        #: What the last plan's SQL needs to know about the snapshot.
+        self._last_sql_schema: SQLSchema | None = None
+
+    @property
+    def last_feature_sql(self) -> dict[str, str]:
+        """Return the DuckDB query behind each feature of the last ``compute``.
+
+        Each query reads the snapshot tables and ``eval_table`` (``row_id``,
+        the entity key and ``cutoff``, one row per context or query row) and
+        gives the values the pandas executor computed; ``noridfs.sql``
+        describes the two helper columns some queries read. Empty before the
+        first ``compute``.
+        """
+        if self.last_plan is None or self._last_sql_schema is None:
+            return {}
+        return get_plan_sql(self.last_plan, self._last_sql_schema)
 
     @classmethod
     def from_plan(cls, plan: FeaturePlan) -> NoriDFS:
@@ -91,6 +108,9 @@ class NoriDFS(BaseDFS):
             featurizer = NativeRelationalFeaturizer(self.saved_plan)
         self.last_plan = featurizer.plan
         anchors = combined[[entity_column, CUTOFF_COLUMN]]
+        self._last_sql_schema = get_sql_schema(
+            database, featurizer.plan, anchors[entity_column]
+        )
         frame = featurizer.transform(database, anchors).frame
         split = len(train_rows)
         return FeatureMatrices(

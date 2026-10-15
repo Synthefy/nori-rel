@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- `get_feature_table()` fills `sql` for NoriDFS columns. Each is a DuckDB query
+  over the snapshot tables and `eval_table` (`row_id`, the entity key and
+  `cutoff`, as an agent's SQL reads them) that gives the values NoriDFS
+  computes in pandas. `NoriDFS.last_feature_sql` returns the same queries, and
+  an agent search reports them for its NoriDFS columns. Feature values do not
+  change.
+
 ## 0.4.3 — 2026-10-15
 
 - `AgenticSearch` keeps a program that beats the baseline by any amount. A

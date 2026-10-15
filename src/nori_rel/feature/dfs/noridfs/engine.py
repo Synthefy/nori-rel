@@ -424,6 +424,63 @@ def _primary_key(database: DatabaseView, table: str) -> pd.Series:
     return values
 
 
+def get_path_row_ties(
+    database: DatabaseView,
+    path: RelationPath,
+    source_columns: list[str],
+) -> np.ndarray:
+    """Return the hash that orders a path's rows when their times are equal.
+
+    A path's rows come from one table: the terminal table of a descendant path,
+    the association table of a bridge. Each row's hash is that table's primary
+    key when it has one. Otherwise it hashes the row's structural and temporal
+    columns, plus the planned source columns for a descendant path, so excluded
+    and unsupported fields never affect a feature. The SQL in ``sql`` orders
+    rows with equal times by this hash too.
+    """
+    if path.is_bridge:
+        association_edge, first_parent = path.edges[0], path.edges[1]
+        table = association_edge.child_table
+        if database.primary_keys.get(table) is not None:
+            values: pd.Series | pd.DataFrame = _primary_key(database, table)
+        else:
+            time_column = database.time_columns.get(table)
+            values = database.tables[table].reindex(
+                columns=list(
+                    dict.fromkeys(
+                        [
+                            association_edge.child_column,
+                            first_parent.child_column,
+                            *([time_column] if time_column is not None else []),
+                        ]
+                    )
+                )
+            )
+    else:
+        relation = path.edges[-1]
+        table = relation.child_table
+        child = database.tables[table]
+        key = database.primary_keys.get(table)
+        if key is not None:
+            values = child[key]
+        else:
+            time_column = database.time_columns.get(table)
+            values = child.reindex(
+                columns=list(
+                    dict.fromkeys(
+                        [
+                            relation.child_column,
+                            *([time_column] if time_column is not None else []),
+                            *source_columns,
+                        ]
+                    )
+                )
+            )
+    return pd.util.hash_pandas_object(values, index=False, categorize=True).to_numpy(
+        dtype=np.uint64
+    )
+
+
 def _materialize_bridge_path(
     database: DatabaseView,
     path: RelationPath,
@@ -467,27 +524,7 @@ def _materialize_bridge_path(
             ),
         }
     )
-    association_key = database.primary_keys.get(association_edge.child_table)
-    if association_key is not None:
-        tie_values: pd.Series | pd.DataFrame = _primary_key(
-            database, association_edge.child_table
-        )
-    else:
-        tie_columns = list(
-            dict.fromkeys(
-                [
-                    association_edge.child_column,
-                    first_parent.child_column,
-                    *([association_time] if association_time is not None else []),
-                ]
-            )
-        )
-        tie_values = association.reindex(columns=tie_columns)
-    payload[_TIE] = pd.util.hash_pandas_object(
-        tie_values,
-        index=False,
-        categorize=True,
-    ).to_numpy(dtype=np.uint64)
+    payload[_TIE] = get_path_row_ties(database, path, source_columns)
     joined = payload[payload[_JOIN].notna()].merge(
         mapping[mapping[_NODE].notna()],
         how="inner",
@@ -608,27 +645,7 @@ def _materialize_path(
         )
         terminal = depth == len(path.edges) - 1
         if terminal:
-            terminal_key = database.primary_keys.get(relation.child_table)
-            if terminal_key is not None:
-                tie_values = child[terminal_key]
-            else:
-                # Excluded and unsupported fields must not affect a planned
-                # feature. Use only structural, temporal, and planned values.
-                tie_columns = list(
-                    dict.fromkeys(
-                        [
-                            relation.child_column,
-                            *([child_time] if child_time is not None else []),
-                            *source_columns,
-                        ]
-                    )
-                )
-                tie_values = child.reindex(columns=tie_columns)
-            payload[_TIE] = pd.util.hash_pandas_object(
-                tie_values,
-                index=False,
-                categorize=True,
-            ).to_numpy(dtype=np.uint64)
+            payload[_TIE] = get_path_row_ties(database, path, source_columns)
             for index, column in enumerate(source_columns):
                 alias = f"__nr_source_{index}__"
                 sources[column] = alias
