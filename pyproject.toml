@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "nori-rel"
-version = "0.4.1"
+version = "0.4.2"
 description = "Relational database prediction with Nori"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
