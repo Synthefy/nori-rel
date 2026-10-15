@@ -21,6 +21,9 @@ from nori_rel.pipeline.errors import (
 
 #: ``DataFrame.attrs`` key that carries a prediction's pipeline record.
 PIPELINE_ATTR = "pipeline"
+#: ``DataFrame.attrs`` key that carries the scored rows' feature matrix from
+#: ``predict_pql`` to ``predict``, which moves it to ``PredictionDetails``.
+SCORING_FEATURES_ATTR = "scoring_features"
 
 if TYPE_CHECKING:
     from nori_rel.pipeline.artifact import NoriRelPipeline
@@ -55,6 +58,7 @@ __all__ = [
     "PIPELINE_ATTR",
     "PIPELINE_FORMAT",
     "PIPELINE_FORMAT_VERSION",
+    "SCORING_FEATURES_ATTR",
     "NoriRelPipeline",
     "PipelineContextError",
     "PipelineError",

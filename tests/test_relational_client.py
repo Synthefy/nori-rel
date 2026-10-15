@@ -14,6 +14,8 @@ from nori_rel import (
     NoriRelClient,
 )
 from nori_rel._feature_search import AgenticSearch
+from nori_rel._pql_runtime import get_scoring_feature_frame
+from nori_rel.pipeline import SCORING_FEATURES_ATTR, PredictionDetails
 
 
 class FakeRuntime:
@@ -44,7 +46,13 @@ class FakeRuntime:
 
     def predict_pql(self, source, request, **options):
         self.prediction = (source, request)
-        return pd.DataFrame({"entity_id": [7], "prediction": [3.5]})
+        self.options = options
+        frame = pd.DataFrame({"entity_id": [7], "prediction": [3.5]})
+        if options.get("keep_scoring_features"):
+            frame.attrs[SCORING_FEATURES_ATTR] = pd.DataFrame(
+                {"nr|direct|users.age": [41.0]}, index=pd.Index([7], name="entity_id")
+            )
+        return frame
 
 
 def _client(runtime: FakeRuntime | None = None) -> NoriRelClient:
@@ -404,3 +412,84 @@ def test_an_agent_search_reports_its_spend_limit_on_its_run() -> None:
     run.result(timeout=5)
 
     assert run.progress.max_spend_usd == 2.5
+
+
+def _predict(client, **options):
+    return client.predict(
+        source=client._runtime.source,
+        query="PREDICT SUM(orders.amount,0,30,days) FOR EACH users.user_id",
+        anchor_times=[datetime(2026, 1, 1, tzinfo=UTC)],
+        observed_through=datetime(2026, 2, 1, tzinfo=UTC),
+        entity_created_at="created_at",
+        **options,
+    )
+
+
+def test_details_carry_the_scored_rows_features_and_frames_do_not() -> None:
+    runtime = FakeRuntime()
+    with _client(runtime) as client:
+        frame = _predict(client)
+        assert runtime.options["keep_scoring_features"] is False
+        assert SCORING_FEATURES_ATTR not in frame.attrs
+        details = _predict(client, return_details=True)
+    assert runtime.options["keep_scoring_features"] is True
+    assert details.features.loc[7, "nr|direct|users.age"] == 41.0
+    assert SCORING_FEATURES_ATTR not in details.predictions.attrs
+    assert SCORING_FEATURES_ATTR not in details.metadata
+
+
+def test_the_feature_table_names_each_column_source_and_definition() -> None:
+    windowed_mean = "nr|path|users%3C-orders.user_id|amount|mean|2592000000000000ns"
+    team_name = "nr|path|users%3D%3Eusers.team_id-%3Eteams.team_id|name|lookup|all"
+    features = pd.DataFrame(
+        {
+            "recent__qty_ly": [10.0, None],
+            windowed_mean: [2.0, 4.0],
+            "nr|path|users%3C-orders.user_id|rows|count|all": [3.0, 1.0],
+            team_name: ["a", "b"],
+            "nr|anchor|cutoff_month": [9.0, 9.0],
+            "nr|direct|users.created_at": [100.0, 50.0],
+            "d1__users.country": ["US", "CA"],
+        },
+        index=pd.Index([1, 2], name="entity_id"),
+    )
+    details = PredictionDetails(
+        predictions=pd.DataFrame(),
+        metadata={
+            "features": "agentic",
+            "agentic_program": {"queries": [{"name": "recent", "sql": "SELECT 1"}]},
+        },
+        pipeline=None,
+        features=features,
+    )
+    table = details.get_feature_table().set_index("feature")
+    assert table.loc["recent__qty_ly", ["source", "definition"]].tolist() == [
+        "agent",
+        "qty_ly, from the agent's 'recent' query",
+    ]
+    assert table.loc["recent__qty_ly", "missing_share"] == 0.5
+    assert table.loc[windowed_mean, "source"] == "noridfs"
+    assert table["definition"].tolist()[1:6] == [
+        "mean of amount over the last 30 days, in orders matched on user_id",
+        "number of rows over all history, in orders matched on user_id",
+        "name, looked up from teams through team_id",
+        "the anchor time's month",
+        "users.created_at, the entity's own column",
+    ]
+    assert table.loc[windowed_mean, ["mean", "min", "max"]].tolist() == [3.0, 2.0, 4.0]
+    assert table.loc["d1__users.country", "source"] == "agentic"
+    assert pd.isna(table.loc["d1__users.country", "mean"])
+
+
+def test_a_feature_table_needs_features() -> None:
+    details = PredictionDetails(predictions=pd.DataFrame(), metadata={}, pipeline=None)
+    with pytest.raises(ValueError, match="return_details=True"):
+        details.get_feature_table()
+
+
+def test_scoring_features_are_indexed_by_entity() -> None:
+    query = pd.DataFrame({"x": [1.0, 2.0]}, index=pd.Index([1, 2], name="query_row_id"))
+    scoring = pd.DataFrame({"query_row_id": [2, 1], "entity_id": ["b", "a"]})
+    frame = get_scoring_feature_frame(query, scoring)
+    assert frame.index.tolist() == ["a", "b"] and frame.index.name == "entity_id"
+    assert frame["x"].tolist() == [1.0, 2.0]

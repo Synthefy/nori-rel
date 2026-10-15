@@ -351,9 +351,12 @@ class NoriRelClient:
         PQL returns entity_id, anchor_time, prediction; binary adds probability,
         quantile output adds quantiles. attrs holds task/model and context counts.
         return_details=True returns PredictionDetails with predictions
-        (DataFrame), metadata (dict) and pipeline (NoriRelPipeline or None);
-        details["predictions"] works too. Save the pipeline to predict again
-        in another process without a feature search.
+        (DataFrame), metadata (dict), pipeline (NoriRelPipeline or None) and
+        features, the scored rows' feature matrix (one row per entity_id);
+        details.get_feature_table() describes each feature column, with its
+        source, definition and value summary. details["predictions"] works
+        too. Save the pipeline to predict again in another process without a
+        feature search.
         log_summary emits INFO records through Python logging. Task is resolved
         explicitly from the target; conflicting task overrides error. Direct PQL
         and larger-context retrieval are not implemented yet.
@@ -374,7 +377,9 @@ class NoriRelClient:
         for name in ("self", "return_details", "on_event"):
             del request[name]
         run = self._executor.run_on_this_thread(
-            self._prepare_pql_prediction(**request),
+            self._prepare_pql_prediction(
+                **request, keep_scoring_features=return_details
+            ),
             on_event=on_event,
             summary_in_result_attrs=on_event is not None,
             **self._get_run_options_for_features(feature_program is not None, pipeline),
@@ -382,14 +387,21 @@ class NoriRelClient:
         frame = run.result()
         if not return_details:
             return frame
-        from nori_rel.pipeline import PIPELINE_ATTR, NoriRelPipeline, PredictionDetails
+        from nori_rel.pipeline import (
+            PIPELINE_ATTR,
+            SCORING_FEATURES_ATTR,
+            NoriRelPipeline,
+            PredictionDetails,
+        )
 
+        features = frame.attrs.pop(SCORING_FEATURES_ATTR, None)
         return PredictionDetails(
             predictions=frame,
             metadata={
                 key: value for key, value in frame.attrs.items() if key != PIPELINE_ATTR
             },
             pipeline=NoriRelPipeline.from_prediction(frame),
+            features=features,
         )
 
     def start_predict(
@@ -488,8 +500,13 @@ class NoriRelClient:
         log_summary: bool = True,
         pipeline: NoriRelPipeline | None = None,
         expected_context_sha256: str | None = None,
+        keep_scoring_features: bool = False,
     ) -> Callable[[RunContext], pd.DataFrame]:
-        """Check a predict request now; return the prediction to run later."""
+        """Check a predict request now; return the prediction to run later.
+
+        ``keep_scoring_features`` makes the run keep the scored rows' feature
+        matrix for ``PredictionDetails.features``.
+        """
         if pipeline is not None:
             return self._get_pipeline_prediction_run(
                 pipeline,
@@ -522,6 +539,7 @@ class NoriRelClient:
                     "metric": metric,
                 },
                 log_summary=log_summary,
+                keep_scoring_features=keep_scoring_features,
             )
         program = None
         if feature_program is not None:
@@ -619,6 +637,7 @@ class NoriRelClient:
                 feature_program=program,
                 run_context=run_context,
                 metric=metric,
+                keep_scoring_features=keep_scoring_features,
             )
 
         return predict_frame
@@ -631,10 +650,12 @@ class NoriRelClient:
         request: Mapping[str, Any],
         fixed: Mapping[str, Any],
         log_summary: bool,
+        keep_scoring_features: bool = False,
     ) -> Callable[[RunContext], pd.DataFrame]:
         """Check a request to run a saved pipeline; return the run to execute.
 
         ``fixed`` holds the arguments the pipeline decides, which must be unset.
+        ``keep_scoring_features`` keeps the scored rows' feature matrix.
         """
         from nori_rel.pipeline import NoriRelPipeline, PipelinePredictRequest
         from nori_rel.pipeline.checks import get_pipeline_query
@@ -681,6 +702,7 @@ class NoriRelClient:
                 run_context=run_context,
                 pipeline=manifest,
                 expected_context_sha256=run_request.expected_context_sha256,
+                keep_scoring_features=keep_scoring_features,
             )
 
         return predict_frame

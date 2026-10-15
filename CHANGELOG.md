@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `predict(return_details=True)` keeps the scored rows' feature matrix in
+  `PredictionDetails.features` (one row per `entity_id`), and
+  `PredictionDetails.get_feature_table()` describes each feature column: its
+  source (an agent query, NoriDFS, or the run's feature strategy), its
+  definition in words (the agent query that produced it, or for NoriDFS the
+  aggregation, column, window and table, such as "mean of QTY_CANS over the
+  last 30 days, in SHIPMENTS matched on CUSTOMER_ID"), and its missing share,
+  mean, min and max over the scored entities.
+
 ## 0.4.0 — 2026-10-14
 
 - PQL label windows accept `months`: `SUM(orders.amount,0,1,months)` covers one
