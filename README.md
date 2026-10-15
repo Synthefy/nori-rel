@@ -14,7 +14,7 @@ The assessment includes scoped, expiring exceptions for upstream dependencies.
 
 ## Install
 
-Python 3.11 and 3.12 are supported. Install your connector and, for the default
+Python 3.11, 3.12 and 3.13 are supported. Install your connector and, for the default
 local inference mode, the model runtime:
 
 ```bash
