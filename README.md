@@ -179,6 +179,28 @@ it, with relative and normalized errors as percentages
 client.predict(source=source, query=query, feature_strategy=search, metric="wape", ...)
 ```
 
+## Inspect the features
+
+With `return_details=True`, `details.features` is the feature matrix Nori scored:
+a pandas DataFrame with one row per `entity_id` and one column per feature.
+`details.get_feature_table()` returns one row per feature column with its
+`source`, a `definition`, its `dtype`, and its `missing_share`, `mean`, `min`
+and `max` over the scored entities.
+
+```python
+table = details.get_feature_table()
+print(table[["feature", "definition", "missing_share", "mean"]])
+
+# The same matrix with each column named by its definition.
+readable = details.features.set_axis(table["definition"], axis=1)
+```
+
+NoriDFS features one link from the entity have a definition in words, such as
+"mean of amount over the last 30 days, in orders matched on user_id". Features
+further away show their path text, and an agent's columns show its SQL.
+`details.metadata["features"]` is different: it names the feature search that
+ran (`"fastdfs"`, `"noridfs"`, `"agentic"` or `"saved_program"`), not the matrix.
+
 ## Save and reload
 
 Request prediction details to obtain a pipeline, then reconnect when using it:
