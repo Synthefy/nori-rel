@@ -94,7 +94,7 @@ def test_a_prediction_can_choose_its_own_feature_search() -> None:
         PredictionTask.REGRESSION,
         _context(1),
         pd.Series(),
-        features="noridfs",
+        feature_strategy="noridfs",
     )
     assert isinstance(backend, NoriDFS)
     assert runtime.features == "fastdfs"
@@ -436,9 +436,12 @@ def test_local_nori_declares_categoricals_for_one_call(
     assert predictor._regressor.categorical_columns == "auto"
 
 
-def test_local_mode_takes_a_feature_search(monkeypatch) -> None:
+def test_the_client_feature_search_still_works_with_a_deprecation_warning(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr("synthefy_nori.NoriRegressor", _Regressor)
-    client = NoriRelClient(features="noridfs", device="cpu")
+    with pytest.warns(DeprecationWarning, match="feature_strategy= to predict"):
+        client = NoriRelClient(features="noridfs", device="cpu")
     assert client.mode == "local"
     assert client._runtime.features == "noridfs"
     assert isinstance(client._runtime.predictor, LocalNoriPredictor)

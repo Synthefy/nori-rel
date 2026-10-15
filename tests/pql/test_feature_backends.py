@@ -114,7 +114,9 @@ def test_noridfs_sends_declared_categoricals_to_hosted_nori(source, monkeypatch)
 def test_a_prediction_overrides_the_runtime_feature_search(source, monkeypatch):
     runtime, database, calls = _runtime(source, monkeypatch, "fastdfs", lambda _: 1.0)
     try:
-        result = runtime.predict_pql(database, QUERY, features="noridfs", **OPTIONS)
+        result = runtime.predict_pql(
+            database, QUERY, feature_strategy="noridfs", **OPTIONS
+        )
     finally:
         runtime.close()
     assert result.attrs["features"] == "noridfs"
