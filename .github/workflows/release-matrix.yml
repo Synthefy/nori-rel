@@ -29,6 +29,8 @@ jobs:
             postgres: "16"
           - python: "3.12"
             postgres: "18"
+          - python: "3.13"
+            postgres: "18"
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}-alpine
@@ -122,18 +124,24 @@ jobs:
         include:
           - {os: ubuntu-24.04, python: "3.11", extras: "", format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: "", format: whl}
+          - {os: ubuntu-24.04, python: "3.13", extras: "", format: whl}
           - {os: ubuntu-24.04, python: "3.11", extras: database, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: database, format: whl}
           - {os: ubuntu-24.04, python: "3.11", extras: snowflake, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: snowflake, format: whl}
+          - {os: ubuntu-24.04, python: "3.13", extras: snowflake, format: whl}
           - {os: ubuntu-24.04, python: "3.11", extras: databricks, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: databricks, format: whl}
+          - {os: ubuntu-24.04, python: "3.13", extras: databricks, format: whl}
           - {os: ubuntu-24.04, python: "3.11", extras: local, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: local, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: "database,local", format: whl}
           - {os: ubuntu-24.04, python: "3.11", extras: agentic, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: agentic, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: "database,local,agentic", format: whl}
+          - {os: ubuntu-24.04, python: "3.13", extras: "database,local,agentic", format: whl}
+          - {os: macos-14, python: "3.13", extras: "snowflake,local", format: whl}
+          - {os: windows-2022, python: "3.13", extras: "snowflake,local", format: whl}
           - {os: ubuntu-24.04, python: "3.11", extras: database, format: tar.gz}
           - {os: macos-14, python: "3.12", extras: database, format: whl}
           - {os: windows-2022, python: "3.12", extras: database, format: whl}

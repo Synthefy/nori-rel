@@ -102,7 +102,7 @@ configuration, audit checker, artifact validator, and release workflows. A
 relevant edit requires another review.
 
 The checker runs unfiltered `pip-audit --strict` on all retained locked extras
-and development groups, evaluating markers on Python 3.11/3.12 on Linux, macOS,
+and development groups, evaluating markers on Python 3.11/3.12/3.13 on Linux, macOS,
 and Windows. Every applicable pinned requirement must appear in the raw result.
 Missing, skipped, duplicate, malformed, or unexpected dependency records,
 scanner errors, and inconsistent exit statuses fail the gate. New advisories,

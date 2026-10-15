@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Support Python 3.13. `requires-python` is now `>=3.11,<3.14`; every extra
+  installs on 3.13 and the test suite passes on it. The dependency audit,
+  dependency compatibility check and release matrix run on 3.13 too.
+
 ## 0.4.1 — 2026-10-15
 
 - `predict(..., feature_strategy=...)` and `start_predict(...,
