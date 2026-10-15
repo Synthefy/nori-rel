@@ -1,6 +1,7 @@
 """Temporal PQL preparation and explicit-task inference on aligned matrices."""
 
 import logging
+import sys
 from dataclasses import replace
 
 import numpy as np
@@ -9,7 +10,11 @@ import pandas as pd
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
 from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
 from nori_rel.feature import FeatureBackend
-from nori_rel.pipeline import PIPELINE_ATTR, SCORING_FEATURES_ATTR
+from nori_rel.pipeline import (
+    PIPELINE_ATTR,
+    SCORING_FEATURE_SQL_ATTR,
+    SCORING_FEATURES_ATTR,
+)
 from nori_rel.pipeline.audit import get_context_rows_sha256, get_feature_matrix_sha256
 from nori_rel.pipeline.build import get_pipeline_manifest
 from nori_rel.pipeline.checks import (
@@ -106,7 +111,9 @@ def predict_pql(
     metric chooses how an agent search scores its candidate programs on a
     regression target ("mae" when None); it is refused for any other run.
     keep_scoring_features puts the scored rows' feature matrix, indexed by
-    entity_id, in attrs[SCORING_FEATURES_ATTR]; it stays out of the pipeline.
+    entity_id, in attrs[SCORING_FEATURES_ATTR] and the SQL of each feature,
+    for FastDFS, in attrs[SCORING_FEATURE_SQL_ATTR]; both stay out of the
+    pipeline.
     feature_strategy is this prediction's feature search; None uses the
     runtime's.
     """
@@ -361,7 +368,21 @@ def predict_pql(
         result.attrs[SCORING_FEATURES_ATTR] = get_scoring_feature_frame(
             matrices.query, scoring
         )
+        result.attrs[SCORING_FEATURE_SQL_ATTR] = get_feature_sql_by_name(backend)
     return result
+
+
+def get_feature_sql_by_name(backend: FeatureBackend) -> dict[str, str]:
+    """Return the SQL that computed each feature column, by column name.
+
+    Only FastDFS reports it, since it runs one query per feature; the result is
+    empty for any other backend. NoriDFS computes in pandas, and an agent's
+    SQL is already in the prediction's ``agentic_program`` metadata.
+    """
+    fastdfs = sys.modules.get("nori_rel.feature.dfs.fastdfs")
+    if fastdfs is not None and isinstance(backend, fastdfs.FastDFS):
+        return dict(backend.last_feature_sql)
+    return {}
 
 
 def get_scoring_feature_frame(

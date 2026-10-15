@@ -183,21 +183,37 @@ client.predict(source=source, query=query, feature_strategy=search, metric="wape
 
 With `return_details=True`, `details.features` is the feature matrix Nori scored:
 a pandas DataFrame with one row per `entity_id` and one column per feature.
-`details.get_feature_table()` returns one row per feature column with its
-`source`, a `definition`, its `dtype`, and its `missing_share`, `mean`, `min`
-and `max` over the scored entities.
+Each column name says what the feature reads: the tables it goes through from
+the entity, then the column, then the aggregate, joined with dots.
+
+```python
+print(details.features.head())
+```
+
+With the tables above, `orders.amount.mean` is the mean of `orders.amount`
+over the user's orders and `orders.count` counts them; NoriDFS adds windows,
+such as `orders.amount.mean_30d` for the last 30 days. A feature two links
+away names both tables: with a `products` table that orders point to,
+`orders.products.count` counts the products reached through the user's
+orders. `users.created_at` is the user's own column, `anchor.cutoff_month` a
+field of the anchor time, and an agent's column is `<query>.<column>`. When
+two features would share a name, the table reached through a different
+foreign key shows that key, as in `orders[buyer_id].count`.
+
+`details.get_feature_table()` returns one row per column of `details.features`,
+in the same order: its `feature` name, the `internal_name` the model, pipeline
+and feature hash use, its `source`, the `sql` that computed it, its `dtype`,
+and its `missing_share`, `mean`, `min` and `max` over the scored entities.
+`sql` is the agent's query for an agent column and the statements FastDFS ran
+for a FastDFS column; NoriDFS computes its features in pandas, so its `sql` is
+`None`.
 
 ```python
 table = details.get_feature_table()
-print(table[["feature", "definition", "missing_share", "mean"]])
-
-# The same matrix with each column named by its definition.
-readable = details.features.set_axis(table["definition"], axis=1)
+print(table[["feature", "source", "missing_share", "mean"]])
+print(table.set_index("feature").loc["orders.count", "sql"])
 ```
 
-NoriDFS features one link from the entity have a definition in words, such as
-"mean of amount over the last 30 days, in orders matched on user_id". Features
-further away show their path text, and an agent's columns show its SQL.
 `details.metadata["features"]` is different: it names the feature search that
 ran (`"fastdfs"`, `"noridfs"`, `"agentic"` or `"saved_program"`), not the matrix.
 

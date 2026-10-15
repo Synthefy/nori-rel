@@ -15,7 +15,11 @@ from nori_rel import (
 )
 from nori_rel._feature_search import AgenticSearch
 from nori_rel._pql_runtime import get_scoring_feature_frame
-from nori_rel.pipeline import SCORING_FEATURES_ATTR, PredictionDetails
+from nori_rel.pipeline import (
+    SCORING_FEATURE_SQL_ATTR,
+    SCORING_FEATURES_ATTR,
+    PredictionDetails,
+)
 
 
 class FakeRuntime:
@@ -52,6 +56,7 @@ class FakeRuntime:
             frame.attrs[SCORING_FEATURES_ATTR] = pd.DataFrame(
                 {"nr|direct|users.age": [41.0]}, index=pd.Index([7], name="entity_id")
             )
+            frame.attrs[SCORING_FEATURE_SQL_ATTR] = {}
         return frame
 
 
@@ -433,23 +438,20 @@ def test_details_carry_the_scored_rows_features_and_frames_do_not() -> None:
         assert SCORING_FEATURES_ATTR not in frame.attrs
         details = _predict(client, return_details=True)
     assert runtime.options["keep_scoring_features"] is True
-    assert details.features.loc[7, "nr|direct|users.age"] == 41.0
-    assert SCORING_FEATURES_ATTR not in details.predictions.attrs
-    assert SCORING_FEATURES_ATTR not in details.metadata
+    assert details.features.loc[7, "users.age"] == 41.0
+    assert details.internal_feature_names == ("nr|direct|users.age",)
+    for key in (SCORING_FEATURES_ATTR, SCORING_FEATURE_SQL_ATTR):
+        assert key not in details.predictions.attrs
+        assert key not in details.metadata
 
 
-def test_the_feature_table_names_each_column_source_and_definition() -> None:
+def test_the_feature_table_maps_each_column_to_its_source_and_sql() -> None:
     windowed_mean = "nr|path|users%3C-orders.user_id|amount|mean|2592000000000000ns"
-    team_name = "nr|path|users%3D%3Eusers.team_id-%3Eteams.team_id|name|lookup|all"
     features = pd.DataFrame(
         {
             "recent__qty_ly": [10.0, None],
             windowed_mean: [2.0, 4.0],
-            "nr|path|users%3C-orders.user_id|rows|count|all": [3.0, 1.0],
-            team_name: ["a", "b"],
             "nr|anchor|cutoff_month": [9.0, 9.0],
-            "nr|direct|users.created_at": [100.0, 50.0],
-            "d1__users.country": ["US", "CA"],
         },
         index=pd.Index([1, 2], name="entity_id"),
     )
@@ -462,23 +464,29 @@ def test_the_feature_table_names_each_column_source_and_definition() -> None:
         pipeline=None,
         features=features,
     )
-    table = details.get_feature_table().set_index("feature")
-    assert table.loc["recent__qty_ly", ["source", "definition"]].tolist() == [
-        "agent",
-        "qty_ly, from the agent's 'recent' query",
+    table = details.get_feature_table()
+    assert table.columns.tolist() == [
+        "feature",
+        "internal_name",
+        "source",
+        "sql",
+        "dtype",
+        "missing_share",
+        "mean",
+        "min",
+        "max",
     ]
-    assert table.loc["recent__qty_ly", "missing_share"] == 0.5
-    assert table.loc[windowed_mean, "source"] == "noridfs"
-    assert table["definition"].tolist()[1:6] == [
-        "mean of amount over the last 30 days, in orders matched on user_id",
-        "number of rows over all history, in orders matched on user_id",
-        "name, looked up from teams through team_id",
-        "the anchor time's month",
-        "users.created_at, the entity's own column",
+    assert table["feature"].tolist() == details.features.columns.tolist()
+    assert table["feature"].tolist() == [
+        "recent.qty_ly",
+        "orders.amount.mean_30d",
+        "anchor.cutoff_month",
     ]
-    assert table.loc[windowed_mean, ["mean", "min", "max"]].tolist() == [3.0, 2.0, 4.0]
-    assert table.loc["d1__users.country", "source"] == "agentic"
-    assert pd.isna(table.loc["d1__users.country", "mean"])
+    assert table["internal_name"].tolist() == features.columns.tolist()
+    assert table["source"].tolist() == ["agent", "noridfs", "noridfs"]
+    assert table["sql"].tolist() == ["SELECT 1", None, None]
+    assert table.loc[0, "missing_share"] == 0.5
+    assert table.loc[1, ["mean", "min", "max"]].tolist() == [3.0, 2.0, 4.0]
 
 
 def test_a_feature_table_needs_features() -> None:

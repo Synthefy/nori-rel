@@ -243,3 +243,19 @@ def test_native_boundary_rejects_composite_entity_keys(
     snapshot.primary_keys["users"] = ["id", "age"]
     with pytest.raises(ValueError, match="one primary-key column"):
         _compute(NoriDFS(), snapshot, anchors)
+
+
+def test_fastdfs_records_the_sql_it_ran_for_each_feature(
+    snapshot: SimpleNamespace, anchors: AnchorRows
+) -> None:
+    if find_spec("fastdfs") is None:
+        pytest.skip("The database FastDFS wrapper is optional and not exported")
+    from nori_rel.feature.dfs.fastdfs import FastDFS
+
+    engine = FastDFS(max_features=64)
+    matrices = _compute(engine, snapshot, anchors)
+    assert list(engine.last_feature_sql) == matrices.feature_names
+    count_sql = engine.last_feature_sql["d2__users.COUNT(orders)"]
+    assert 'COUNT("orders_TEMP_TIME_DEPTH_2"."id")' in count_sql
+    assert '"orders"."at" <= ' in count_sql
+    assert count_sql.endswith("DROP table orders_TEMP_TIME_DEPTH_2;")
