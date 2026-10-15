@@ -9,9 +9,11 @@ from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import numpy as np
 import pandas as pd
 import pytest
 
+from nori_rel._feature_search import DEFAULT_SEARCH_CONFIG
 from nori_rel.feature import CUTOFF_COLUMN
 from nori_rel.feature.agentic import (
     AgenticFeatureConfig,
@@ -19,6 +21,7 @@ from nori_rel.feature.agentic import (
     PlanningSession,
     ProgramAgentBase,
     RidgeScorer,
+    ScoreReport,
 )
 from nori_rel.feature.agentic._agent_base import ToolSpec, parse_program
 from nori_rel.feature.agentic.agent_claude import ClaudeProgramAgent
@@ -27,7 +30,7 @@ from nori_rel.feature.dfs.noridfs import AnchorDefinition, DatabaseView
 
 
 def _session(
-    snapshot, anchors, *, baseline=None, min_relative_gain=0
+    snapshot, anchors, *, baseline=None, min_relative_gain=0, noise_margin=2.0
 ) -> PlanningSession:
     view = DatabaseView.from_parts(
         tables=snapshot.tables,
@@ -43,7 +46,10 @@ def _session(
             cutoff_column=CUTOFF_COLUMN,
         ),
         config=AgenticFeatureConfig(
-            max_trials=4, leak_check_anchors=2, min_relative_gain=min_relative_gain
+            max_trials=4,
+            leak_check_anchors=2,
+            min_relative_gain=min_relative_gain,
+            noise_margin=noise_margin,
         ),
         train_anchors=anchors(10, start="2020-01-03"),
         train_target=pd.Series([float(i) for i in range(10)]),
@@ -67,6 +73,26 @@ def test_prompt_states_the_relative_acceptance_floor(snapshot, anchors):
         prompt = ProgramAgentBase.user_prompt(None, session, "")
         assert "2.00%" in prompt and "baseline and current best" in prompt
         assert "Confirmation" in prompt
+    finally:
+        session.close()
+
+
+def test_the_client_search_counts_any_higher_score_as_a_gain(snapshot, anchors):
+    """With the client's settings, a trial or confirmation needs no margin."""
+    session = _session(
+        snapshot,
+        anchors,
+        min_relative_gain=DEFAULT_SEARCH_CONFIG.min_relative_gain,
+        noise_margin=DEFAULT_SEARCH_CONFIG.noise_margin,
+    )
+    try:
+        best = ScoreReport(
+            metric="mae", score=-2.478, noise=0.2, predictions=np.zeros(1)
+        )
+        trial = ScoreReport(
+            metric="mae", score=-2.463, noise=0.2, predictions=np.zeros(1)
+        )
+        assert session._minimum_score_gain(trial, best) == 0.0
     finally:
         session.close()
 

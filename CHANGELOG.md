@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- `AgenticSearch` keeps a program that beats the baseline by any amount. A
+  trial becomes the best when it scores higher than the current best, and the
+  best is kept when it scores higher than NoriDFS alone on the confirmation
+  rows, which the search never scored it on. The 1% minimum gain and the
+  margin of twice the scorer's seed-to-seed noise are gone; previously a 1%
+  gain on rel-f1 fell back to NoriDFS.
+- The fallback when the best program loses on the confirmation rows says so:
+  "The best program did not beat the baseline on the confirmation rows". It
+  used to say "No program beat the baseline", even when one had on the
+  search's holdout.
+
 ## 0.4.2 — 2026-10-15
 
 - Support Python 3.13. `requires-python` is now `>=3.11,<3.14`; every extra

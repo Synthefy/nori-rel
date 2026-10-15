@@ -43,7 +43,8 @@ EXAMPLES = {
     ),
     "fallback_used": (
         {"reason": "no_program_confirmed", "to_strategy": "dfs"},
-        "No program beat the baseline; using dfs.",
+        "The best program did not beat the baseline on the confirmation rows; "
+        "using dfs.",
     ),
     "search_stopped": (
         {"trials": 3},
