@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 — 2026-10-15
 
 - `predict(..., feature_strategy=...)` and `start_predict(...,
   feature_strategy=...)` choose the feature search for one prediction:
