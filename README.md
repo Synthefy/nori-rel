@@ -97,19 +97,18 @@ sensitive information derived from those tables.
 
 ## Choose a feature search
 
-`features="fastdfs"` is the default. `features="noridfs"` plans a NoriDFS
-relationship search over the foreign-key graph, with aggregation windows scaled
-to the target's label interval. It needs only the core dependencies.
-
-Pass `features=` to `predict` to choose the search for one prediction, or to
-`NoriRelClient` to set the default for every prediction on that client:
+Each prediction chooses its feature search with `predict(..., features=...)`:
+`"fastdfs"` (the default), `"noridfs"`, or an `AgenticSearch`.
+`features="noridfs"` plans a NoriDFS relationship search over the foreign-key
+graph, with aggregation windows scaled to the target's label interval. It needs
+only the core dependencies.
 
 ```python
 details = client.predict(..., features="noridfs")
-# Or, for every prediction on this client:
-with NoriRelClient(features="noridfs") as client:
-    ...
 ```
+
+`NoriRelClient(features=...)` sets the search for every prediction on that
+client that does not pass its own. `start_predict` takes `features` too.
 
 `AgenticSearch` lets a language-model agent write SQL feature columns on top of
 NoriDFS. Install `nori-rel[agentic]`. Each candidate program runs locally in an
@@ -118,10 +117,20 @@ held-out historical rows. A program is kept only if it also beats NoriDFS alone
 on a separate confirmation slice; otherwise the prediction uses NoriDFS alone.
 
 ```python
-from nori_rel import AgenticSearch, NoriRelClient
+from nori_rel import AgenticSearch
 
 search = AgenticSearch.claude()  # reads ANTHROPIC_API_KEY
 details = client.predict(..., features=search)
+```
+
+Because the choice is per prediction, one client and one source can compare
+NoriDFS alone with an agent search, or agents on two models:
+
+```python
+opus = AgenticSearch.claude(model="claude-opus-5-5")
+sonnet = AgenticSearch.claude(model="claude-sonnet-5-5")
+for features in ("noridfs", opus, sonnet):
+    details = client.predict(..., features=features)
 ```
 
 `AgenticSearch.openai(model=...)` uses an OpenAI-compatible endpoint. The agent
@@ -166,7 +175,7 @@ it, with relative and normalized errors as percentages
 (`Trial 3/24: WAPE 11.20% ...`).
 
 ```python
-client.predict(source=source, query=query, metric="wape", ...)
+client.predict(source=source, query=query, features=search, metric="wape", ...)
 ```
 
 ## Save and reload

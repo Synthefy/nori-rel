@@ -111,6 +111,17 @@ def test_noridfs_sends_declared_categoricals_to_hosted_nori(source, monkeypatch)
     assert result.attrs["feature_count"] == train.shape[1]
 
 
+def test_a_prediction_overrides_the_runtime_feature_search(source, monkeypatch):
+    runtime, database, calls = _runtime(source, monkeypatch, "fastdfs", lambda _: 1.0)
+    try:
+        result = runtime.predict_pql(database, QUERY, features="noridfs", **OPTIONS)
+    finally:
+        runtime.close()
+    assert result.attrs["features"] == "noridfs"
+    assert any(column.startswith("nr|path|") for column in calls[0][0].columns)
+    assert runtime.features == "fastdfs"
+
+
 def _with_program(train: pd.DataFrame) -> float:
     """Predict the context labels exactly once the program's column is there."""
     return 0.0 if "history__n_orders" in train else 50.0
