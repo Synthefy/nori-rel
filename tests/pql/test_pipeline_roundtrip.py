@@ -173,7 +173,7 @@ def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
                 schema=client.discover(source),
                 baseline_columns=baseline,
             )
-        first = _first_prediction(schema, feature_program=record)
+        first = _first_prediction(schema, features=None, feature_program=record)
     pipeline = first["pipeline"]
     path = pipeline.save(tmp_path / "pipeline.json")
     reference = first["predictions"]
