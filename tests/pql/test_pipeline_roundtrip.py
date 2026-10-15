@@ -111,10 +111,11 @@ def _connect(client, schema):
 
 
 def _first_prediction(schema, features="noridfs", **options):
-    with NoriRelClient(limits=LIMITS, device="cpu", features=features) as client:
+    with NoriRelClient(limits=LIMITS, device="cpu") as client:
         return client.predict(
             source=_connect(client, schema),
             query=QUERY,
+            feature_strategy=features,
             anchor_times=ANCHORS,
             anchor_time=CUTOFF,
             observed_through=CUTOFF,
@@ -172,7 +173,7 @@ def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
                 schema=client.discover(source),
                 baseline_columns=baseline,
             )
-        first = _first_prediction(schema, feature_program=record)
+        first = _first_prediction(schema, features=None, feature_program=record)
     pipeline = first["pipeline"]
     path = pipeline.save(tmp_path / "pipeline.json")
     reference = first["predictions"]

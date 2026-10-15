@@ -50,8 +50,9 @@ def _require_agent_search_metric(
     if not searching:
         raise ValueError(
             "metric chooses how an agent search scores its feature programs; "
-            "pass features=AgenticSearch.claude(...) or AgenticSearch.openai(...) "
-            "to predict or the client, and do not pass feature_program or pipeline"
+            "pass feature_strategy=AgenticSearch.claude(...) or "
+            "AgenticSearch.openai(...) to predict, and do not pass feature_program "
+            "or pipeline"
         )
 
 
@@ -77,7 +78,7 @@ def predict_pql(
     expected_context_sha256=None,
     metric: AgentSearchMetric | None = None,
     keep_scoring_features: bool = False,
-    features=None,
+    feature_strategy=None,
 ) -> pd.DataFrame:
     """Run temporal PQL through preparation, features and Nori inference.
 
@@ -106,10 +107,11 @@ def predict_pql(
     regression target ("mae" when None); it is refused for any other run.
     keep_scoring_features puts the scored rows' feature matrix, indexed by
     entity_id, in attrs[SCORING_FEATURES_ATTR]; it stays out of the pipeline.
-    features is this prediction's feature search; None uses the runtime's.
+    feature_strategy is this prediction's feature search; None uses the
+    runtime's.
     """
     run_context = run_context or RunContext.unobserved()
-    chosen_features = runtime.features if features is None else features
+    chosen_features = runtime.features if feature_strategy is None else feature_strategy
     # An agent search holds steering from the run's first boundary until its
     # agent delivers it; a DFS run or a saved program rejects steering.
     run_context.steering_enabled = (
@@ -254,7 +256,7 @@ def predict_pql(
             feature_program,
             run_context=run_context,
             metric=metric,
-            features=chosen_features,
+            feature_strategy=chosen_features,
         )
     else:
         backend = get_saved_feature_backend(pipeline.features)

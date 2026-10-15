@@ -492,12 +492,15 @@ class LocalRelationalRuntime:
         program: SavedFeatureProgram | None = None,
         run_context: RunContext | None = None,
         metric: AgentSearchMetric | None = None,
-        features: FeatureBackendName | FeatureBackend | AgenticSearch | None = None,
+        feature_strategy: FeatureBackendName
+        | FeatureBackend
+        | AgenticSearch
+        | None = None,
     ) -> FeatureBackend:
         """Return the feature backend for one prediction.
 
-        ``features`` is this prediction's feature search; ``None`` uses the
-        one the runtime was created with. A saved ``program`` runs on top of
+        ``feature_strategy`` is this prediction's feature search; ``None``
+        uses the one the runtime was created with. A saved ``program`` runs on top of
         NoriDFS with no search, whatever the feature search is. NoriDFS
         windows scale with the target's label interval. An agent search also
         needs the context labels, in context order, to score its programs, and
@@ -506,7 +509,7 @@ class LocalRelationalRuntime:
         validates the context and validation slices according to the search
         configuration.
         """
-        chosen = self.features if features is None else features
+        chosen = self.features if feature_strategy is None else feature_strategy
         if metric is not None:
             from nori_rel.feature.agentic.scoring import require_agent_search_metric
 

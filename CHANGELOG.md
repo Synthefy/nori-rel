@@ -2,19 +2,25 @@
 
 ## Unreleased
 
-- `predict(..., features=...)` and `start_predict(..., features=...)` choose
-  the feature search for one prediction: `"fastdfs"`, `"noridfs"`, a
-  `FeatureBackend`, or an `AgenticSearch`. Without it, the client's `features`
-  applies, as before. The value is checked before the run starts, and passing
-  it with `pipeline=` raises `ValueError`, since a pipeline fixes its features.
+- `predict(..., feature_strategy=...)` and `start_predict(...,
+  feature_strategy=...)` choose the feature search for one prediction:
+  `"fastdfs"` (the default), `"noridfs"`, a `FeatureBackend`, or an
+  `AgenticSearch`. The value is checked before the run starts. Passing it with
+  `pipeline=` or `feature_program=` raises `ValueError`, since a pipeline fixes
+  its features and a saved program always replays on NoriDFS.
+- `NoriRelClient(features=...)` is deprecated in favor of
+  `predict(..., feature_strategy=...)`. It still sets the search for
+  predictions that pass none, with a `DeprecationWarning`, and will be removed
+  in 0.5.0.
 - `predict(return_details=True)` keeps the scored rows' feature matrix in
   `PredictionDetails.features` (one row per `entity_id`), and
   `PredictionDetails.get_feature_table()` describes each feature column: its
   source (an agent query, NoriDFS, or the run's feature strategy), its
-  definition in words (the agent query that produced it, or for NoriDFS the
-  aggregation, column, window and table, such as "mean of QTY_CANS over the
-  last 30 days, in SHIPMENTS matched on CUSTOMER_ID"), and its missing share,
-  mean, min and max over the scored entities.
+  definition (the agent query that produced it; for a NoriDFS feature on a
+  one-step path, the aggregation, column, window and table in words, such as
+  "mean of QTY_CANS over the last 30 days, in SHIPMENTS matched on
+  CUSTOMER_ID"; two-step and bridge paths show their path text), and its
+  missing share, mean, min and max over the scored entities.
 
 ## 0.4.0 — 2026-10-14
 

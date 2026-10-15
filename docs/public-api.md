@@ -55,6 +55,5 @@ and explicit relationship-path prediction are retired.
 RelArena adapters, fine-tuning, benchmark runners, notebooks, and the research
 CLI are absent from the public package. FastDFS is the default feature backend.
 NoriDFS and the opt-in `AgenticSearch` are also supported, chosen per prediction
-with `predict(..., features=...)` or for a client with
-`NoriRelClient(features=...)`, and their plans and programs are saved in
-pipelines.
+with `predict(..., feature_strategy=...)`, and their plans and programs are
+saved in pipelines. `NoriRelClient(features=...)` is deprecated.

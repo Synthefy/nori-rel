@@ -97,18 +97,19 @@ sensitive information derived from those tables.
 
 ## Choose a feature search
 
-Each prediction chooses its feature search with `predict(..., features=...)`:
-`"fastdfs"` (the default), `"noridfs"`, or an `AgenticSearch`.
-`features="noridfs"` plans a NoriDFS relationship search over the foreign-key
-graph, with aggregation windows scaled to the target's label interval. It needs
-only the core dependencies.
+Each prediction chooses its feature search with
+`predict(..., feature_strategy=...)`: `"fastdfs"` (the default), `"noridfs"`, or
+an `AgenticSearch`. `feature_strategy="noridfs"` plans a NoriDFS relationship
+search over the foreign-key graph, with aggregation windows scaled to the
+target's label interval. It needs only the core dependencies.
 
 ```python
-details = client.predict(..., features="noridfs")
+details = client.predict(..., feature_strategy="noridfs")
 ```
 
-`NoriRelClient(features=...)` sets the search for every prediction on that
-client that does not pass its own. `start_predict` takes `features` too.
+`start_predict` takes `feature_strategy` too. `NoriRelClient(features=...)` is
+deprecated: it still sets the search for predictions that pass none, with a
+`DeprecationWarning`, and will be removed in 0.5.0.
 
 `AgenticSearch` lets a language-model agent write SQL feature columns on top of
 NoriDFS. Install `nori-rel[agentic]`. Each candidate program runs locally in an
@@ -120,7 +121,7 @@ on a separate confirmation slice; otherwise the prediction uses NoriDFS alone.
 from nori_rel import AgenticSearch
 
 search = AgenticSearch.claude()  # reads ANTHROPIC_API_KEY
-details = client.predict(..., features=search)
+details = client.predict(..., feature_strategy=search)
 ```
 
 Because the choice is per prediction, one client and one source can compare
@@ -129,8 +130,8 @@ NoriDFS alone with an agent search, or agents on two models:
 ```python
 opus = AgenticSearch.claude(model="claude-opus-5-5")
 sonnet = AgenticSearch.claude(model="claude-sonnet-5-5")
-for features in ("noridfs", opus, sonnet):
-    details = client.predict(..., features=features)
+for strategy in ("noridfs", opus, sonnet):
+    details = client.predict(..., feature_strategy=strategy)
 ```
 
 `AgenticSearch.openai(model=...)` uses an OpenAI-compatible endpoint. The agent
@@ -175,8 +176,30 @@ it, with relative and normalized errors as percentages
 (`Trial 3/24: WAPE 11.20% ...`).
 
 ```python
-client.predict(source=source, query=query, features=search, metric="wape", ...)
+client.predict(source=source, query=query, feature_strategy=search, metric="wape", ...)
 ```
+
+## Inspect the features
+
+With `return_details=True`, `details.features` is the feature matrix Nori scored:
+a pandas DataFrame with one row per `entity_id` and one column per feature.
+`details.get_feature_table()` returns one row per feature column with its
+`source`, a `definition`, its `dtype`, and its `missing_share`, `mean`, `min`
+and `max` over the scored entities.
+
+```python
+table = details.get_feature_table()
+print(table[["feature", "definition", "missing_share", "mean"]])
+
+# The same matrix with each column named by its definition.
+readable = details.features.set_axis(table["definition"], axis=1)
+```
+
+NoriDFS features one link from the entity have a definition in words, such as
+"mean of amount over the last 30 days, in orders matched on user_id". Features
+further away show their path text, and an agent's columns show its SQL.
+`details.metadata["features"]` is different: it names the feature search that
+ran (`"fastdfs"`, `"noridfs"`, `"agentic"` or `"saved_program"`), not the matrix.
 
 ## Save and reload
 

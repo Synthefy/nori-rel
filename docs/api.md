@@ -13,7 +13,7 @@ pick up rotated database credentials.
 | `model` | `"nori-30m"`; local supports `nori-6m`, `nori-30m`, and `nori-100m`. |
 | `api_key` | Hosted mode uses this value or `SYNTHEFY_NORI_API_KEY`. |
 | `device` | Local only; automatic CUDA, then MPS, then CPU. An explicit PyTorch device can be supplied. |
-| `features` | The feature search for predictions that do not pass `predict(..., features=...)`: `"fastdfs"` (default), `"noridfs"`, or an `AgenticSearch`. A custom `FeatureBackend` instance is also accepted but has no pipeline format. |
+| `features` | Deprecated; pass `feature_strategy=` to `predict` or `start_predict` instead. It still sets the feature search for predictions that pass none, with a `DeprecationWarning`, and will be removed in 0.5.0. `feature_strategy` takes `"fastdfs"` (default), `"noridfs"`, an `AgenticSearch`, or a custom `FeatureBackend` instance, which has no pipeline format. |
 | `timeout` | 300 seconds for inference transport configuration. |
 | `max_retries` | 2 for hosted transport retries. |
 | `limits` | `RelationalLimits()` for extraction/context ceilings. |
@@ -83,6 +83,22 @@ resource ceilings. Snapshot limits constrain extracted data; feature building
 and model inference can allocate additional memory. SQL timeouts and row limits
 do not guarantee a fixed warehouse scan cost. Exceeding an extraction limit
 fails the operation instead of silently truncating source data.
+
+## Prediction details
+
+`predict(..., return_details=True)` returns `PredictionDetails`:
+
+| Attribute | Contents |
+| --- | --- |
+| `predictions` | one row per scored entity: `entity_id`, `anchor_time`, `prediction` |
+| `metadata` | run facts; `metadata["features"]` names the feature search that ran |
+| `pipeline` | a `NoriRelPipeline` to save and replay, or `None` |
+| `features` | the feature matrix Nori scored, one row per `entity_id` |
+
+`get_feature_table()` describes each column of `features`: `feature`, `source`,
+`definition`, `dtype`, `missing_share`, `mean`, `min` and `max`. Only NoriDFS
+features one link from the entity get a definition in words; other NoriDFS
+features show their path text.
 
 ## Errors and compatibility
 

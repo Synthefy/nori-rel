@@ -219,11 +219,13 @@ def test_features_cannot_be_passed_with_a_pipeline() -> None:
 
     client = NoriRelClient(mode="hosted", api_key="key", _runtime=object())
     pipeline = NoriRelPipeline(PipelineManifest.create(**manifest_fields()))
-    with pytest.raises(ValueError, match="features cannot be passed with a pipeline"):
+    with pytest.raises(
+        ValueError, match="feature_strategy cannot be passed with a pipeline"
+    ):
         client.predict(
             source=None,
             pipeline=pipeline,
             as_of=datetime(2026, 3, 1, tzinfo=UTC),
             observed_through=datetime(2026, 3, 1, tzinfo=UTC),
-            features="noridfs",
+            feature_strategy="noridfs",
         )

@@ -498,15 +498,15 @@ def test_scoring_features_are_indexed_by_entity() -> None:
 def test_predict_passes_its_own_feature_search_to_the_runtime() -> None:
     runtime = FakeRuntime()
     with _client(runtime) as client:
-        _predict(client, features="noridfs")
-    assert runtime.options["features"] == "noridfs"
+        _predict(client, feature_strategy="noridfs")
+    assert runtime.options["feature_strategy"] == "noridfs"
 
 
-def test_predict_without_features_uses_the_client_feature_search() -> None:
+def test_predict_without_a_feature_strategy_uses_the_default() -> None:
     runtime = FakeRuntime()
     with _client(runtime) as client:
         _predict(client)
-    assert runtime.options["features"] is None
+    assert runtime.options["feature_strategy"] is None
 
 
 def test_an_unknown_feature_search_fails_before_the_run_starts() -> None:
@@ -515,7 +515,7 @@ def test_an_unknown_feature_search_fails_before_the_run_starts() -> None:
         _client(runtime) as client,
         pytest.raises(ValueError, match="features must be one of"),
     ):
-        _predict(client, features="unknown")
+        _predict(client, feature_strategy="unknown")
     assert runtime.prediction is None
 
 
@@ -527,10 +527,22 @@ def test_start_predict_takes_an_agent_search_for_one_run() -> None:
     runtime = BlockingRuntime()
     client = _client(runtime)
 
-    run = client.start_predict(source=runtime.source, features=search, **PQL_OPTIONS)
+    run = client.start_predict(
+        source=runtime.source, feature_strategy=search, **PQL_OPTIONS
+    )
     runtime.release_predictions.set()
     run.result(timeout=5)
 
     assert runtime.features == "fastdfs"
-    assert runtime.options["features"] is search
+    assert runtime.options["feature_strategy"] is search
     assert run._context.limits is limits
+
+
+def test_a_feature_strategy_cannot_be_passed_with_a_feature_program() -> None:
+    runtime = FakeRuntime()
+    with (
+        _client(runtime) as client,
+        pytest.raises(ValueError, match="cannot be passed with feature_program"),
+    ):
+        _predict(client, feature_strategy="fastdfs", feature_program={"queries": []})
+    assert runtime.prediction is None
