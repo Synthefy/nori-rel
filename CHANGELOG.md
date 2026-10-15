@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 — 2026-10-14
+## Unreleased
 
 - `predict(return_details=True)` keeps the scored rows' feature matrix in
   `PredictionDetails.features` (one row per `entity_id`), and
@@ -10,6 +10,9 @@
   aggregation, column, window and table, such as "mean of QTY_CANS over the
   last 30 days, in SHIPMENTS matched on CUSTOMER_ID"), and its missing share,
   mean, min and max over the scored entities.
+
+## 0.4.0 — 2026-10-14
+
 - PQL label windows accept `months`: `SUM(orders.amount,0,1,months)` covers one
   UTC calendar month from the anchor (a whole month from an anchor on the 1st),
   rendered as calendar-month arithmetic on PostgreSQL, Snowflake, and
