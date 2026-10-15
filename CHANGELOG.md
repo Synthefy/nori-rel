@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.3 — 2026-10-15
 
 - `AgenticSearch` keeps a program that beats the baseline by any amount. A
   trial becomes the best when it scores higher than the current best, and the
