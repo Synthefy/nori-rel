@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.4 — 2026-10-16
 
 - `details.context` holds the labeled rows Nori learned from (`entity_id`,
   `anchor_time`, `label`), and `details.context_features` their feature
