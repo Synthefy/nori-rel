@@ -98,6 +98,7 @@ fails the operation instead of silently truncating source data.
 | `feature_sql` | the SQL FastDFS ran for each feature, by internal name |
 | `context` | the labeled rows Nori learned from: `entity_id`, `anchor_time` (a past date) and `label` |
 | `context_features` | the feature matrix of the `context` rows, the one Nori was fitted on: same row order, the columns of `features` |
+| `model` | the Nori that made the prediction, fitted on the context rows: a `NoriRelModel`, built on first use; `None` for hosted predictions |
 
 `features` names each column in dots: the tables the feature reads through
 from the entity, then the column, then the aggregate and its window, such as
@@ -137,6 +138,30 @@ keep that order and reproduce the predictions.
 table = details.get_context_and_scored_table()
 table[table["entity_id"] == entity_id]  # one entity's timeline
 ```
+
+`model` is the Nori that made the prediction, fitted on `context_features` and
+`context["label"]` with the pipeline's pinned checkpoint and settings, so
+`details.model.predict(details.features)` returns the predictions exactly. Its
+`predict` returns the prediction's own output type (the median by default) and
+also takes a NumPy array in the column order of `features`, so synthefy-nori's
+SHAP explainer can call it:
+
+```python
+from synthefy_nori.interpretability.shapiq import get_nori_imputation_explainer
+
+explainer = get_nori_imputation_explainer(
+    details.model, details.context_features.to_numpy(), index="SV", max_order=1
+)
+values = explainer.explain(details.features.loc[[entity_id]].to_numpy(), budget=1024)
+```
+
+Each `details` builds its own model on first use, so a later prediction does
+not change it. It is for explaining this prediction: to predict a new date, replay
+the pipeline. `details.model.save(path)` writes the context rows and the model
+settings to one Parquet file, and `NoriRelModel.load(path)` fits the same pinned
+checkpoint on them again, without the database. The file holds the derived
+feature rows and labels Nori learned from; treat it like that data. It holds no
+weights.
 
 ## Errors and compatibility
 

@@ -43,9 +43,11 @@ if TYPE_CHECKING:
         PipelineManifest,
         get_pql_task_signature,
     )
+    from nori_rel.pipeline.model import NoriRelModel
     from nori_rel.pipeline.request import PipelinePredictRequest
 
 _LAZY_MODULES = {
+    "NoriRelModel": "nori_rel.pipeline.model",
     "NoriRelPipeline": "nori_rel.pipeline.artifact",
     "PipelinePredictRequest": "nori_rel.pipeline.request",
     "PredictionDetails": "nori_rel.pipeline.details",
@@ -71,6 +73,7 @@ __all__ = [
     "PIPELINE_FORMAT_VERSION",
     "SCORING_FEATURES_ATTR",
     "SCORING_FEATURE_SQL_ATTR",
+    "NoriRelModel",
     "NoriRelPipeline",
     "PipelineContextError",
     "PipelineError",

@@ -53,6 +53,7 @@ nori_rel/pipeline/details.py
 nori_rel/pipeline/errors.py
 nori_rel/pipeline/features.py
 nori_rel/pipeline/manifest.py
+nori_rel/pipeline/model.py
 nori_rel/pipeline/request.py
 nori_rel/pipeline/task.py
 nori_rel/pql/__init__.py

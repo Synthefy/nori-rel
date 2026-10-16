@@ -265,6 +265,26 @@ class LocalNoriPredictor:
             return [row[median_index] for row in rows], rows
         return np.asarray(values, dtype=float).tolist(), None
 
+    def get_fitted_regressor(
+        self,
+        train: pd.DataFrame,
+        target: pd.Series,
+        *,
+        categorical_columns: list[str] | None,
+    ) -> Any:
+        """Return this predictor's NoriRegressor fitted on ``train`` and ``target``.
+
+        The regressor loads the pinned checkpoint and passes the settings check
+        a prediction does. ``categorical_columns`` stays declared on it, and
+        ``None`` keeps automatic detection. Use a predictor made for this call:
+        its regressor is the one returned, so a later prediction through the
+        same predictor would fit it again.
+        """
+        regressor = self._get_pinned_regressor()
+        if categorical_columns is not None:
+            regressor.set_params(categorical_columns=categorical_columns)
+        return regressor.fit(train, target)
+
     def _get_pinned_regressor(self) -> Any:
         """Find the checkpoint file once, check its hash, and load from it."""
         if self._regressor is not None:
