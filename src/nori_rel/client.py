@@ -414,6 +414,7 @@ class NoriRelClient:
         if not return_details:
             return frame
         from nori_rel.pipeline import (
+            CONTEXT_LABELS_ATTR,
             PIPELINE_ATTR,
             SCORING_FEATURE_SQL_ATTR,
             SCORING_FEATURES_ATTR,
@@ -423,6 +424,7 @@ class NoriRelClient:
 
         features = frame.attrs.pop(SCORING_FEATURES_ATTR, None)
         feature_sql = frame.attrs.pop(SCORING_FEATURE_SQL_ATTR, None) or {}
+        context = frame.attrs.pop(CONTEXT_LABELS_ATTR, None)
         return PredictionDetails(
             predictions=frame,
             metadata={
@@ -431,6 +433,7 @@ class NoriRelClient:
             pipeline=NoriRelPipeline.from_prediction(frame),
             features=features,
             feature_sql=feature_sql,
+            context=context,
         )
 
     def start_predict(

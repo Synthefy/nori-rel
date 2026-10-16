@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `details.context` holds the labeled rows Nori learned from (`entity_id`,
+  `anchor_time`, `label`), and `details.get_history_table()` returns one row
+  per scored entity with its label at each past anchor time, then its
+  prediction. Labels are the floats the model read, so a database's decimal
+  labels arrive as numbers.
+
 ## 0.4.3 — 2026-10-15
 
 - `AgenticSearch` keeps a program that beats the baseline by any amount. A

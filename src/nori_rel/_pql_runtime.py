@@ -11,6 +11,7 @@ from nori_rel._pql_features import build_pql_features, build_prediction_rows
 from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
 from nori_rel.feature import FeatureBackend
 from nori_rel.pipeline import (
+    CONTEXT_LABELS_ATTR,
     PIPELINE_ATTR,
     SCORING_FEATURE_SQL_ATTR,
     SCORING_FEATURES_ATTR,
@@ -112,8 +113,9 @@ def predict_pql(
     regression target ("mae" when None); it is refused for any other run.
     keep_scoring_features puts the scored rows' feature matrix, indexed by
     entity_id, in attrs[SCORING_FEATURES_ATTR] and the SQL of each feature,
-    for FastDFS, in attrs[SCORING_FEATURE_SQL_ATTR]; both stay out of the
-    pipeline.
+    for FastDFS, in attrs[SCORING_FEATURE_SQL_ATTR], and the labeled context
+    rows (entity_id, anchor_time, label) in attrs[CONTEXT_LABELS_ATTR]; all
+    three stay out of the pipeline.
     feature_strategy is this prediction's feature search; None uses the
     runtime's.
     """
@@ -369,6 +371,7 @@ def predict_pql(
             matrices.query, scoring
         )
         result.attrs[SCORING_FEATURE_SQL_ATTR] = get_feature_sql_by_name(backend)
+        result.attrs[CONTEXT_LABELS_ATTR] = get_context_label_frame(context, labels)
     return result
 
 
@@ -399,6 +402,18 @@ def get_scoring_feature_frame(
         entity_ids.reindex(query_matrix.index).to_numpy(), name="entity_id"
     )
     return features
+
+
+def get_context_label_frame(context: pd.DataFrame, labels: pd.Series) -> pd.DataFrame:
+    """Return entity_id, anchor_time and the label Nori read for each context row.
+
+    ``labels`` is indexed by context_row_id and holds the numeric values the
+    model was given, so a database's decimal or boolean labels arrive as floats.
+    """
+    frame = context[["entity_id", "anchor_time"]].infer_objects()
+    frame["anchor_time"] = pd.to_datetime(frame["anchor_time"], utc=True)
+    frame["label"] = labels.loc[context["context_row_id"]].to_numpy(dtype=float)
+    return frame.reset_index(drop=True)
 
 
 def get_feature_strategy_name(features, *, replaying_program: bool) -> str:

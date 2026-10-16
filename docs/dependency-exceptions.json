@@ -71,13 +71,13 @@
       "sha256": "ac7ebea5d01a1171c7d90e27b01baf6ad9e977a4b9c932cfa06f8b230b46d3d9"
     },
     "src/nori_rel/_pql_runtime.py": {
-      "sha256": "5b12eb8eebfbebe7d9b3c8a1995bbf69c75c2343c59836a49046264620581ba8"
+      "sha256": "0023935e6daf88d1115b6516340fc38f09436e90d77a44368daab49d7d03d86c"
     },
     "src/nori_rel/_runtime.py": {
       "sha256": "94bd1339cf4f88aa99eede2f3f2d4a87d577524ad2fe6d813a861f21622b9454"
     },
     "src/nori_rel/client.py": {
-      "sha256": "0d05a6fc79d50d6e4d77372c2bb6a73cf3de230d6f11cb591ff562bf342954a7"
+      "sha256": "c8b15319d2f51ebd82180204378167967473b4eb96444808d636c7cf549b3d38"
     },
     "src/nori_rel/connectors/__init__.py": {
       "sha256": "062b7b032c2a4d0d07484e5014b7dc46b6486887ecf158b3d101cb387abde71d"
@@ -179,7 +179,7 @@
       "sha256": "19ba86234b51ee680dcfc5da504568f788bc18106ac2b0bab61491fb555674a2"
     },
     "src/nori_rel/pipeline/__init__.py": {
-      "sha256": "903a8233d60deacee0b3833734496d8905845617b293868c856fcb63f203a2ac"
+      "sha256": "51e346b4979d85746503baedcc068940ced596282e175b3758ed180fbd8e0c32"
     },
     "src/nori_rel/pipeline/artifact.py": {
       "sha256": "813b30934af202828d959a2dfe2d61f92a7237da36bd0f9a7bcc7b4c8e65cdbe"
@@ -194,7 +194,7 @@
       "sha256": "dada632404fe1c23fd7b608f1626ff9d37c84d6df36e5be258786df1ea536b3e"
     },
     "src/nori_rel/pipeline/details.py": {
-      "sha256": "84b1e213613cfbbf02dc45c03f29cbdae09358f45081a14b2a776d110dcd6fac"
+      "sha256": "e57761e4d0e5284a0fe3eaabe395fd3783b2ebac596036e1642ee785077d31af"
     },
     "src/nori_rel/pipeline/errors.py": {
       "sha256": "56316f40aa103274198842ce81d4cbbd28075d3ef0439c32650ffac802f1ab7c"

@@ -65,6 +65,10 @@ class PredictionDetails(BaseModel):
     #: The SQL that computed each feature, by internal name, for a feature
     #: search that runs one query per feature (FastDFS).
     feature_sql: dict[str, str] = Field(default_factory=dict)
+    #: The labeled rows Nori learned from: entity_id, anchor_time (a past
+    #: date) and label (the target over that date's window). ``None`` when
+    #: not kept.
+    context: pd.DataFrame | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -103,6 +107,37 @@ class PredictionDetails(BaseModel):
         if key not in type(self).model_fields:
             raise KeyError(key)
         return getattr(self, key)
+
+    def get_history_table(self) -> pd.DataFrame:
+        """Return one row per scored entity: its past labels, then its prediction.
+
+        The columns are the past anchor times of ``context``, earliest first,
+        each holding the label Nori learned from for that entity at that time,
+        then ``prediction`` and, for a yes/no target, ``probability``. A cell
+        is empty when the entity has no labeled row at that time: it did not
+        exist yet, its window had no events, or ``max_context_rows`` left the
+        row out. The index is ``entity_id``, in the order of ``predictions``.
+
+        Raises:
+            ValueError: the details hold no context labels.
+        """
+        if self.context is None:
+            raise ValueError(
+                "these details hold no context labels; "
+                "call predict(return_details=True)"
+            )
+        history = self.context.pivot(
+            index="entity_id", columns="anchor_time", values="label"
+        ).sort_index(axis=1)
+        forecast_columns = [
+            column
+            for column in ("prediction", "probability")
+            if column in self.predictions.columns
+        ]
+        forecast = self.predictions.set_index("entity_id")[forecast_columns]
+        table = history.reindex(forecast.index).join(forecast)
+        table.columns.name = None
+        return table
 
     def get_feature_table(self) -> pd.DataFrame:
         """Return one row per column of ``features``, in the same order.

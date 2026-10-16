@@ -283,3 +283,57 @@ def test_details_built_from_dotted_names_keep_them() -> None:
             features=details.features,
             internal_feature_names=("a", "b"),
         )
+
+
+def _get_history_details(predictions: pd.DataFrame) -> PredictionDetails:
+    """Return details with two past dates of labels for drivers 1 and 2."""
+    early, late = (
+        pd.Timestamp("2023-02-01", tz="UTC"),
+        pd.Timestamp("2023-04-01", tz="UTC"),
+    )
+    context = pd.DataFrame(
+        {
+            "entity_id": [1, 2, 1],
+            "anchor_time": [late, late, early],
+            "label": [4.0, 9.0, 6.0],
+        }
+    )
+    return PredictionDetails(
+        predictions=predictions, metadata={}, pipeline=None, context=context
+    )
+
+
+def test_the_history_table_puts_past_labels_before_the_prediction() -> None:
+    predictions = pd.DataFrame(
+        {
+            "entity_id": [2, 1, 3],
+            "anchor_time": pd.Timestamp("2023-06-01", tz="UTC"),
+            "prediction": [8.5, 5.0, 7.0],
+        }
+    )
+    table = _get_history_details(predictions).get_history_table()
+    assert table.columns.tolist() == [
+        pd.Timestamp("2023-02-01", tz="UTC"),
+        pd.Timestamp("2023-04-01", tz="UTC"),
+        "prediction",
+    ]
+    assert table.index.tolist() == [2, 1, 3]
+    assert table.loc[1].tolist() == [6.0, 4.0, 5.0]
+    # Driver 2 has no row at the early date, and driver 3 none at all.
+    assert table.loc[2].isna().tolist() == [True, False, False]
+    assert table.loc[3].isna().tolist() == [True, True, False]
+
+
+def test_the_history_table_keeps_a_yes_no_target_probability() -> None:
+    predictions = pd.DataFrame(
+        {"entity_id": [1], "prediction": [True], "probability": [0.8]}
+    )
+    table = _get_history_details(predictions).get_history_table()
+    assert table.columns.tolist()[-2:] == ["prediction", "probability"]
+    assert table.loc[1, "probability"] == 0.8
+
+
+def test_the_history_table_needs_context_labels() -> None:
+    details = PredictionDetails(predictions=pd.DataFrame(), metadata={}, pipeline=None)
+    with pytest.raises(ValueError, match="no context labels"):
+        details.get_history_table()
