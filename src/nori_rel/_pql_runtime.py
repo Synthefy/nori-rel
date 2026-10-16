@@ -11,6 +11,7 @@ from nori_rel._pql_features import build_pql_features, build_prediction_rows
 from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
 from nori_rel.feature import FeatureBackend
 from nori_rel.pipeline import (
+    CONTEXT_FEATURES_ATTR,
     CONTEXT_LABELS_ATTR,
     PIPELINE_ATTR,
     SCORING_FEATURE_SQL_ATTR,
@@ -113,9 +114,10 @@ def predict_pql(
     regression target ("mae" when None); it is refused for any other run.
     keep_scoring_features puts the scored rows' feature matrix, indexed by
     entity_id, in attrs[SCORING_FEATURES_ATTR] and the SQL of each feature,
-    for FastDFS, in attrs[SCORING_FEATURE_SQL_ATTR], and the labeled context
-    rows (entity_id, anchor_time, label) in attrs[CONTEXT_LABELS_ATTR]; all
-    three stay out of the pipeline.
+    for FastDFS, in attrs[SCORING_FEATURE_SQL_ATTR], the labeled context rows
+    (entity_id, anchor_time, label) in attrs[CONTEXT_LABELS_ATTR], and their
+    feature matrix, the one Nori was fitted on, in attrs[CONTEXT_FEATURES_ATTR]
+    in the same row order; all four stay out of the pipeline.
     feature_strategy is this prediction's feature search; None uses the
     runtime's.
     """
@@ -372,6 +374,7 @@ def predict_pql(
         )
         result.attrs[SCORING_FEATURE_SQL_ATTR] = get_feature_sql_by_name(backend)
         result.attrs[CONTEXT_LABELS_ATTR] = get_context_label_frame(context, labels)
+        result.attrs[CONTEXT_FEATURES_ATTR] = matrices.train.reset_index(drop=True)
     return result
 
 
@@ -407,13 +410,16 @@ def get_scoring_feature_frame(
 def get_context_label_frame(context: pd.DataFrame, labels: pd.Series) -> pd.DataFrame:
     """Return entity_id, anchor_time and the label Nori read for each context row.
 
-    ``labels`` is indexed by context_row_id and holds the numeric values the
-    model was given, so a database's decimal or boolean labels arrive as floats.
+    ``labels`` is indexed by context_row_id, in the row order of the matrix
+    Nori was fitted on, and holds the numeric values the model was given, so a
+    database's decimal or boolean labels arrive as floats. The frame follows
+    that order, so its rows line up with the fitted matrix.
     """
-    frame = context[["entity_id", "anchor_time"]].infer_objects()
+    rows = context.set_index("context_row_id").loc[labels.index]
+    frame = rows[["entity_id", "anchor_time"]].infer_objects().reset_index(drop=True)
     frame["anchor_time"] = pd.to_datetime(frame["anchor_time"], utc=True)
-    frame["label"] = labels.loc[context["context_row_id"]].to_numpy(dtype=float)
-    return frame.reset_index(drop=True)
+    frame["label"] = labels.to_numpy(dtype=float)
+    return frame
 
 
 def get_feature_strategy_name(features, *, replaying_program: bool) -> str:

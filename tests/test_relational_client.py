@@ -16,6 +16,7 @@ from nori_rel import (
 from nori_rel._feature_search import AgenticSearch
 from nori_rel._pql_runtime import get_context_label_frame, get_scoring_feature_frame
 from nori_rel.pipeline import (
+    CONTEXT_FEATURES_ATTR,
     CONTEXT_LABELS_ATTR,
     SCORING_FEATURE_SQL_ATTR,
     SCORING_FEATURES_ATTR,
@@ -60,6 +61,9 @@ class FakeRuntime:
             frame.attrs[SCORING_FEATURE_SQL_ATTR] = {}
             frame.attrs[CONTEXT_LABELS_ATTR] = pd.DataFrame(
                 {"entity_id": [7], "anchor_time": [None], "label": [2.0]}
+            )
+            frame.attrs[CONTEXT_FEATURES_ATTR] = pd.DataFrame(
+                {"nr|direct|users.age": [40.0]}
             )
         return frame
 
@@ -445,7 +449,14 @@ def test_details_carry_the_scored_rows_features_and_frames_do_not() -> None:
     assert details.features.loc[7, "users.age"] == 41.0
     assert details.internal_feature_names == ("nr|direct|users.age",)
     assert details.context["label"].tolist() == [2.0]
-    for key in (SCORING_FEATURES_ATTR, SCORING_FEATURE_SQL_ATTR, CONTEXT_LABELS_ATTR):
+    assert details.context_features.columns.tolist() == ["users.age"]
+    assert details.context_features["users.age"].tolist() == [40.0]
+    for key in (
+        SCORING_FEATURES_ATTR,
+        SCORING_FEATURE_SQL_ATTR,
+        CONTEXT_LABELS_ATTR,
+        CONTEXT_FEATURES_ATTR,
+    ):
         assert key not in details.predictions.attrs
         assert key not in details.metadata
 
@@ -508,7 +519,7 @@ def test_scoring_features_are_indexed_by_entity() -> None:
     assert frame["x"].tolist() == [1.0, 2.0]
 
 
-def test_context_labels_are_the_values_nori_read() -> None:
+def test_context_labels_are_the_values_nori_read_in_its_row_order() -> None:
     from decimal import Decimal
 
     context = pd.DataFrame(
@@ -519,12 +530,13 @@ def test_context_labels_are_the_values_nori_read() -> None:
             "label": [Decimal("4.5"), Decimal("9")],
         }
     )
+    # The labels follow the fitted matrix's rows (10, then 11), not context's.
     labels = pd.Series([9.0, 4.5], index=pd.Index([10, 11], name="context_row_id"))
     frame = get_context_label_frame(context, labels)
     assert frame.columns.tolist() == ["entity_id", "anchor_time", "label"]
-    assert frame["entity_id"].tolist() == [1, 2]
+    assert frame["entity_id"].tolist() == [2, 1]
     assert str(frame["anchor_time"].dt.tz) == "UTC"
-    assert frame["label"].dtype == float and frame["label"].tolist() == [4.5, 9.0]
+    assert frame["label"].dtype == float and frame["label"].tolist() == [9.0, 4.5]
 
 
 def test_predict_passes_its_own_feature_search_to_the_runtime() -> None:

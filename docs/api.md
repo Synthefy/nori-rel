@@ -97,6 +97,7 @@ fails the operation instead of silently truncating source data.
 | `internal_feature_names` | the model's name for each column of `features`, in order |
 | `feature_sql` | the SQL FastDFS ran for each feature, by internal name |
 | `context` | the labeled rows Nori learned from: `entity_id`, `anchor_time` (a past date) and `label` |
+| `context_features` | the feature matrix of the `context` rows, the one Nori was fitted on: same row order, the columns of `features` |
 
 `features` names each column in dots: the tables the feature reads through
 from the entity, then the column, then the aggregate and its window, such as
@@ -118,17 +119,22 @@ order: `feature`, `internal_name`, `source`, `sql`, `dtype`, `missing_share`,
 the statements FastDFS ran on its DuckDB copy of the snapshot for a FastDFS
 column. NoriDFS computes in pandas, so its `sql` is `None`.
 
-`get_history_table()` puts what Nori learned from next to what it predicted:
-one row per scored entity, indexed by `entity_id`, with one column per past
-anchor time of `context` (earliest first) holding that entity's label, then
-`prediction` and, for a yes/no target, `probability`. A cell is empty when the
-entity has no labeled row at that time: it did not exist yet, its window had no
-events, or `max_context_rows` left the row out.
+`get_context_and_scored_table()` returns every row Nori read: the context rows
+it learned from and the scored rows it predicted. Columns are `entity_id`,
+`anchor_time`, `label`, `prediction` (and `probability` for a yes/no target or
+`quantiles` for a quantile forecast), then the columns of `features`. A context
+row holds its label and the features Nori learned from, with the forecast
+columns empty; a scored row holds its prediction and the features Nori
+predicted from, with `label` empty. Rows are sorted by `entity_id`, then
+`anchor_time`, so one entity's rows read as a timeline that ends in its
+prediction. A past anchor time with no labeled row, such as one whose window
+had no events, has no rows. The context rows are exactly what Nori was fitted
+on, so `context_features` and `context["label"]` are the data a SHAP or
+glass-box explainer needs.
 
 ```python
-history = details.get_history_table()
-latest = history.columns[-2]  # the most recent past date
-history.dropna(subset=[latest]).sort_values("prediction").head()
+table = details.get_context_and_scored_table()
+table[table["entity_id"] == entity_id]  # one entity's timeline
 ```
 
 ## Errors and compatibility

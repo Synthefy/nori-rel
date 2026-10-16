@@ -373,3 +373,20 @@ def test_a_tampered_checkpoint_is_refused(shop, checkpoint):
         pipeline.manifest.model.sha256
         == hashlib.sha256(b"fake nori checkpoint").hexdigest()
     )
+
+
+def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint):
+    schema, _ = shop
+    first = _first_prediction(schema)
+    context_rows = len(first.context)
+    assert context_rows > 0
+    assert first.context_features.shape == (context_rows, first.features.shape[1])
+    assert first.context_features.columns.tolist() == first.features.columns.tolist()
+
+    table = first.get_context_and_scored_table()
+    assert len(table) == context_rows + len(first.predictions)
+    assert table["label"].notna().sum() == context_rows
+    assert table["prediction"].notna().sum() == len(first.predictions)
+    assert table.columns.tolist()[-first.features.shape[1] :] == (
+        first.features.columns.tolist()
+    )
