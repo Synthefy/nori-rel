@@ -414,7 +414,12 @@ def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint
     scored = table[table["prediction"].notna()].set_index("entity_id")
     feature_columns = first.features.columns.tolist()
     expected = first.features.loc[scored.index, feature_columns]
-    pd.testing.assert_frame_equal(scored[feature_columns], expected, check_names=False)
+    # predictions keep entity_id as pandas' nullable Int64, features as int64.
+    pd.testing.assert_frame_equal(
+        scored[feature_columns].reset_index(drop=True),
+        expected.reset_index(drop=True),
+        check_names=False,
+    )
     # Fitting Nori again on context_features and the labels, in their stored
     # order, gives the regressor exactly the inputs of the prediction.
     model = first.pipeline.manifest.model
