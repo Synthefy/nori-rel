@@ -33,7 +33,7 @@ from nori_rel.run import (
 
 if TYPE_CHECKING:
     from nori_rel._feature_search import AgenticSearch
-    from nori_rel.pipeline import NoriRelPipeline
+    from nori_rel.pipeline import NoriRelModel, NoriRelPipeline
 
 
 def __getattr__(name: str):
@@ -46,6 +46,10 @@ def __getattr__(name: str):
         from nori_rel.pipeline import NoriRelPipeline
 
         return NoriRelPipeline
+    if name == "NoriRelModel":
+        from nori_rel.pipeline import NoriRelModel
+
+        return NoriRelModel
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -64,6 +68,7 @@ __all__ = [
     "EnvironmentCredential",
     "ForeignKeySchema",
     "NoriRelClient",
+    "NoriRelModel",
     "NoriRelPipeline",
     "PipelineError",
     "PredictionCancelled",

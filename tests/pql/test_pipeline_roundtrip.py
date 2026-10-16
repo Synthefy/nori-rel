@@ -20,8 +20,6 @@ from nori_rel import (
     RelationalLimits,
 )
 from nori_rel._feature_program import program_record
-from nori_rel._runtime import LocalNoriPredictor
-from nori_rel.contracts import PredictionTask
 from nori_rel.feature.agentic.contracts import FeatureProgram, FeatureQuery
 from nori_rel.pipeline import (
     PipelineContextError,
@@ -29,6 +27,7 @@ from nori_rel.pipeline import (
     PipelineSchemaError,
     PipelineTaskError,
 )
+from nori_rel.pipeline.model import NoriRelModel
 
 QUERY = "PREDICT SUM(orders.amount,0,30,days) FOR EACH users.user_id"
 ANCHORS = [datetime(2025, month, 1, tzinfo=UTC) for month in (9, 10, 11, 12)]
@@ -393,7 +392,6 @@ def test_a_tampered_checkpoint_is_refused(shop, checkpoint):
 def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint, kind):
     schema, _ = shop
     first = _get_first_prediction_by_strategy(schema, kind)
-    fitted_inputs = pipeline_fakes.last_inputs_hash()
     context_rows = len(first.context)
     assert context_rows > 0
     assert first.context_features.shape == (context_rows, first.features.shape[1])
@@ -420,22 +418,27 @@ def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint
         expected.reset_index(drop=True),
         check_names=False,
     )
-    # Fitting Nori again on context_features and the labels, in their stored
-    # order, gives the regressor exactly the inputs of the prediction.
-    model = first.pipeline.manifest.model
-    categorical = first.pipeline.manifest.columns.categorical
-    internal_names = list(first.internal_feature_names)
-    LocalNoriPredictor(
-        model.model,
-        revision=model.revision,
-        sha256=model.sha256,
-        regressor_params=model.regressor_params,
-    ).predict_arrays(
-        first.context_features.set_axis(internal_names, axis=1),
-        first.context["label"],
-        first.features.set_axis(internal_names, axis=1).reset_index(drop=True),
-        task=PredictionTask.REGRESSION,
-        output_type=first.pipeline.manifest.prediction.output_type,
-        categorical_columns=None if categorical is None else list(categorical),
+
+
+@pytest.mark.parametrize("kind", ["noridfs", "fastdfs", "agentic"])
+def test_details_model_predicts_exactly_what_the_prediction_returned(
+    shop, checkpoint, kind, tmp_path
+):
+    schema, _ = shop
+    first = _get_first_prediction_by_strategy(schema, kind)
+    fitted_inputs = pipeline_fakes.last_inputs_hash()
+    expected = (
+        first.predictions.set_index("entity_id")
+        .loc[first.features.index, "prediction"]
+        .tolist()
     )
+    # details.model is Nori fitted on context_features and the labels in their
+    # stored order, so the regressor gets exactly the prediction's inputs.
+    assert first.model.predict(first.features).tolist() == expected
+    assert pipeline_fakes.last_inputs_hash() == fitted_inputs
+    # SHAP explainers pass arrays in the column order of features.
+    assert first.model.predict(first.features.to_numpy()).tolist() == expected
+    # A saved model loads as the same fit, without the database.
+    loaded = NoriRelModel.load(first.model.save(tmp_path / "model.parquet"))
+    assert loaded.predict(first.features).tolist() == expected
     assert pipeline_fakes.last_inputs_hash() == fitted_inputs

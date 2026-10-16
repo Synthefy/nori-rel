@@ -363,6 +363,7 @@ def test_run_types_are_exported_from_the_package() -> None:
         "PredictionFailed",
         "PredictionCancelled",
         "RunTimeout",
+        "NoriRelModel",
     ):
         assert name in nori_rel.__all__ and hasattr(nori_rel, name)
 

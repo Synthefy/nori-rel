@@ -16,7 +16,7 @@ These names are exported from `nori_rel`:
 | Connection/schema results | `Database`, `DatabaseStatus`, `ConnectionStatus`, `ConnectorCapabilities`, `SchemaGraph`, `TableSchema`, `ForeignKeySchema` |
 | Prediction settings | `RelationalLimits`, `RelationalOutputType`, `PredictionTask` |
 | Feature search | `AgenticSearch`, loaded on first use so the `agentic` extra stays optional |
-| Pipelines | `NoriRelPipeline`, `PipelineError` |
+| Pipelines | `NoriRelPipeline`, `NoriRelModel`, `PipelineError` |
 | Lifecycle | `PredictionRun`, `RunEvent`, `PredictionCancelled`, `PredictionFailed`, `RunTimeout` |
 | Deprecated request typing | `PredictionOperation`, for the aggregate-argument compatibility bridge |
 

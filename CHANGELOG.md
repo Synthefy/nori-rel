@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `details.model` is the Nori that made the prediction, fitted on
+  `details.context_features` and the labels with the pipeline's pinned
+  checkpoint, so `details.model.predict(details.features)` returns the
+  predictions exactly. Its `predict` defaults to the prediction's output type
+  (the median) and takes arrays, so synthefy-nori's SHAP explainer
+  (`get_nori_imputation_explainer`) explains the reported prediction.
+  `details.model.save(path)` and `NoriRelModel.load(path)` keep it for later,
+  as one Parquet file of the context rows and the model settings.
+
 ## 0.4.4 — 2026-10-16
 
 - `details.context` holds the labeled rows Nori learned from (`entity_id`,

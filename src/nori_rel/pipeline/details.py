@@ -6,13 +6,17 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from functools import cached_property
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation, model_validator
 
 from nori_rel.pipeline.artifact import NoriRelPipeline
+
+if TYPE_CHECKING:
+    from nori_rel.pipeline.model import NoriRelModel
 
 
 class PredictionDetails(BaseModel):
@@ -117,6 +121,41 @@ class PredictionDetails(BaseModel):
                 dotted_names, axis=1
             )
         return renamed
+
+    @cached_property
+    def model(self) -> NoriRelModel | None:
+        """The Nori that made this prediction, fitted on its context rows.
+
+        Built on first use from the pipeline's pinned checkpoint and settings,
+        and fitted on ``context_features`` and ``context["label"]`` in their
+        stored order, so ``model.predict(features)`` returns the predictions
+        exactly. Its ``predict`` also takes arrays, so SHAP explainers can
+        call it, and ``model.save(path)`` keeps it for explaining later:
+        ``NoriRelModel.load(path)`` returns the same model without the
+        database. ``None`` for a hosted prediction, one without a pipeline,
+        and details that hold no context rows.
+        """
+        if (
+            self.pipeline is None
+            or self.context is None
+            or self.context_features is None
+            or self.internal_feature_names is None
+            or self.pipeline.manifest.model.mode != "local"
+        ):
+            return None
+        from nori_rel.pipeline.model import NoriRelModel
+
+        manifest = self.pipeline.manifest
+        output_type = manifest.prediction.output_type
+        return NoriRelModel.from_context(
+            self.context_features,
+            self.context["label"],
+            internal_feature_names=self.internal_feature_names,
+            model_record=manifest.model,
+            categorical_columns=manifest.columns.categorical,
+            output_type="mean" if output_type is None else output_type.value,
+            quantiles=manifest.prediction.quantiles,
+        )
 
     def __getitem__(self, key: str) -> Any:
         """Return a field by name, for code written against the old dict."""
