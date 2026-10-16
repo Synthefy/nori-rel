@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- `details.context` holds the labeled rows Nori learned from (`entity_id`,
+  `anchor_time`, `label`), and `details.context_features` their feature
+  matrix, the one Nori was fitted on, under the dotted names of
+  `details.features`. Labels are the floats the model read, so a database's
+  decimal labels arrive as numbers.
+- `details.get_context_and_scored_table()` returns every row Nori read, one
+  per entity and anchor time: the context rows with their `label` and the
+  scored rows with their `prediction`, each with its features. An entity's
+  rows read as a timeline that ends in its prediction.
+
 ## 0.4.3 — 2026-10-15
 
 - `AgenticSearch` keeps a program that beats the baseline by any amount. A

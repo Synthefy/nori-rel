@@ -283,3 +283,141 @@ def test_details_built_from_dotted_names_keep_them() -> None:
             features=details.features,
             internal_feature_names=("a", "b"),
         )
+
+
+_EARLY, _LATE, _NOW = (
+    pd.Timestamp("2023-02-01", tz="UTC"),
+    pd.Timestamp("2023-04-01", tz="UTC"),
+    pd.Timestamp("2023-06-01", tz="UTC"),
+)
+_AGE, _GRID = (
+    "nr|direct|drivers.dob",
+    "nr|path|drivers%3C-results.driverId|grid|mean|all",
+)
+
+
+def _get_context_and_scored_details(predictions: pd.DataFrame) -> PredictionDetails:
+    """Return details with context rows for drivers 1 and 2, as predict builds them.
+
+    Driver 1 has rows at both past dates, driver 2 only at the later one, and
+    every matrix carries the model's internal names.
+    """
+    context = pd.DataFrame(
+        {
+            "entity_id": [1, 2, 1],
+            "anchor_time": [_LATE, _LATE, _EARLY],
+            "label": [4.0, 9.0, 6.0],
+        }
+    )
+    context_features = pd.DataFrame({_AGE: [30.0, 25.0, 29.8], _GRID: [3.0, 12.0, 4.0]})
+    entity_ids = predictions["entity_id"].tolist()
+    features = pd.DataFrame(
+        {
+            _AGE: [30.2 + entity for entity in entity_ids],
+            _GRID: [2.0] * len(entity_ids),
+        },
+        index=pd.Index(entity_ids, name="entity_id"),
+    )
+    return PredictionDetails(
+        predictions=predictions,
+        metadata={},
+        pipeline=None,
+        features=features,
+        context=context,
+        context_features=context_features,
+    )
+
+
+def test_context_features_take_the_dotted_names_of_features() -> None:
+    predictions = pd.DataFrame(
+        {"entity_id": [1], "anchor_time": [_NOW], "prediction": [5.0]}
+    )
+    details = _get_context_and_scored_details(predictions)
+    assert details.context_features.columns.tolist() == [
+        "drivers.dob",
+        "results.grid.mean",
+    ]
+    assert (
+        details.context_features.columns.tolist() == details.features.columns.tolist()
+    )
+    with pytest.raises(ValueError, match="columns of features"):
+        PredictionDetails(
+            predictions=predictions,
+            metadata={},
+            pipeline=None,
+            features=pd.DataFrame({_AGE: [1.0]}),
+            context_features=pd.DataFrame({_GRID: [1.0]}),
+        )
+
+
+def test_the_context_and_scored_table_reads_as_a_timeline_per_entity() -> None:
+    predictions = pd.DataFrame(
+        {
+            "entity_id": [2, 1, 3],
+            "anchor_time": [_NOW] * 3,
+            "prediction": [8.5, 5.0, 7.0],
+        }
+    )
+    table = _get_context_and_scored_details(predictions).get_context_and_scored_table()
+    assert table.columns.tolist() == [
+        "entity_id",
+        "anchor_time",
+        "label",
+        "prediction",
+        "drivers.dob",
+        "results.grid.mean",
+    ]
+    assert table[["entity_id", "anchor_time"]].values.tolist() == [
+        [1, _EARLY],
+        [1, _LATE],
+        [1, _NOW],
+        [2, _LATE],
+        [2, _NOW],
+        [3, _NOW],
+    ]
+    # Context rows hold a label and the features Nori learned from.
+    assert table["label"].tolist()[:2] == [6.0, 4.0]
+    assert table["results.grid.mean"].tolist()[:2] == [4.0, 3.0]
+    # Scored rows hold the prediction and the features Nori predicted from.
+    driver_one_now = table.iloc[2]
+    assert pd.isna(driver_one_now["label"]) and driver_one_now["prediction"] == 5.0
+    assert driver_one_now["drivers.dob"] == 31.2
+    assert table["prediction"].isna().tolist() == [
+        True,
+        True,
+        False,
+        True,
+        False,
+        False,
+    ]
+    # Driver 3 has no context rows, only its prediction.
+    assert table[table["entity_id"] == 3]["label"].isna().all()
+
+
+def test_the_context_and_scored_table_keeps_a_yes_no_target_probability() -> None:
+    predictions = pd.DataFrame(
+        {
+            "entity_id": [1],
+            "anchor_time": [_NOW],
+            "prediction": [True],
+            "probability": [0.8],
+        }
+    )
+    table = _get_context_and_scored_details(predictions).get_context_and_scored_table()
+    assert table.columns.tolist()[2:5] == ["label", "prediction", "probability"]
+    scored = table["prediction"].notna()
+    assert table.loc[scored, "probability"].tolist() == [0.8]
+    assert table.loc[~scored, "probability"].isna().all()
+
+
+def test_the_context_and_scored_table_needs_aligned_context_rows() -> None:
+    details = PredictionDetails(predictions=pd.DataFrame(), metadata={}, pipeline=None)
+    with pytest.raises(ValueError, match="no context rows"):
+        details.get_context_and_scored_table()
+    predictions = pd.DataFrame(
+        {"entity_id": [1], "anchor_time": [_NOW], "prediction": [5.0]}
+    )
+    complete = _get_context_and_scored_details(predictions)
+    misaligned = complete.model_copy(update={"context": complete.context.iloc[:2]})
+    with pytest.raises(ValueError, match="same rows"):
+        misaligned.get_context_and_scored_table()

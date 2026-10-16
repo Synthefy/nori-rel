@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+import pandas as pd
 import pipeline_fakes
 import psycopg
 import pytest
@@ -19,6 +20,8 @@ from nori_rel import (
     RelationalLimits,
 )
 from nori_rel._feature_program import program_record
+from nori_rel._runtime import LocalNoriPredictor
+from nori_rel.contracts import PredictionTask
 from nori_rel.feature.agentic.contracts import FeatureProgram, FeatureQuery
 from nori_rel.pipeline import (
     PipelineContextError,
@@ -154,26 +157,36 @@ def _program(baseline_columns):
     return FeatureProgram((FeatureQuery("web_orders", sql),)), tuple(baseline_columns)
 
 
+def _get_first_prediction_by_strategy(schema, kind):
+    """Return the details of a first prediction with one feature strategy.
+
+    ``kind`` is "noridfs", "fastdfs", or "agentic": a saved agent program,
+    replayed on NoriDFS without a model provider.
+    """
+    first = _first_prediction(
+        schema, features="fastdfs" if kind == "fastdfs" else "noridfs"
+    )
+    if kind != "agentic":
+        return first
+    program, baseline = _program(first["pipeline"].feature_names)
+    with NoriRelClient(limits=LIMITS, device="cpu") as client:
+        source = _connect(client, schema)
+        record = program_record(
+            program,
+            query=QUERY,
+            entity_created_at="created_at",
+            schema=client.discover(source),
+            baseline_columns=baseline,
+        )
+    return _first_prediction(schema, features=None, feature_program=record)
+
+
 @pytest.mark.parametrize("kind", ["noridfs", "fastdfs", "agentic"])
 def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
     shop, checkpoint, tmp_path, kind
 ):
     schema, _ = shop
-    first = _first_prediction(
-        schema, features="fastdfs" if kind == "fastdfs" else "noridfs"
-    )
-    if kind == "agentic":
-        program, baseline = _program(first["pipeline"].feature_names)
-        with NoriRelClient(limits=LIMITS, device="cpu") as client:
-            source = _connect(client, schema)
-            record = program_record(
-                program,
-                query=QUERY,
-                entity_created_at="created_at",
-                schema=client.discover(source),
-                baseline_columns=baseline,
-            )
-        first = _first_prediction(schema, features=None, feature_program=record)
+    first = _get_first_prediction_by_strategy(schema, kind)
     pipeline = first["pipeline"]
     path = pipeline.save(tmp_path / "pipeline.json")
     reference = first["predictions"]
@@ -211,7 +224,8 @@ def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
         assert table["sql"].str.contains("SELECT").all()
     if kind == "agentic":
         assert first.features.columns[-1] == "web_orders.web_orders"
-        assert table["sql"].iloc[-1] == program.queries[0].sql
+        saved_program, _ = _program(pipeline.feature_names)
+        assert table["sql"].iloc[-1] == saved_program.queries[0].sql
 
 
 def _later_prediction(schema, pipeline, **options):
@@ -373,3 +387,55 @@ def test_a_tampered_checkpoint_is_refused(shop, checkpoint):
         pipeline.manifest.model.sha256
         == hashlib.sha256(b"fake nori checkpoint").hexdigest()
     )
+
+
+@pytest.mark.parametrize("kind", ["noridfs", "fastdfs", "agentic"])
+def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint, kind):
+    schema, _ = shop
+    first = _get_first_prediction_by_strategy(schema, kind)
+    fitted_inputs = pipeline_fakes.last_inputs_hash()
+    context_rows = len(first.context)
+    assert context_rows > 0
+    assert first.context_features.shape == (context_rows, first.features.shape[1])
+    assert first.context_features.columns.tolist() == first.features.columns.tolist()
+
+    table = first.get_context_and_scored_table()
+    assert len(table) == context_rows + len(first.predictions)
+    assert table["label"].notna().sum() == context_rows
+    assert table["prediction"].notna().sum() == len(first.predictions)
+    assert table.columns.tolist()[-first.features.shape[1] :] == (
+        first.features.columns.tolist()
+    )
+    # Every strategy's columns arrive dotted, and the agent's own column too.
+    assert not any(name.startswith(("nr|", "d2__")) for name in table.columns)
+    if kind == "agentic":
+        assert "web_orders.web_orders" in table.columns
+    # The scored rows carry exactly the features the prediction reports.
+    scored = table[table["prediction"].notna()].set_index("entity_id")
+    feature_columns = first.features.columns.tolist()
+    expected = first.features.loc[scored.index, feature_columns]
+    # predictions keep entity_id as pandas' nullable Int64, features as int64.
+    pd.testing.assert_frame_equal(
+        scored[feature_columns].reset_index(drop=True),
+        expected.reset_index(drop=True),
+        check_names=False,
+    )
+    # Fitting Nori again on context_features and the labels, in their stored
+    # order, gives the regressor exactly the inputs of the prediction.
+    model = first.pipeline.manifest.model
+    categorical = first.pipeline.manifest.columns.categorical
+    internal_names = list(first.internal_feature_names)
+    LocalNoriPredictor(
+        model.model,
+        revision=model.revision,
+        sha256=model.sha256,
+        regressor_params=model.regressor_params,
+    ).predict_arrays(
+        first.context_features.set_axis(internal_names, axis=1),
+        first.context["label"],
+        first.features.set_axis(internal_names, axis=1).reset_index(drop=True),
+        task=PredictionTask.REGRESSION,
+        output_type=first.pipeline.manifest.prediction.output_type,
+        categorical_columns=None if categorical is None else list(categorical),
+    )
+    assert pipeline_fakes.last_inputs_hash() == fitted_inputs

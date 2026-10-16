@@ -65,14 +65,24 @@ class PredictionDetails(BaseModel):
     #: The SQL that computed each feature, by internal name, for a feature
     #: search that runs one query per feature (FastDFS).
     feature_sql: dict[str, str] = Field(default_factory=dict)
+    #: The labeled rows Nori learned from: entity_id, anchor_time (a past
+    #: date) and label (the target over that date's window), in the row order
+    #: of ``context_features``. ``None`` when not kept.
+    context: pd.DataFrame | None = None
+    #: The feature matrix of the ``context`` rows, the one Nori was fitted on:
+    #: one row per row of ``context``, in the order Nori read them, with the
+    #: columns of ``features``. Fitting Nori on it and ``context["label"]``
+    #: reproduces the predictions. ``None`` when not kept.
+    context_features: pd.DataFrame | None = None
 
     @model_validator(mode="before")
     @classmethod
     def _get_fields_with_dotted_feature_names(cls, fields: Any) -> Any:
-        """Return the constructor's fields with ``features`` under dotted names.
+        """Return the constructor's fields with both feature matrices dotted.
 
         ``features`` arrives with the model's internal names, which move to
-        ``internal_feature_names``. Fields that already carry
+        ``internal_feature_names``; ``context_features``, which has the same
+        columns, takes the same dotted names. Fields that already carry
         ``internal_feature_names`` are returned unchanged once it has one name
         per column.
         """
@@ -92,17 +102,96 @@ class PredictionDetails(BaseModel):
         dotted_names = _get_dotted_feature_names(
             internal_names, fields.get("metadata") or {}
         )
-        return {
+        renamed = {
             **fields,
             "features": features.set_axis(dotted_names, axis=1),
             "internal_feature_names": internal_names,
         }
+        context_features = fields.get("context_features")
+        if isinstance(context_features, pd.DataFrame):
+            if tuple(str(name) for name in context_features.columns) != internal_names:
+                raise ValueError(
+                    "context_features needs the columns of features, in order"
+                )
+            renamed["context_features"] = context_features.set_axis(
+                dotted_names, axis=1
+            )
+        return renamed
 
     def __getitem__(self, key: str) -> Any:
         """Return a field by name, for code written against the old dict."""
         if key not in type(self).model_fields:
             raise KeyError(key)
         return getattr(self, key)
+
+    def get_context_and_scored_table(self) -> pd.DataFrame:
+        """Return every row Nori read: the context rows and the scored rows.
+
+        Columns are ``entity_id``, ``anchor_time``, ``label``, the forecast
+        columns of ``predictions`` (``prediction``, and ``probability`` for a
+        yes/no target or ``quantiles`` for a quantile forecast), then the
+        columns of ``features``. A context row holds its label and the
+        features Nori learned from, and its forecast columns are empty. A
+        scored row holds its forecast and the features Nori predicted from,
+        and its label is empty. Rows are sorted by ``entity_id``, then
+        ``anchor_time``, so an entity's rows read as a timeline that ends in
+        its prediction. A past anchor time with no labeled row, such as one
+        whose window had no events, has no rows.
+
+        The sort is for reading. Nori's predictions depend on the order of
+        the rows it learned from, so to fit Nori again (for an explanation,
+        say), use ``context_features`` and ``context["label"]``, which keep
+        that order; refitting on this table's context rows in its sorted
+        order gives slightly different predictions.
+
+        Raises:
+            ValueError: the details hold no context rows or no features, the
+                context labels and features differ in length, or a feature
+                column shares a name with one of the leading columns.
+        """
+        if (
+            self.context is None
+            or self.context_features is None
+            or self.features is None
+        ):
+            raise ValueError(
+                "these details hold no context rows or features; "
+                "call predict(return_details=True)"
+            )
+        if len(self.context) != len(self.context_features):
+            raise ValueError("context and context_features need the same rows")
+        key_columns = [
+            column
+            for column in ("entity_id", "anchor_time")
+            if column in self.predictions.columns
+        ]
+        forecast_columns = [
+            column for column in self.predictions.columns if column not in key_columns
+        ]
+        leading_columns = [*key_columns, "label", *forecast_columns]
+        shared = sorted(set(leading_columns) & set(self.features.columns))
+        if shared:
+            raise ValueError(
+                f"feature columns {shared} share a name with a leading column"
+            )
+        context_rows = pd.concat(
+            [
+                self.context.reset_index(drop=True),
+                self.context_features.reset_index(drop=True),
+            ],
+            axis=1,
+        )
+        scored = self.predictions.reset_index(drop=True)
+        scored_rows = pd.concat(
+            [scored, self.features.loc[scored["entity_id"]].reset_index(drop=True)],
+            axis=1,
+        )
+        table = pd.concat([context_rows, scored_rows], ignore_index=True)
+        return (
+            table[[*leading_columns, *self.features.columns]]
+            .sort_values(key_columns, kind="stable")
+            .reset_index(drop=True)
+        )
 
     def get_feature_table(self) -> pd.DataFrame:
         """Return one row per column of ``features``, in the same order.

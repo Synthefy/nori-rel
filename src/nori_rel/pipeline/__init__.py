@@ -27,6 +27,12 @@ SCORING_FEATURES_ATTR = "scoring_features"
 #: ``DataFrame.attrs`` key that carries the SQL of each scored feature, by
 #: feature name, along the same way. Only FastDFS reports SQL per feature.
 SCORING_FEATURE_SQL_ATTR = "scoring_feature_sql"
+#: ``DataFrame.attrs`` key that carries the labeled context rows Nori learned
+#: from (entity_id, anchor_time, label) along the same way.
+CONTEXT_LABELS_ATTR = "context_labels"
+#: ``DataFrame.attrs`` key that carries the feature matrix of those context
+#: rows, the one Nori was fitted on, in the same row order.
+CONTEXT_FEATURES_ATTR = "context_features"
 
 if TYPE_CHECKING:
     from nori_rel.pipeline.artifact import NoriRelPipeline
@@ -58,6 +64,8 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
+    "CONTEXT_FEATURES_ATTR",
+    "CONTEXT_LABELS_ATTR",
     "PIPELINE_ATTR",
     "PIPELINE_FORMAT",
     "PIPELINE_FORMAT_VERSION",
