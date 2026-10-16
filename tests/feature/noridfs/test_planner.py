@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -210,6 +211,56 @@ def test_direct_category_budget_keeps_small_domains_before_text() -> None:
 
 def test_cardinality_scan_stops_after_exceeding_limit() -> None:
     assert planner_module._bounded_cardinality(_StopAfterLimit(), 2) is None
+
+
+_SCAN_CASES = {
+    "text with every missing spelling": pd.Series(
+        ["a", None, "b", np.nan, pd.NaT, pd.NA, "a"], dtype=object
+    ),
+    "only missing values": pd.Series([None, np.nan, pd.NA], dtype=object),
+    "no rows": pd.Series([], dtype=object),
+    "numpy strings": pd.Series([np.str_("a"), "a", np.str_("b")], dtype=object),
+    "text and numbers": pd.Series(["1", 1, "a", 1.0], dtype=object),
+    "text and bytes": pd.Series(["a", b"a"], dtype=object),
+    "a list": pd.Series(["a", ["b"]], dtype=object),
+    "a dict": pd.Series([{"a": 1}, "b"], dtype=object),
+    "an array": pd.Series([np.array([1, 2]), "b"], dtype=object),
+    "bools": pd.Series([True, False, True]),
+    "nullable bools": pd.Series([True, None, False], dtype="boolean"),
+    "categories": pd.Series(["a", None, "b", "a"], dtype="category"),
+    "string dtype": pd.Series(["a", None, "b", "a"], dtype="string"),
+    "two values in many rows": pd.Series(["x", "y"] * 70_000, dtype=object),
+    "new values after the first chunk": pd.Series(
+        ["x"] * 70_000 + ["y", "z"], dtype=object
+    ),
+    "many values": pd.Series([f"v{index}" for index in range(100)], dtype=object),
+}
+
+
+@pytest.mark.parametrize("name", list(_SCAN_CASES))
+def test_column_scans_match_the_value_loops(name: str) -> None:
+    series = _SCAN_CASES[name]
+    kind = planner_module._column_kind(series)
+
+    assert kind == planner_module._scan_column_kind(series)
+    if kind == "categorical":
+        for limit in (1, 2, 3, 32):
+            assert planner_module._bounded_cardinality(
+                series, limit
+            ) == planner_module._scan_cardinality(series, limit)
+
+
+def test_text_columns_skip_the_value_loops(monkeypatch) -> None:
+    def fail(*args: object) -> None:
+        raise AssertionError("a text column fell back to the value loop")
+
+    monkeypatch.setattr(planner_module, "_scan_column_kind", fail)
+    monkeypatch.setattr(planner_module, "_scan_cardinality", fail)
+    series = pd.Series(["a", None, "b"] * 1_000, dtype=object)
+
+    assert planner_module._column_kind(series) == "categorical"
+    assert planner_module._bounded_cardinality(series, 32) == 2
+    assert planner_module._bounded_cardinality(series, 1) is None
 
 
 def test_mixed_nested_object_column_is_rejected_independent_of_row_order() -> None:

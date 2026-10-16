@@ -20,6 +20,9 @@ from .contracts import (
     RelationPath,
 )
 
+#: Rows per ``pd.unique`` call while counting a text column's categories.
+_UNIQUE_CHUNK_ROWS = 65_536
+
 
 def build_feature_plan(
     database: DatabaseView,
@@ -451,6 +454,12 @@ def _column_kind(series: pd.Series) -> ColumnKind | None:
         return "categorical"
     if pd.api.types.is_numeric_dtype(series):
         return "numeric"
+    if _is_text(series):
+        return "categorical"
+    return _scan_column_kind(series)
+
+
+def _scan_column_kind(series: pd.Series) -> ColumnKind | None:
     # Object columns can mix scalar and nested values while retaining the same
     # dtype. Inspect every present value so row order cannot change the plan.
     for value in series:
@@ -463,6 +472,20 @@ def _column_kind(series: pd.Series) -> ColumnKind | None:
 
 def _bounded_cardinality(series: pd.Series, limit: int) -> int | None:
     """Return bounded cardinality without materializing every distinct value."""
+    if isinstance(series, pd.Series) and (
+        _is_text(series) or pd.api.types.is_bool_dtype(series)
+    ):
+        present = series[series.notna()]
+        distinct: set[object] = set()
+        for start in range(0, len(present), _UNIQUE_CHUNK_ROWS):
+            distinct.update(pd.unique(present.iloc[start : start + _UNIQUE_CHUNK_ROWS]))
+            if len(distinct) > limit:
+                return None
+        return len(distinct)
+    return _scan_cardinality(series, limit)
+
+
+def _scan_cardinality(series: pd.Series, limit: int) -> int | None:
     values: set[object] = set()
     for value in series:
         if value is None or bool(pd.isna(value)):
@@ -472,6 +495,19 @@ def _bounded_cardinality(series: pd.Series, limit: int) -> int | None:
         if len(values) > limit:
             return None
     return len(values)
+
+
+def _is_text(series: pd.Series) -> bool:
+    """Return whether every present value is a ``str``, checked in compiled code.
+
+    ``infer_dtype`` skips the same missing values as the scans above, so a
+    text column gets the scans' answer without a Python loop over its rows.
+    """
+    return (
+        isinstance(series, pd.Series)
+        and (series.dtype == object or isinstance(series.dtype, pd.StringDtype))
+        and pd.api.types.infer_dtype(series, skipna=True) in ("string", "empty")
+    )
 
 
 __all__ = ["build_feature_plan"]
