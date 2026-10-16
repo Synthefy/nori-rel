@@ -205,11 +205,13 @@ in the same order: its `feature` name, the `internal_name` the model, pipeline
 and feature hash use, its `source`, the `sql` that computed it, its `dtype`,
 and its `missing_share`, `mean`, `min` and `max` over the scored entities.
 `sql` is the agent's query for an agent column and the statements FastDFS ran
-for a FastDFS column. For a NoriDFS column it is a DuckDB query that gives the
-values NoriDFS computed in pandas, over the snapshot tables and `eval_table`:
-one row per prediction row with `row_id`, the entity key and `cutoff`, as an
-agent's SQL reads it. Queries for `last` and `mode` columns also read a helper
-column that breaks ties the way NoriDFS does.
+for a FastDFS column. For a NoriDFS column it is the DuckDB query NoriDFS ran,
+over the snapshot tables and `eval_table`: one row per prediction row with
+`row_id`, the entity key and `cutoff`, as an agent's SQL reads it. Queries for
+`last` and `mode` columns also read a helper column that breaks ties the way
+NoriDFS does. Without DuckDB installed, or when a few entities with long
+histories have many prediction rows, NoriDFS computes in pandas instead, and
+the query gives the same values.
 
 ```python
 table = details.get_feature_table()
