@@ -142,9 +142,10 @@ table[table["entity_id"] == entity_id]  # one entity's timeline
 `model` is the Nori that made the prediction, fitted on `context_features` and
 `context["label"]` with the pipeline's pinned checkpoint and settings, so
 `details.model.predict(details.features)` returns the predictions exactly. Its
-`predict` returns the prediction's own output type (the median by default) and
-also takes a NumPy array in the column order of `features`, so synthefy-nori's
-SHAP explainer can call it:
+`predict` returns the prediction's own output type (the median by default). It
+takes a DataFrame with exactly the columns of `features`, refusing a missing or
+an extra column, or a NumPy array in that column order, so synthefy-nori's SHAP
+explainer can call it:
 
 ```python
 from synthefy_nori.interpretability.shapiq import get_nori_imputation_explainer

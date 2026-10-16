@@ -206,7 +206,7 @@
       "sha256": "abbd335235a84f6dd5ac1fd952ab6b9624261634744718f13e544351d3196242"
     },
     "src/nori_rel/pipeline/model.py": {
-      "sha256": "83884309b65afb7c6e4763ddd7ea8796f8fd1f5cfe53bd21a88ca48f24b6b135"
+      "sha256": "0ce3e314b734d3db1c46d32844a713e741a24962f079b79d43d644f8d818c613"
     },
     "src/nori_rel/pipeline/request.py": {
       "sha256": "cd6eba90949f2341cb3b44ae05a6f57360645e2f4e3a897000ea61e9a0a19d02"

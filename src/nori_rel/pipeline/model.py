@@ -218,14 +218,21 @@ class NoriRelModel:
     def _get_internal_frame(self, X: pd.DataFrame | np.ndarray) -> pd.DataFrame:
         """Return ``X`` under the internal names, with the context rows' dtypes.
 
-        An array arrives in the order of ``feature_names``, often as floats,
-        so each column takes back the dtype the model was fitted on.
+        A DataFrame needs exactly the model's feature columns, in any order;
+        a missing or an extra column is refused. An array arrives in the order
+        of ``feature_names``, often as floats, so each column takes back the
+        dtype the model was fitted on.
         """
         names = list(self.feature_names)
         if isinstance(X, pd.DataFrame):
             missing = sorted(set(names) - set(X.columns))
             if missing:
                 raise ValueError(f"X is missing feature columns {missing}")
+            extra = sorted(str(name) for name in set(X.columns) - set(names))
+            if extra:
+                raise ValueError(
+                    f"X has columns {extra} that this model was not fitted on"
+                )
             frame = X[names]
         else:
             array = np.asarray(X)

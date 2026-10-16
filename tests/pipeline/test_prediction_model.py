@@ -139,10 +139,24 @@ def test_predict_passes_the_saved_quantiles_for_a_quantile_forecast(
     assert model.regressor.quantiles == [0.1, 0.9]
 
 
-def test_predict_refuses_rows_without_the_model_features(fitted_regressors) -> None:
+def test_predict_refuses_rows_without_exactly_the_model_features(
+    fitted_regressors,
+) -> None:
     model = _get_model()
     with pytest.raises(ValueError, match="missing feature columns"):
         model.predict(pd.DataFrame({"anchor.entity_key": [1]}))
+    with pytest.raises(
+        ValueError, match=r"columns \['results.count'\] that this model"
+    ):
+        model.predict(
+            pd.DataFrame(
+                {
+                    "anchor.entity_key": [1],
+                    "results.grid.mean": [2.0],
+                    "results.count": [3],
+                }
+            )
+        )
     with pytest.raises(ValueError, match="needs 2 columns"):
         model.predict(np.zeros((1, 3)))
 
