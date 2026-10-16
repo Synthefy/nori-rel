@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+import pandas as pd
 import pipeline_fakes
 import psycopg
 import pytest
@@ -154,26 +155,36 @@ def _program(baseline_columns):
     return FeatureProgram((FeatureQuery("web_orders", sql),)), tuple(baseline_columns)
 
 
+def _get_first_prediction_by_strategy(schema, kind):
+    """Return the details of a first prediction with one feature strategy.
+
+    ``kind`` is "noridfs", "fastdfs", or "agentic": a saved agent program,
+    replayed on NoriDFS without a model provider.
+    """
+    first = _first_prediction(
+        schema, features="fastdfs" if kind == "fastdfs" else "noridfs"
+    )
+    if kind != "agentic":
+        return first
+    program, baseline = _program(first["pipeline"].feature_names)
+    with NoriRelClient(limits=LIMITS, device="cpu") as client:
+        source = _connect(client, schema)
+        record = program_record(
+            program,
+            query=QUERY,
+            entity_created_at="created_at",
+            schema=client.discover(source),
+            baseline_columns=baseline,
+        )
+    return _first_prediction(schema, features=None, feature_program=record)
+
+
 @pytest.mark.parametrize("kind", ["noridfs", "fastdfs", "agentic"])
 def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
     shop, checkpoint, tmp_path, kind
 ):
     schema, _ = shop
-    first = _first_prediction(
-        schema, features="fastdfs" if kind == "fastdfs" else "noridfs"
-    )
-    if kind == "agentic":
-        program, baseline = _program(first["pipeline"].feature_names)
-        with NoriRelClient(limits=LIMITS, device="cpu") as client:
-            source = _connect(client, schema)
-            record = program_record(
-                program,
-                query=QUERY,
-                entity_created_at="created_at",
-                schema=client.discover(source),
-                baseline_columns=baseline,
-            )
-        first = _first_prediction(schema, features=None, feature_program=record)
+    first = _get_first_prediction_by_strategy(schema, kind)
     pipeline = first["pipeline"]
     path = pipeline.save(tmp_path / "pipeline.json")
     reference = first["predictions"]
@@ -211,7 +222,8 @@ def test_a_saved_pipeline_predicts_the_same_in_a_new_process(
         assert table["sql"].str.contains("SELECT").all()
     if kind == "agentic":
         assert first.features.columns[-1] == "web_orders.web_orders"
-        assert table["sql"].iloc[-1] == program.queries[0].sql
+        saved_program, _ = _program(pipeline.feature_names)
+        assert table["sql"].iloc[-1] == saved_program.queries[0].sql
 
 
 def _later_prediction(schema, pipeline, **options):
@@ -375,9 +387,10 @@ def test_a_tampered_checkpoint_is_refused(shop, checkpoint):
     )
 
 
-def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint):
+@pytest.mark.parametrize("kind", ["noridfs", "fastdfs", "agentic"])
+def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint, kind):
     schema, _ = shop
-    first = _first_prediction(schema)
+    first = _get_first_prediction_by_strategy(schema, kind)
     context_rows = len(first.context)
     assert context_rows > 0
     assert first.context_features.shape == (context_rows, first.features.shape[1])
@@ -390,3 +403,12 @@ def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint
     assert table.columns.tolist()[-first.features.shape[1] :] == (
         first.features.columns.tolist()
     )
+    # Every strategy's columns arrive dotted, and the agent's own column too.
+    assert not any(name.startswith(("nr|", "d2__")) for name in table.columns)
+    if kind == "agentic":
+        assert "web_orders.web_orders" in table.columns
+    # The scored rows carry exactly the features the prediction reports.
+    scored = table[table["prediction"].notna()].set_index("entity_id")
+    feature_columns = first.features.columns.tolist()
+    expected = first.features.loc[scored.index, feature_columns]
+    pd.testing.assert_frame_equal(scored[feature_columns], expected, check_names=False)
