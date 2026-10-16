@@ -70,8 +70,9 @@ class PredictionDetails(BaseModel):
     #: of ``context_features``. ``None`` when not kept.
     context: pd.DataFrame | None = None
     #: The feature matrix of the ``context`` rows, the one Nori was fitted on:
-    #: one row per row of ``context``, in the same order, with the columns of
-    #: ``features``. ``None`` when not kept.
+    #: one row per row of ``context``, in the order Nori read them, with the
+    #: columns of ``features``. Fitting Nori on it and ``context["label"]``
+    #: reproduces the predictions. ``None`` when not kept.
     context_features: pd.DataFrame | None = None
 
     @model_validator(mode="before")
@@ -136,6 +137,12 @@ class PredictionDetails(BaseModel):
         ``anchor_time``, so an entity's rows read as a timeline that ends in
         its prediction. A past anchor time with no labeled row, such as one
         whose window had no events, has no rows.
+
+        The sort is for reading. Nori's predictions depend on the order of
+        the rows it learned from, so to fit Nori again (for an explanation,
+        say), use ``context_features`` and ``context["label"]``, which keep
+        that order; refitting on this table's context rows in its sorted
+        order gives slightly different predictions.
 
         Raises:
             ValueError: the details hold no context rows or no features, the

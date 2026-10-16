@@ -20,6 +20,8 @@ from nori_rel import (
     RelationalLimits,
 )
 from nori_rel._feature_program import program_record
+from nori_rel._runtime import LocalNoriPredictor
+from nori_rel.contracts import PredictionTask
 from nori_rel.feature.agentic.contracts import FeatureProgram, FeatureQuery
 from nori_rel.pipeline import (
     PipelineContextError,
@@ -391,6 +393,7 @@ def test_a_tampered_checkpoint_is_refused(shop, checkpoint):
 def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint, kind):
     schema, _ = shop
     first = _get_first_prediction_by_strategy(schema, kind)
+    fitted_inputs = pipeline_fakes.last_inputs_hash()
     context_rows = len(first.context)
     assert context_rows > 0
     assert first.context_features.shape == (context_rows, first.features.shape[1])
@@ -412,3 +415,22 @@ def test_the_context_and_scored_table_holds_every_row_nori_read(shop, checkpoint
     feature_columns = first.features.columns.tolist()
     expected = first.features.loc[scored.index, feature_columns]
     pd.testing.assert_frame_equal(scored[feature_columns], expected, check_names=False)
+    # Fitting Nori again on context_features and the labels, in their stored
+    # order, gives the regressor exactly the inputs of the prediction.
+    model = first.pipeline.manifest.model
+    categorical = first.pipeline.manifest.columns.categorical
+    internal_names = list(first.internal_feature_names)
+    LocalNoriPredictor(
+        model.model,
+        revision=model.revision,
+        sha256=model.sha256,
+        regressor_params=model.regressor_params,
+    ).predict_arrays(
+        first.context_features.set_axis(internal_names, axis=1),
+        first.context["label"],
+        first.features.set_axis(internal_names, axis=1).reset_index(drop=True),
+        task=PredictionTask.REGRESSION,
+        output_type=first.pipeline.manifest.prediction.output_type,
+        categorical_columns=None if categorical is None else list(categorical),
+    )
+    assert pipeline_fakes.last_inputs_hash() == fitted_inputs

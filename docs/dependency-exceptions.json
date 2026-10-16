@@ -194,7 +194,7 @@
       "sha256": "dada632404fe1c23fd7b608f1626ff9d37c84d6df36e5be258786df1ea536b3e"
     },
     "src/nori_rel/pipeline/details.py": {
-      "sha256": "c594a72bcba0ff376ee4851f47a18f1f6108b2a6f72bf06b8be9e4e76a6a56ff"
+      "sha256": "7cdba214d61ef41e1a9990e6dfbf86badd0944caeb2879b37535f269250c0d6e"
     },
     "src/nori_rel/pipeline/errors.py": {
       "sha256": "56316f40aa103274198842ce81d4cbbd28075d3ef0439c32650ffac802f1ab7c"

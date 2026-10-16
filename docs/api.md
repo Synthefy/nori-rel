@@ -128,9 +128,10 @@ columns empty; a scored row holds its prediction and the features Nori
 predicted from, with `label` empty. Rows are sorted by `entity_id`, then
 `anchor_time`, so one entity's rows read as a timeline that ends in its
 prediction. A past anchor time with no labeled row, such as one whose window
-had no events, has no rows. The context rows are exactly what Nori was fitted
-on, so `context_features` and `context["label"]` are the data a SHAP or
-glass-box explainer needs.
+had no events, has no rows. The sort is for reading: Nori's predictions depend
+on the order of the rows it learned from, so to fit Nori again, for a SHAP or
+glass-box explanation, use `context_features` and `context["label"]`, which
+keep that order and reproduce the predictions.
 
 ```python
 table = details.get_context_and_scored_table()
