@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- NoriDFS plans faster on tables with text columns. The planner read every value
+  of a text column in Python to decide the column's kind and count its
+  categories; it now checks the column in pandas' compiled code. The loop
+  remains for columns whose values are not all text, such as mixed or
+  categorical ones. Plans do not change: on 7 RelBench regression tasks with
+  four feature budgets, all 28 plans match the old ones, and planning takes 0.3
+  to 8.1 s where it took 5.2 to 35.2 s.
+
 ## 0.4.3 — 2026-10-15
 
 - `AgenticSearch` keeps a program that beats the baseline by any amount. A
