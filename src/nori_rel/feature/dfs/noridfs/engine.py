@@ -5,6 +5,7 @@ from __future__ import annotations
 import heapq
 from collections import defaultdict
 from collections.abc import Mapping
+from typing import get_args
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,7 @@ import pandas as pd
 from .contracts import (
     AnchorDefinition,
     DatabaseView,
+    FeatureExecutor,
     FeaturePlan,
     FeatureSpec,
     NativeFeatureConfig,
@@ -63,46 +65,37 @@ class NativeRelationalFeaturizer:
         return cls(plan)
 
     def transform(
-        self, database: DatabaseView, anchor_frame: pd.DataFrame
+        self,
+        database: DatabaseView,
+        anchor_frame: pd.DataFrame,
+        *,
+        executor: FeatureExecutor = "pandas",
     ) -> NativeFeatureMatrix:
-        """Build one row per anchor using only rows strictly before its cutoff."""
+        """Build one row per anchor using only rows strictly before its cutoff.
+
+        ``executor="duckdb"`` runs the plan's SQL (``sql.get_plan_sql``) on an
+        in-memory DuckDB and needs the ``duckdb`` package. ``"auto"`` does the
+        same unless DuckDB is missing or the queries would join more than
+        ``sql.AUTO_MAX_JOINED_PAIRS`` anchor and row pairs, and then runs the
+        pandas executor, as ``"pandas"`` always does. The two agree on counts,
+        extremes, latest values, modes, lookups and anchor fields. DuckDB's
+        means, sums and ages can differ in the last digits, and its standard
+        deviations avoid the cancellation of the pandas prefix sums.
+        """
+        if executor not in get_args(FeatureExecutor):
+            raise ValueError(f"unknown NoriDFS executor {executor!r}")
         database.validate()
         if database.schema_digest != self.plan.schema_digest:
             raise ValueError("database schema does not match the fitted feature plan")
         anchors = _prepare_anchors(anchor_frame, self.plan.anchors)
-        values: dict[str, pd.Series | np.ndarray] = {}
-        anchor_specs = [
-            feature for feature in self.plan.features if feature.operation == "anchor"
-        ]
-        values.update(_anchor_features(anchors, anchor_specs))
-        direct = [
-            feature for feature in self.plan.features if feature.operation == "direct"
-        ]
-        values.update(_direct_features(database, anchors, self.plan.anchors, direct))
-
-        by_path: dict[RelationPath, list[FeatureSpec]] = defaultdict(list)
-        for feature in self.plan.features:
-            if feature.path is not None:
-                by_path[feature.path].append(feature)
-        for path in self.plan.paths:
-            specs = by_path.get(path)
-            if specs:
-                values.update(
-                    _path_features(
-                        database,
-                        anchors,
-                        path,
-                        specs,
-                        self.plan.config.include_missing_in_modes,
-                    )
-                )
-
-        missing = [column for column in self.plan.columns if column not in values]
-        if missing:
-            raise RuntimeError(
-                f"native executor omitted planned features: {missing[:3]}"
+        frame = None
+        if executor != "pandas":
+            frame = _get_sql_features(
+                database, self.plan, anchor_frame, required=executor == "duckdb"
             )
-        frame = pd.DataFrame(values).reindex(columns=list(self.plan.columns))
+        ran = "pandas" if frame is None else "duckdb"
+        if frame is None:
+            frame = _get_pandas_features(database, self.plan, anchors)
         if len(frame) != len(anchor_frame):
             raise RuntimeError("native feature row count changed during execution")
         numeric_columns = frame.select_dtypes(include=[np.number]).columns
@@ -114,7 +107,76 @@ class NativeRelationalFeaturizer:
             frame=frame,
             categorical_columns=self.plan.categorical_columns,
             plan_digest=self.plan.digest,
+            executor=ran,
         )
+
+
+def _get_pandas_features(
+    database: DatabaseView, plan: FeaturePlan, anchors: pd.DataFrame
+) -> pd.DataFrame:
+    """Return the plan's features computed in pandas, in plan column order."""
+    values: dict[str, pd.Series | np.ndarray] = {}
+    anchor_specs = [
+        feature for feature in plan.features if feature.operation == "anchor"
+    ]
+    values.update(_anchor_features(anchors, anchor_specs))
+    direct = [feature for feature in plan.features if feature.operation == "direct"]
+    values.update(_direct_features(database, anchors, plan.anchors, direct))
+
+    by_path: dict[RelationPath, list[FeatureSpec]] = defaultdict(list)
+    for feature in plan.features:
+        if feature.path is not None:
+            by_path[feature.path].append(feature)
+    for path in plan.paths:
+        specs = by_path.get(path)
+        if specs:
+            values.update(
+                _path_features(
+                    database,
+                    anchors,
+                    path,
+                    specs,
+                    plan.config.include_missing_in_modes,
+                )
+            )
+
+    missing = [column for column in plan.columns if column not in values]
+    if missing:
+        raise RuntimeError(f"native executor omitted planned features: {missing[:3]}")
+    return pd.DataFrame(values).reindex(columns=list(plan.columns))
+
+
+def _get_sql_features(
+    database: DatabaseView,
+    plan: FeaturePlan,
+    anchor_frame: pd.DataFrame,
+    *,
+    required: bool,
+) -> pd.DataFrame | None:
+    """Return the plan's features from its DuckDB SQL, or None to use pandas.
+
+    ``required`` is set for ``executor="duckdb"``, which raises where
+    ``"auto"`` returns None: DuckDB is missing, or the join limit is passed.
+    """
+    # The SQL module imports helpers from this one, so it is imported here.
+    from .sql import AUTO_MAX_JOINED_PAIRS, get_features_from_sql
+
+    try:
+        import duckdb  # noqa: F401
+    except ImportError:
+        if required:
+            raise ImportError(
+                "the NoriDFS DuckDB executor needs the duckdb package, which the "
+                "database, snowflake, databricks and agentic extras install; "
+                "or use executor='pandas'"
+            ) from None
+        return None
+    return get_features_from_sql(
+        database,
+        plan,
+        anchor_frame,
+        max_joined_pairs=None if required else AUTO_MAX_JOINED_PAIRS,
+    )
 
 
 def _prepare_anchors(frame: pd.DataFrame, definition: AnchorDefinition) -> pd.DataFrame:

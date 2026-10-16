@@ -54,7 +54,10 @@ change a replay's context and predictions.
 
 FastDFS replay restores the saved type hints and requires the same FastDFS
 version and feature columns. NoriDFS replay runs the saved plan without planning
-again and refuses a plan whose schema or digest no longer matches. An agent
+again and refuses a plan whose schema or digest no longer matches. It runs the
+plan on DuckDB, as a new prediction does, so a plan saved by 0.4.3 or earlier,
+whose features were computed in pandas, can replay with last-digit differences
+in means, sums and ages and with corrected standard deviations. An agent
 pipeline replays its saved SQL program on that plan in DuckDB, so it needs the
 `agentic` extra but sends nothing to a model provider and searches no further.
 If no program beat NoriDFS alone, the pipeline holds the NoriDFS plan only. Schema checks cover tables, column types, keys,

@@ -4,10 +4,20 @@
 
 - `get_feature_table()` fills `sql` for NoriDFS columns. Each is a DuckDB query
   over the snapshot tables and `eval_table` (`row_id`, the entity key and
-  `cutoff`, as an agent's SQL reads them) that gives the values NoriDFS
-  computes in pandas. `NoriDFS.last_feature_sql` returns the same queries, and
-  an agent search reports them for its NoriDFS columns. Feature values do not
-  change.
+  `cutoff`, as an agent's SQL reads them). `NoriDFS.last_feature_sql` returns
+  the same queries, and an agent search reports them for its NoriDFS columns.
+- NoriDFS computes its features by running those queries on DuckDB, so the `sql`
+  of a NoriDFS column is the query that produced it. Counts, minimums, maximums,
+  latest values, modes, lookups and anchor fields are unchanged. Means, sums and
+  ages agree with 0.4.3 to within one part in a billion. A standard deviation no
+  longer loses precision when the values are large next to their spread: on
+  rel-stack, the pandas executor gave 0.204 for a column whose true value is 0.
+  `NoriDFS(executor="pandas")` restores the matrices of 0.4.3. The default,
+  `"auto"`, runs pandas when DuckDB is not installed or the queries would join
+  more than a billion prediction and history row pairs, and
+  `NoriDFS.last_executor` reports which ran. The `database`, `snowflake` and
+  `databricks` extras now list `duckdb`, which they already installed through
+  `fastdfs`.
 
 ## 0.4.3 — 2026-10-15
 

@@ -1,7 +1,8 @@
-"""Each NoriDFS feature's SQL gives the pandas executor's values on DuckDB."""
+"""NoriDFS's DuckDB executor gives the pandas executor's values."""
 
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -20,11 +21,11 @@ from nori_rel.feature.dfs.noridfs import (
     NativeRelationalFeaturizer,
     NoriDFS,
 )
+from nori_rel.feature.dfs.noridfs import sql as sql_module
 from nori_rel.feature.dfs.noridfs.sql import (
     CUTOFF_COLUMN,
     EVAL_TABLE,
     ROW_COLUMN,
-    get_features_from_sql,
     get_plan_sql,
     get_sql_schema,
 )
@@ -251,20 +252,19 @@ def _definition(
     )
 
 
-def _canonical(value: object) -> object:
-    """Return a value as both sides spell it: missing is None, bools as text.
+def _category_key(value: object) -> str | None:
+    """Return a category as the SDK keys it: missing is None, others as text.
 
-    A mode that counts missing values over a boolean column returns text in
-    SQL (``'true'``), since one SQL column cannot hold booleans and the
-    missing category together.
+    The SDK writes an integral float as an integer, so ``1.0`` and ``1`` are
+    one category, while ``True`` and ``'true'`` are two.
     """
     if value is None or (np.ndim(value) == 0 and pd.isna(value)):
         return None
     if isinstance(value, np.generic):
         value = value.item()
-    if isinstance(value, bool):
-        return str(value).lower()
-    return value
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
 
 
 def _assert_same_features(
@@ -273,9 +273,10 @@ def _assert_same_features(
     assert list(actual.columns) == list(expected.columns)
     for feature in plan.features:
         name = feature.name
+        assert actual[name].dtype == expected[name].dtype, name
         if feature.kind == "categorical":
-            assert [_canonical(value) for value in actual[name]] == [
-                _canonical(value) for value in expected[name]
+            assert [_category_key(value) for value in actual[name]] == [
+                _category_key(value) for value in expected[name]
             ], name
             continue
         actual_values = pd.to_numeric(actual[name]).to_numpy(dtype=float)
@@ -303,9 +304,10 @@ def _plan_and_features(
     config: NativeFeatureConfig,
 ) -> tuple[FeaturePlan, pd.DataFrame, pd.DataFrame]:
     featurizer = NativeRelationalFeaturizer.fit(database, definition, config)
-    expected = featurizer.transform(database, anchors).frame
-    actual = get_features_from_sql(database, featurizer.plan, anchors)
-    return featurizer.plan, expected, actual
+    expected = featurizer.transform(database, anchors)
+    actual = featurizer.transform(database, anchors, executor="duckdb")
+    assert (expected.executor, actual.executor) == ("pandas", "duckdb")
+    return featurizer.plan, expected.frame, actual.frame
 
 
 @pytest.mark.parametrize("seed", range(4))
@@ -580,21 +582,35 @@ def test_a_parent_lookup_reads_the_linked_row() -> None:
     )
 
 
+_RANKED_COLUMNS = {
+    "text": pd.Series([*_LABELS, None, np.nan, "ab", np.str_("z")], dtype=object),
+    "only missing values": pd.Series([None, np.nan], dtype=object),
+    "bools": pd.Series([True, False, True]),
+    "nullable bools": pd.Series([True, None, False], dtype="boolean"),
+    "text and numbers": pd.Series(["1", 1, 1.0, True, None], dtype=object),
+}
+
+
+@pytest.mark.parametrize("name", list(_RANKED_COLUMNS))
+@pytest.mark.parametrize("missing", [False, True])
+def test_distinct_values_rank_as_the_value_scan_ranks_them(
+    name: str, missing: bool
+) -> None:
+    values = _RANKED_COLUMNS[name]
+    pd.testing.assert_series_equal(
+        sql_module._get_category_ranks(values, include_missing=missing),
+        sql_module._get_scanned_ranks(values, include_missing=missing),
+    )
+
+
 def test_sql_names_the_anchor_table_as_the_agent_search_does() -> None:
     assert EVAL_TABLE == agentic_contracts.EVAL_TABLE
     assert ROW_COLUMN == agentic_contracts.ROW_COLUMN
     assert CUTOFF_COLUMN == agentic_contracts.CUTOFF_ALIAS
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the executor computes std from prefix sums of squares, which cancel "
-        "when values are large next to their spread"
-    ),
-)
-def test_std_of_large_values_with_a_small_spread_matches_the_sql() -> None:
-    _duckdb()
+def _std_of_large_values() -> tuple[pd.Series, pd.Series]:
+    """Return the pandas and DuckDB std of 1e8 + 0.1, 0.2, 0.3 and 0.4."""
     database = DatabaseView.from_parts(
         tables={
             "users": pd.DataFrame({"user_id": [1]}),
@@ -623,8 +639,128 @@ def test_std_of_large_values_with_a_small_spread_matches_the_sql() -> None:
     std = next(
         f.name for f in plan.features if f.operation == "std" and f.window_ns is None
     )
-    np.testing.assert_allclose(actual[std], [0.1290994], rtol=1e-6)
-    np.testing.assert_allclose(expected[std], actual[std], rtol=1e-6)
+    return expected[std], actual[std]
+
+
+def test_duckdb_std_of_large_values_with_a_small_spread_is_exact() -> None:
+    _duckdb()
+    np.testing.assert_allclose(_std_of_large_values()[1], [0.1290994], rtol=1e-6)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the pandas executor computes std from prefix sums of squares, which "
+        "cancel when values are large next to their spread"
+    ),
+)
+def test_pandas_std_of_large_values_with_a_small_spread_matches_duckdb() -> None:
+    _duckdb()
+    expected, actual = _std_of_large_values()
+    np.testing.assert_allclose(expected, actual, rtol=1e-6)
+
+
+def _many_orders_database(users: int, orders: int) -> DatabaseView:
+    rng = np.random.default_rng(7)
+    return DatabaseView.from_parts(
+        tables={
+            "users": pd.DataFrame({"user_id": np.arange(users)}),
+            "orders": pd.DataFrame(
+                {
+                    "order_id": np.arange(orders),
+                    "user_id": rng.integers(0, users, orders),
+                    "placed_at": _START
+                    + pd.to_timedelta(rng.integers(0, 365 * 86_400, orders), unit="s"),
+                    "amount": rng.lognormal(3.0, 1.5, orders),
+                }
+            ),
+        },
+        primary_keys={"users": "user_id", "orders": "order_id"},
+        foreign_keys=[("orders", "user_id", "users", "user_id")],
+        time_columns={"orders": "placed_at"},
+    )
+
+
+def test_duckdb_gives_the_same_bits_on_every_run(monkeypatch) -> None:
+    """Each query runs on one DuckDB thread, so it adds rows in one order.
+
+    With several threads per query, means, sums and standard deviations over
+    these 300,000 orders, which span several DuckDB row groups, change in the
+    last digits from run to run. How many queries run at once does not matter.
+    """
+    _duckdb()
+    database = _many_orders_database(users=5_000, orders=300_000)
+    rng = np.random.default_rng(8)
+    anchors = pd.DataFrame(
+        {
+            "user": rng.integers(0, 5_000, 5_000),
+            "cutoff": _START + pd.to_timedelta(rng.integers(150, 330, 5_000), unit="D"),
+        }
+    )
+    featurizer = NativeRelationalFeaturizer.fit(
+        database,
+        _definition(),
+        NativeFeatureConfig(max_depth=1, max_features=32, window_multipliers=(1,)),
+    )
+    assert {"mean", "sum", "std", "mean_age"} <= {
+        feature.operation for feature in featurizer.plan.features
+    }
+    first, *others = (
+        featurizer.transform(database, anchors, executor="duckdb").frame
+        for _ in range(3)
+    )
+    monkeypatch.setattr(sql_module, "QUERY_WORKERS", 1)
+    others.append(featurizer.transform(database, anchors, executor="duckdb").frame)
+    for other in others:
+        pd.testing.assert_frame_equal(other, first, check_exact=True)
+
+
+def _orders_featurizer() -> tuple[
+    DatabaseView, pd.DataFrame, NativeRelationalFeaturizer
+]:
+    database = _orders_database()
+    anchors = pd.DataFrame(
+        {"user": [1, 2], "cutoff": pd.to_datetime(["2024-01-05"] * 2, utc=True)}
+    )
+    featurizer = NativeRelationalFeaturizer.fit(
+        database, _definition(), _config(missing=False)
+    )
+    return database, anchors, featurizer
+
+
+def test_auto_runs_duckdb_up_to_the_join_limit(monkeypatch) -> None:
+    _duckdb()
+    database, anchors, featurizer = _orders_featurizer()
+
+    assert featurizer.transform(database, anchors, executor="auto").executor == (
+        "duckdb"
+    )
+    monkeypatch.setattr(sql_module, "AUTO_MAX_JOINED_PAIRS", 2)
+    assert featurizer.transform(database, anchors, executor="auto").executor == (
+        "pandas"
+    )
+    assert featurizer.transform(database, anchors, executor="duckdb").executor == (
+        "duckdb"
+    )
+
+
+def test_auto_runs_pandas_without_duckdb(monkeypatch) -> None:
+    database, anchors, featurizer = _orders_featurizer()
+    monkeypatch.setitem(sys.modules, "duckdb", None)
+
+    assert featurizer.transform(database, anchors, executor="auto").executor == (
+        "pandas"
+    )
+    with pytest.raises(ImportError, match="executor='pandas'"):
+        featurizer.transform(database, anchors, executor="duckdb")
+
+
+def test_an_unknown_executor_is_refused() -> None:
+    database, anchors, featurizer = _orders_featurizer()
+    with pytest.raises(ValueError, match="unknown NoriDFS executor"):
+        featurizer.transform(database, anchors, executor="spark")
+    with pytest.raises(ValueError, match="unknown NoriDFS executor"):
+        NoriDFS(executor="spark")
 
 
 def _snapshot() -> SimpleNamespace:
@@ -662,6 +798,20 @@ def test_noridfs_reports_sql_for_every_feature_it_computed() -> None:
     assert all(
         f"FROM {EVAL_TABLE} AS e" in sql for sql in backend.last_feature_sql.values()
     )
+
+
+def test_noridfs_runs_duckdb_unless_told_otherwise() -> None:
+    _duckdb()
+    backend = NoriDFS(horizon=_HORIZON)
+    assert (backend.executor, backend.last_executor) == ("auto", None)
+    _compute(backend)
+    assert backend.last_executor == "duckdb"
+
+    on_pandas = NoriDFS(horizon=_HORIZON, executor="pandas")
+    _compute(on_pandas)
+    assert on_pandas.last_executor == "pandas"
+    assert NoriDFS.from_plan(backend.last_plan, executor="pandas").executor == "pandas"
+    assert NoriDFS.from_plan(backend.last_plan).executor == "auto"
 
 
 def test_prediction_details_get_noridfs_sql_also_from_an_agent_search() -> None:

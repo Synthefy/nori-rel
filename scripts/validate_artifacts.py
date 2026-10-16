@@ -21,9 +21,15 @@ FORBIDDEN_COMPONENTS = {
     "notebooks",
     "__pycache__",
 }
-#: Dependencies only the opt-in agent search uses. The wheel may require them
-#: under the ``agentic`` extra and nowhere else, so a core install stays light.
-AGENTIC_ONLY_REQUIREMENTS = {"anthropic", "duckdb", "openai"}
+#: Dependencies a core install never needs, and the only extras that may
+#: require each, so a core install stays light. The model SDKs serve the opt-in
+#: agent search alone. NoriDFS also runs on DuckDB, so the database connector
+#: extras install it too.
+OPTIONAL_REQUIREMENT_EXTRAS = {
+    "anthropic": {"agentic"},
+    "duckdb": {"agentic", "database", "databricks", "snowflake"},
+    "openai": {"agentic"},
+}
 SOURCE_ROOT_FILES = {
     "pyproject.toml",
     "README.md",
@@ -113,12 +119,22 @@ def get_requirement_name(requirement: str) -> str:
     return re.sub(r"[-_.]+", "-", name.group(1)).lower()
 
 
-def is_agentic_extra_requirement(requirement: str) -> bool:
-    """Return whether a Requires-Dist entry applies only with the agentic extra."""
+def get_requirement_extras(requirement: str) -> set[str] | None:
+    """Return the extras a Requires-Dist entry applies to.
+
+    None means the entry also applies without an extra: it has no marker, or
+    its marker tests more than ``extra == "<name>"`` terms joined by ``or``.
+    """
     _, separator, marker = requirement.partition(";")
-    return bool(separator) and (
-        re.fullmatch(r"\s*extra\s*==\s*[\"']agentic[\"']\s*", marker) is not None
-    )
+    if not separator:
+        return None
+    extras = set()
+    for term in re.split(r"\s+or\s+", marker.strip()):
+        match = re.fullmatch(r"extra\s*==\s*[\"']([A-Za-z0-9._-]+)[\"']", term.strip())
+        if match is None:
+            return None
+        extras.add(match.group(1))
+    return extras
 
 
 def validate_archive_member_path(name: str) -> None:
@@ -199,13 +215,11 @@ def validate_public_distributions(dist: Path, source: Path) -> dict:
                 name in requirement.lower() for name in ("relarena", "relbench", "git+")
             ):
                 raise ValueError(f"internal dependency in wheel: {requirement}")
-            if get_requirement_name(
-                requirement
-            ) in AGENTIC_ONLY_REQUIREMENTS and not is_agentic_extra_requirement(
-                requirement
-            ):
+            allowed = OPTIONAL_REQUIREMENT_EXTRAS.get(get_requirement_name(requirement))
+            extras = get_requirement_extras(requirement)
+            if allowed is not None and (extras is None or not extras <= allowed):
                 raise ValueError(
-                    f"agent-search dependency outside the agentic extra: {requirement}"
+                    f"optional dependency outside its extras: {requirement}"
                 )
         if any(name.endswith("/entry_points.txt") for name in names):
             raise ValueError("the public Python client must not register research CLIs")

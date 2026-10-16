@@ -30,6 +30,10 @@ FeatureOperation = Literal[
     "std",
     "sum",
 ]
+#: How a plan's features are computed: the pandas executor, the plan's DuckDB
+#: SQL (``sql``), or ``"auto"``, which picks DuckDB unless it is missing or the
+#: queries would join too many anchor and row pairs.
+FeatureExecutor = Literal["auto", "duckdb", "pandas"]
 
 
 @dataclass(frozen=True, order=True)
@@ -418,6 +422,8 @@ class NativeFeatureMatrix:
     frame: pd.DataFrame
     categorical_columns: tuple[str, ...]
     plan_digest: str
+    #: The executor that computed ``frame``.
+    executor: Literal["duckdb", "pandas"] = "pandas"
 
 
 def _escape(value: str) -> str:
@@ -428,6 +434,7 @@ __all__ = [
     "AnchorDefinition",
     "ColumnKind",
     "DatabaseView",
+    "FeatureExecutor",
     "FeaturePlan",
     "FeatureSpec",
     "ForeignKey",

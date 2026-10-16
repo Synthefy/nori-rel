@@ -36,6 +36,7 @@ agentic = [
 ]
 database = [
     "boto3>=1.34,<2",
+    "duckdb>=1.1,<2",
     "fastdfs>=1.1,<2",
     "psycopg[binary]>=3.2,<4",
     "sqlalchemy>=2.0,<3",
@@ -44,6 +45,7 @@ database = [
 ]
 snowflake = [
     "boto3>=1.34,<2",
+    "duckdb>=1.1,<2",
     "fastdfs>=1.1,<2",
     "snowflake-connector-python>=4.8,<5",
     "sqlalchemy>=2.0,<3",
@@ -54,6 +56,7 @@ databricks = [
     "boto3>=1.34,<2",
     "databricks-sdk>=0.151,<1",
     "databricks-sql-connector>=4.6,<5",
+    "duckdb>=1.1,<2",
     "fastdfs>=1.1,<2",
     "sqlalchemy>=2.0,<3",
     "synthefy>=7.2.0,<8",

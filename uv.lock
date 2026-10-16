@@ -1331,6 +1331,7 @@ agentic = [
 ]
 database = [
     { name = "boto3" },
+    { name = "duckdb" },
     { name = "fastdfs" },
     { name = "psycopg", extra = ["binary"] },
     { name = "sqlalchemy" },
@@ -1341,6 +1342,7 @@ databricks = [
     { name = "boto3" },
     { name = "databricks-sdk" },
     { name = "databricks-sql-connector" },
+    { name = "duckdb" },
     { name = "fastdfs" },
     { name = "sqlalchemy" },
     { name = "synthefy" },
@@ -1352,6 +1354,7 @@ local = [
 ]
 snowflake = [
     { name = "boto3" },
+    { name = "duckdb" },
     { name = "fastdfs" },
     { name = "snowflake-connector-python" },
     { name = "sqlalchemy" },
@@ -1385,6 +1388,9 @@ requires-dist = [
     { name = "databricks-sdk", marker = "extra == 'databricks'", specifier = ">=0.151,<1" },
     { name = "databricks-sql-connector", marker = "extra == 'databricks'", specifier = ">=4.6,<5" },
     { name = "duckdb", marker = "extra == 'agentic'", specifier = ">=1.1,<2" },
+    { name = "duckdb", marker = "extra == 'database'", specifier = ">=1.1,<2" },
+    { name = "duckdb", marker = "extra == 'databricks'", specifier = ">=1.1,<2" },
+    { name = "duckdb", marker = "extra == 'snowflake'", specifier = ">=1.1,<2" },
     { name = "fastdfs", marker = "extra == 'database'", specifier = ">=1.1,<2" },
     { name = "fastdfs", marker = "extra == 'databricks'", specifier = ">=1.1,<2" },
     { name = "fastdfs", marker = "extra == 'snowflake'", specifier = ">=1.1,<2" },

@@ -1,11 +1,12 @@
 """DuckDB SQL that computes each feature of a fitted NoriDFS plan.
 
-NoriDFS computes its features in pandas (``engine``). This module states each
-planned feature as one DuckDB query, so a reader can see what a column holds,
-and ``get_features_from_sql`` runs those queries to check them against the
-executor. A query reads the snapshot tables and ``eval_table``, which holds one
-row per prediction row: ``row_id``, the entity key under its own column name,
-and ``cutoff``. The agent search's SQL reads the same table.
+This module states each planned feature as one DuckDB query, so a reader can
+see what a column holds, and ``get_features_from_sql`` runs those queries. It
+is NoriDFS's DuckDB executor; ``engine`` holds the pandas executor, and its
+tests hold the two to the same values. A query reads the snapshot tables and
+``eval_table``, which holds one row per prediction row: ``row_id``, the entity
+key under its own column name, and ``cutoff``. The agent search's SQL reads the
+same table.
 
 Two helper columns keep the executor's tie-breaks exact:
 
@@ -22,7 +23,9 @@ is imported there, so writing SQL needs no optional dependency.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -48,6 +51,15 @@ ENTITY_FALLBACK_COLUMN = "entity_key"
 FEATURE_COLUMN = "feature"
 TIE_COLUMN_PREFIX = "__nr_tie_p"
 RANK_COLUMN_SUFFIX = "__nr_rank"
+#: The most anchor and row pairs, summed over a plan's queries, that
+#: ``executor="auto"`` joins in DuckDB. A query joins each anchor to every row
+#: of its entity before it filters them by time, so a few entities with long
+#: histories and many anchors make it slower than the pandas prefix sums.
+AUTO_MAX_JOINED_PAIRS = 1_000_000_000
+#: Queries ``get_features_from_sql`` runs at once. Each runs on one DuckDB
+#: thread, so it adds a group's values in the same order on every run, and the
+#: matrix does not depend on this number.
+QUERY_WORKERS = min(8, os.cpu_count() or 1)
 
 
 _INDENT = "    "
@@ -172,20 +184,27 @@ def get_features_from_sql(
     database: DatabaseView,
     plan: FeaturePlan,
     anchors: pd.DataFrame,
-) -> pd.DataFrame:
+    *,
+    max_joined_pairs: int | None = None,
+) -> pd.DataFrame | None:
     """Return the plan's features computed by its SQL on an in-memory DuckDB.
 
     ``anchors`` holds the entity key and, for a temporal plan, the cutoff, as
     ``NativeRelationalFeaturizer.transform`` takes them. The result has one
-    row per anchor, in order, and one column per planned feature, so it
-    compares directly with the executor's frame. External file access is off,
-    as it is for the agent search's SQL. Needs ``duckdb`` (the ``agentic``
-    extra).
+    row per anchor, in order, and one column per planned feature, with the
+    pandas executor's types: numbers are float64, and categories are Python
+    values with None for missing. The queries run ``QUERY_WORKERS`` at a time,
+    each on one DuckDB thread: with more threads, DuckDB adds a group's floats
+    in an order that changes between runs, and so do the last digits of means,
+    sums and standard deviations. External file access is off, as it is for
+    the agent search's SQL. With ``max_joined_pairs``, the result is None when
+    the queries would join more anchor and row pairs than that. Needs
+    ``duckdb``.
     """
     import duckdb
 
     schema = get_sql_schema(database, plan, anchors[plan.anchors.entity_column])
-    sql_by_feature = get_plan_sql(plan, schema)
+    writer = _PlanSQLWriter(plan, schema)
     connection = duckdb.connect(
         database=":memory:", config={"enable_external_access": "false"}
     )
@@ -193,15 +212,102 @@ def get_features_from_sql(
         for name, frame in _get_sql_tables(database, plan).items():
             _load_table(connection, name, frame)
         _load_table(connection, EVAL_TABLE, _get_eval_table(plan, anchors))
-        values = {}
-        for feature in plan.features:
-            result = connection.execute(sql_by_feature[feature.name]).df()
-            if result[ROW_COLUMN].tolist() != list(range(len(anchors))):
-                raise RuntimeError(f"the SQL of {feature.name!r} lost or repeated rows")
-            values[feature.name] = result[FEATURE_COLUMN]
+        # Pair counts are integers, so they are exact on any number of threads.
+        if (
+            max_joined_pairs is not None
+            and _get_joined_pairs(connection, writer) > max_joined_pairs
+        ):
+            return None
+        connection.execute("SET threads = 1")
+        with ThreadPoolExecutor(QUERY_WORKERS) as pool:
+            columns = pool.map(
+                lambda feature: _get_feature_values(
+                    connection, writer, feature, len(anchors)
+                ),
+                plan.features,
+            )
+            values = dict(zip(plan.columns, columns, strict=True))
         return pd.DataFrame(values, index=pd.RangeIndex(len(anchors)))
     finally:
         connection.close()
+
+
+def _get_joined_pairs(connection, writer: _PlanSQLWriter) -> int:
+    """Return the anchor and row pairs the plan's queries join, summed."""
+    pairs: dict[RelationPath, int] = {}
+    total = 0
+    for feature in writer.plan.features:
+        if feature.path is None or feature.operation == "lookup":
+            continue
+        if feature.path not in pairs:
+            row = connection.execute(
+                writer.get_joined_pairs_sql(feature.path)
+            ).fetchone()
+            pairs[feature.path] = int(row[0])
+        total += pairs[feature.path]
+    return total
+
+
+def _get_feature_values(
+    connection, writer: _PlanSQLWriter, feature: FeatureSpec, rows: int
+) -> pd.Series | np.ndarray:
+    """Run one feature's query; return its values as the pandas executor types them.
+
+    Numbers become float64. Categories are fetched as Python values, so a
+    boolean stays a bool and an integer stays an integer where a data frame
+    would turn either into a float or a nullable type. The query runs on its
+    own cursor, so several can run at once.
+    """
+    sql = writer.get_feature_sql(feature)
+    cursor = connection.cursor()
+    try:
+        if feature.kind == "categorical":
+            result = cursor.execute(sql).fetchall()
+            row_ids = [row[0] for row in result]
+            values = [row[1] for row in result]
+            if (
+                feature.operation == "mode"
+                and writer.plan.config.include_missing_in_modes
+            ):
+                categories = _get_mode_categories(cursor, writer, feature)
+                values = [
+                    None if value is None else categories[value] for value in values
+                ]
+            output: pd.Series | np.ndarray = pd.Series(values, dtype=object)
+        else:
+            frame = cursor.execute(sql).df()
+            row_ids = frame[ROW_COLUMN].tolist()
+            output = frame[FEATURE_COLUMN].to_numpy(dtype=float, na_value=np.nan)
+    finally:
+        cursor.close()
+    if row_ids != list(range(rows)):
+        raise RuntimeError(f"the SQL of {feature.name!r} lost or repeated rows")
+    return output
+
+
+def _get_mode_categories(
+    connection, writer: _PlanSQLWriter, feature: FeatureSpec
+) -> dict[str, object]:
+    """Return the value behind each text a mode that counts missing values returns.
+
+    That query returns text, since one column holds both the missing category
+    and the database's values. The executor returns the value itself, so each
+    text maps back to its value, normalized as the executor's ``_category``
+    normalizes it.
+    """
+    if feature.column is None:
+        raise ValueError(f"{feature.name!r} has no source column")
+    source = _column(feature.table, feature.column)
+    rows = connection.execute(
+        f"SELECT DISTINCT {writer._get_mode_value(source)}, {source} "
+        f"FROM {_quote(feature.table)}"
+    ).fetchall()
+    categories = {}
+    for label, value in rows:
+        category = _category(value, include_missing=True)
+        if category is not None:
+            categories[label] = category[1]
+    return categories
 
 
 @dataclass(frozen=True)
@@ -272,6 +378,41 @@ class _PlanSQLWriter:
         if feature.operation == "mode":
             return self._get_mode_sql(feature, path)
         return self._get_aggregate_sql(feature, path)
+
+    def get_joined_pairs_sql(self, path: RelationPath) -> str:
+        """Return the number of anchor and path-row pairs whose keys match.
+
+        A feature query joins each anchor to its entity's path rows before it
+        filters them by time, so this count bounds the query's work.
+        """
+        path_rows = self._get_path_rows(path, column=None, tie=False, mode=False)
+        rows, anchor = self.rows, self.anchor
+        entity = _quote(self.eval_entity)
+        key = self._equals(
+            f"{rows}.entity_key",
+            (self.entity_table, self.entity_key),
+            f"{anchor}.{entity}",
+            (EVAL_TABLE, self.eval_entity),
+        )
+        return "\n".join(
+            [
+                f"WITH {self.path_rows} AS (",
+                *_indent(path_rows),
+                ")",
+                f"SELECT COALESCE(SUM({rows}.n * {anchor}.n), 0) AS pairs",
+                "FROM (",
+                f"{_INDENT}SELECT entity_key, COUNT(*) AS n",
+                f"{_INDENT}FROM {self.path_rows}",
+                f"{_INDENT}GROUP BY entity_key",
+                f") AS {rows}",
+                "JOIN (",
+                f"{_INDENT}SELECT {entity}, COUNT(*) AS n",
+                f"{_INDENT}FROM {EVAL_TABLE}",
+                f"{_INDENT}GROUP BY {entity}",
+                f") AS {anchor}",
+                f"ON {key}",
+            ]
+        )
 
     def _get_anchor_value(self, feature: FeatureSpec) -> str:
         values = {
@@ -699,7 +840,21 @@ def _add_helper_column(frame: pd.DataFrame, column: str, values: object) -> None
 
 
 def _get_category_ranks(values: pd.Series, *, include_missing: bool) -> pd.Series:
-    """Return each value's place in the executor's order for equal mode counts."""
+    """Return each value's place in the executor's order for equal mode counts.
+
+    Text and boolean columns are ranked once per distinct value; any other
+    column, which may mix types, value by value.
+    """
+    if pd.api.types.is_bool_dtype(values) or (
+        values.dtype == object
+        and pd.api.types.infer_dtype(values, skipna=True) in ("string", "empty")
+    ):
+        return _get_distinct_ranks(values, include_missing=include_missing)
+    return _get_scanned_ranks(values, include_missing=include_missing)
+
+
+def _get_scanned_ranks(values: pd.Series, *, include_missing: bool) -> pd.Series:
+    """Rank a column as ``_get_category_ranks`` does, value by value."""
     cache: dict[tuple[type, object], tuple[str, str] | None] = {}
 
     def get_identity(value: object) -> tuple[str, str] | None:
@@ -725,6 +880,37 @@ def _get_category_ranks(values: pd.Series, *, include_missing: bool) -> pd.Serie
         [None if identity is None else order[identity] for identity in identities],
         dtype="Int64",
     )
+
+
+def _get_distinct_ranks(values: pd.Series, *, include_missing: bool) -> pd.Series:
+    """Rank text or booleans as ``_get_category_ranks`` does, once per distinct value.
+
+    Equal values of one type share an identity, so ranking each distinct value
+    once gives every row the rank the value-by-value scan gives it.
+    """
+    codes, distinct = pd.factorize(values)
+    identities = []
+    for value in distinct:
+        category = _category(value, include_missing=include_missing)
+        if category is None:
+            raise RuntimeError("a present value has no category")
+        identities.append(category[0])
+    missing = codes < 0
+    if include_missing and missing.any():
+        category = _category(None, include_missing=True)
+        if category is None:
+            raise RuntimeError("the missing category has no identity")
+        codes = np.where(missing, len(identities), codes)
+        identities.append(category[0])
+        missing = np.zeros(len(codes), dtype=bool)
+    order = {
+        identity: position for position, identity in enumerate(sorted(set(identities)))
+    }
+    # The last slot only fills rows that stay missing.
+    ranks = np.array([order[identity] for identity in identities] + [0])
+    result = pd.Series(ranks[np.where(missing, len(identities), codes)], dtype="Int64")
+    result[missing] = pd.NA
+    return result
 
 
 def _get_naive_utc(values: pd.Series) -> pd.Series:

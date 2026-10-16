@@ -117,15 +117,27 @@ order: `feature`, `internal_name`, `source`, `sql`, `dtype`, `missing_share`,
 the statements FastDFS ran on its DuckDB copy of the snapshot for a FastDFS
 column.
 
-For a NoriDFS column, `sql` is a DuckDB query that gives the values NoriDFS
-computed in pandas. It reads the snapshot tables and `eval_table`, the table
-an agent's SQL reads: one row per prediction row, with `row_id`, the entity key
-under its own column name, and `cutoff`. NoriDFS counts a row only when its
-time is before the cutoff; FastDFS also counts rows at the cutoff. Two helper
-columns keep NoriDFS's tie-breaks exact. `__nr_tie_p<n>` orders rows with equal
-times in a `last` column; it is NoriDFS's own row hash. `<column>__nr_rank`
-orders values with equal counts in a `mode` column, by Python type and then
-`repr`. `NoriDFS.last_feature_sql` returns the same queries after a `compute`.
+For a NoriDFS column, `sql` is the DuckDB query that computed it. It reads the
+snapshot tables and `eval_table`, the table an agent's SQL reads: one row per
+prediction row, with `row_id`, the entity key under its own column name, and
+`cutoff`. NoriDFS counts a row only when its time is before the cutoff; FastDFS
+also counts rows at the cutoff. NoriDFS runs each query on one DuckDB thread,
+so it adds a group's values in the same order on every run and returns the
+same matrix; with more threads, the last digits of means, sums and standard
+deviations can change between runs. Two helper columns keep NoriDFS's
+tie-breaks exact. `__nr_tie_p<n>` orders rows with equal times in a `last`
+column; it is NoriDFS's own row hash. `<column>__nr_rank` orders values with
+equal counts in a `mode` column, by Python type and then `repr`.
+`NoriDFS.last_feature_sql` returns the same queries after a `compute`.
+
+`NoriDFS(executor=...)` chooses how NoriDFS computes. `"auto"`, the default,
+runs the queries on DuckDB unless DuckDB is not installed or the queries would
+join more than `noridfs.sql.AUTO_MAX_JOINED_PAIRS` anchor and row pairs. Each
+query joins every prediction row to every earlier row of its entity, so a few
+entities with long histories and many prediction rows make it slower than the
+pandas executor's prefix sums. `"duckdb"` always runs the queries, and
+`"pandas"` gives the matrices of 0.4.3 and earlier. `NoriDFS.last_executor`
+says which ran; after the pandas executor, the queries give the same values.
 
 ## Errors and compatibility
 

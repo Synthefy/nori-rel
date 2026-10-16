@@ -4,6 +4,7 @@ from .backend import NoriDFS
 from .contracts import (
     AnchorDefinition,
     DatabaseView,
+    FeatureExecutor,
     FeaturePlan,
     FeatureSpec,
     ForeignKey,
@@ -17,6 +18,7 @@ from .engine import NativeRelationalFeaturizer
 __all__ = [
     "AnchorDefinition",
     "DatabaseView",
+    "FeatureExecutor",
     "FeaturePlan",
     "FeatureSpec",
     "ForeignKey",

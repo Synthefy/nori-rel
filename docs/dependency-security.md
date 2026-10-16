@@ -86,11 +86,14 @@ The optional `agentic` extra adds `anthropic` 1.13.0, `openai` 2.54.0, and
 `duckdb` 1.5.5, with their locked transitive packages (including `httpx2` 2.13.1
 and `jiter` 0.17.0). The audit of the lock that contains them on 2026-10-14
 reports the same three advisory IDs as above and nothing new, so no exception
-covers these packages. They install only with the extra and are not imported by
-the base package. The agent sends data to a model provider you configure; that is
-a data-handling decision, described in the [support scope](support.md), and not
-a dependency finding. The lock is audited with every extra, so a future advisory
-on these packages blocks a release like any other.
+covers these packages. The base package does not import them. `anthropic` and
+`openai` install only with the `agentic` extra. `duckdb` also installs with the
+`database`, `snowflake` and `databricks` extras, because NoriDFS runs its
+features on DuckDB; those extras already installed it through `fastdfs`. The
+agent sends data to a model provider you configure; that is a data-handling
+decision, described in the [support scope](support.md), and not a dependency
+finding. The lock is audited with every extra, so a future advisory on these
+packages blocks a release like any other.
 
 ## Enforced review scope
 

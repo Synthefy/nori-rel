@@ -49,6 +49,9 @@ def check_feature_generation() -> None:
         pd.testing.assert_frame_equal(
             features.train.iloc[::-1].reset_index(drop=True), features.query
         )
+    # Every connector extra installs DuckDB, which NoriDFS runs its features on.
+    if backends[1].last_executor != "duckdb":
+        raise RuntimeError("NoriDFS did not run its features on DuckDB")
 
 
 def main() -> None:

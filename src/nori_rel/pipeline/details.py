@@ -63,7 +63,7 @@ class PredictionDetails(BaseModel):
     #: ``features`` when the details are built from internal names.
     internal_feature_names: tuple[str, ...] | None = None
     #: The SQL behind each FastDFS or NoriDFS feature, by internal name: the
-    #: statements FastDFS ran, or a DuckDB query that gives NoriDFS's values.
+    #: statements FastDFS ran, or the DuckDB query that computed a NoriDFS one.
     feature_sql: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="before")
@@ -117,9 +117,9 @@ class PredictionDetails(BaseModel):
                 (for example "fastdfs").
             sql: the SQL behind the column: the agent's query for an agent
                 column, the statements FastDFS ran on its DuckDB copy of the
-                snapshot for a FastDFS column, and for a NoriDFS column a
+                snapshot for a FastDFS column, and for a NoriDFS column the
                 DuckDB query over the snapshot tables and ``eval_table`` that
-                gives the values NoriDFS computed in pandas.
+                computed it, or gives its values when NoriDFS ran in pandas.
             dtype: the column's data type.
             missing_share: the share of scored entities with no value.
             mean, min, max: over the scored entities, for numeric columns.

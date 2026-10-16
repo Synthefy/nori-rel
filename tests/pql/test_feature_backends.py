@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -174,21 +173,14 @@ def test_noridfs_details_carry_sql_that_gives_each_feature(source, monkeypatch):
     )
     anchors = recorded["rows"][[plan.anchors.entity_column, plan.anchors.cutoff_column]]
     from_sql = get_features_from_sql(view, plan, anchors)
-    expected = pd.concat([matrices.train, matrices.query], ignore_index=True)
-    for feature in plan.features:
-        if feature.kind == "categorical":
-            assert [None if pd.isna(v) else v for v in from_sql[feature.name]] == [
-                None if pd.isna(v) else v for v in expected[feature.name]
-            ], feature.name
-        else:
-            np.testing.assert_allclose(
-                pd.to_numeric(from_sql[feature.name]).to_numpy(dtype=float),
-                pd.to_numeric(expected[feature.name]).to_numpy(dtype=float),
-                rtol=1e-9,
-                atol=1e-4 if feature.operation == "std" else 1e-9,
-                equal_nan=True,
-                err_msg=feature.name,
-            )
+    # The model's matrix came from these queries, so running them again on
+    # the snapshot the prediction read gives it back exactly.
+    assert backend.last_executor == "duckdb"
+    pd.testing.assert_frame_equal(
+        from_sql,
+        pd.concat([matrices.train, matrices.query], ignore_index=True),
+        check_exact=True,
+    )
 
 
 def _with_program(train: pd.DataFrame) -> float:

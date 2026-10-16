@@ -158,8 +158,8 @@ def test_native_categories_come_from_the_plan_not_matrix_dtypes(
 ) -> None:
     transform = NativeRelationalFeaturizer.transform
 
-    def transform_with_numeric_categories(featurizer, database, rows):
-        result = transform(featurizer, database, rows)
+    def transform_with_numeric_categories(featurizer, database, rows, **options):
+        result = transform(featurizer, database, rows, **options)
         for column in featurizer.plan.categorical_columns:
             result.frame[column] = pd.to_numeric(result.frame[column])
         return result
