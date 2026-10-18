@@ -86,7 +86,14 @@ The query predicts each user's total order amount over the next 30 days.
 of completeness from the latest event. Use dates appropriate to your data and
 at least 32 usable historical rows. Register every event table's timestamp;
 other entity attributes must be immutable or valid at every requested anchor.
-See [PQL and time semantics](docs/pql.md).
+
+`entity_created_at` names a date or timestamp column on the entity table
+(`users.created_at` here) that holds when each user first existed. A user gets
+no training row for anchors before it and is not scored if created after
+`anchor_time`; a null drops the user. Nori-Rel does not create this column. If
+your table has none, add one, usually each entity's first event time. See
+[PQL and time semantics](docs/pql.md) for this column, rates written as
+`COUNT(...)/COUNT(...)`, and the v0 limits, with worked examples.
 
 The default mode runs Nori in your process. The first local prediction downloads
 model weights; subsequent predictions can use the populated cache offline.

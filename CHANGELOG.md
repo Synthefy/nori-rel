@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- A wrong `entity_created_at` now says why it is wrong (no such column on the
+  entity table, an ambiguous match, or a column that is not a date or
+  timestamp) and lists the entity table's date/timestamp columns, or says it
+  has none and one must be added. Context, scoring-filter and scoring-row
+  preparation share one check and one message.
+- [PQL and time semantics](docs/pql.md) explains `entity_created_at` (a
+  column on the entity table holding when each entity first existed, and how
+  to derive it from the first event), rates written as
+  `COUNT(...)/COUNT(...)` with zero denominators dropped, the `(L - s, L, days)`
+  window that keeps one training row per entity for an outcome that settles a
+  fixed delay after creation, and the v0 limits.
+
 ## 0.4.4 — 2026-10-16
 
 - `details.context` holds the labeled rows Nori learned from (`entity_id`,

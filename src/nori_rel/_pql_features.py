@@ -6,7 +6,7 @@ from nori_rel.connectors.base import Snapshot
 from nori_rel.feature import FeatureBackend, FeatureMatrices
 from nori_rel.feature.dfs import CUTOFF_COLUMN as _CUTOFF
 from nori_rel.pql import parse_pql
-from nori_rel.pql.binding import bind_columns, get_registered_column_matches
+from nori_rel.pql.binding import bind_columns, get_entity_created_at_column
 from nori_rel.pql.sql_expressions import _typed_literal, column_kind
 from nori_rel.pql.tree_access import node_ids, query_parts
 
@@ -30,14 +30,10 @@ def build_prediction_rows(
         node_ids(tree)[parts["entity_column"]]
     ]
     frame = snapshot.tables[table.name]
-    created_columns = get_registered_column_matches(
+    created_column = get_entity_created_at_column(
         snapshot.schema, table, entity_created_at
     )
-    if len(created_columns) != 1:
-        raise ValueError(
-            "entity_created_at must name one registered date/timestamp column"
-        )
-    created = pd.to_datetime(frame[created_columns[0].name], utc=True)
+    created = pd.to_datetime(frame[created_column.name], utc=True)
     ids = frame.loc[created.notna() & (created <= snapshot.as_of), key.name]
     selection = parts["selection"]
     if selection is not None:

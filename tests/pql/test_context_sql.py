@@ -4,13 +4,17 @@ import os
 import warnings
 from datetime import UTC, datetime, timedelta, timezone
 
+import pandas as pd
 import psycopg
 import pytest
 
+from nori_rel._pql_features import build_prediction_rows
+from nori_rel.connectors.base import Snapshot
 from nori_rel.contracts import SchemaGraph
 from nori_rel.pql import parse_pql
 from nori_rel.pql.context_sql import compile_context_sql
 from nori_rel.pql.label_sql import compile_label_sql
+from nori_rel.pql.scoring_sql import compile_scoring_filter_sql
 
 QUERY = (
     "PREDICT COUNT(orders.*,0,30,days) FOR users.user_id=500 "
@@ -92,10 +96,52 @@ def test_naive_or_string_times_are_rejected(schema, options):
         compile_context(schema, **options)
 
 
-@pytest.mark.parametrize("column", ["missing", "country", "orders.event_time"])
-def test_creation_column_must_be_registered_temporal_entity_column(schema, column):
-    with pytest.raises(ValueError):
+@pytest.mark.parametrize(
+    ("column", "problem"),
+    [
+        ("missing", "does not match a column of users"),
+        ("country", "names users.country, which is TEXT, not a date or timestamp"),
+        ("orders.event_time", "does not match a column of users"),
+    ],
+)
+def test_creation_column_must_be_registered_temporal_entity_column(
+    schema, column, problem
+):
+    with pytest.raises(ValueError) as error:
         compile_context(schema, entity_created_at=column)
+    assert problem in str(error.value)
+    assert str(error.value).endswith("Date/timestamp columns on users: created_at.")
+
+
+def test_scoring_paths_report_the_same_creation_column_error(schema):
+    snapshot = Snapshot(
+        tables={
+            "users": pd.DataFrame(
+                {"user_id": [500], "created_at": [JAN], "country": ["US"]}
+            )
+        },
+        primary_keys={"users": ["user_id"]},
+        foreign_keys=[],
+        time_columns={},
+        schema=schema,
+        as_of=MAR,
+        approximate_bytes=0,
+    )
+    with pytest.raises(ValueError) as context_error:
+        compile_context(schema, entity_created_at="country")
+    with pytest.raises(ValueError) as scoring_filter_error:
+        compile_scoring_filter_sql(
+            parse_pql(QUERY),
+            schema,
+            "users.country='CA'",
+            anchor_time=MAR,
+            entity_created_at="country",
+        )
+    # Before the shared check, scoring rows accepted any one matching column.
+    with pytest.raises(ValueError) as scoring_rows_error:
+        build_prediction_rows(snapshot, QUERY, "country")
+    assert str(scoring_filter_error.value) == str(context_error.value)
+    assert str(scoring_rows_error.value) == str(context_error.value)
 
 
 def test_direct_targets_need_separate_context_policy(schema):

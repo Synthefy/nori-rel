@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from nori_rel.contracts import ColumnSchema, SchemaGraph, TableSchema
 from nori_rel.pql._generated.PQLGrammarParser import PQLGrammarParser as Grammar
+from nori_rel.pql.sql_expressions import column_kind
 from nori_rel.pql.tree_access import (
     leaf_target,
     node_ids,
@@ -72,6 +73,72 @@ def get_registered_column_matches(
     if exact or quoted or schema.capabilities.unquoted_identifier_case != "upper":
         return exact
     return [column for column in table.columns if column.name.upper() == name.upper()]
+
+
+def is_date_or_timestamp_column(column: ColumnSchema) -> bool:
+    """Return True when a registered column's SQL type is a date or timestamp.
+
+    Example: ColumnSchema(name="created_at", data_type="TIMESTAMPTZ") is True;
+    INTEGER, TEXT and types PQL cannot compare at all, such as JSONB, are False.
+    """
+    try:
+        return column_kind(column) in {"date", "timestamp"}
+    except ValueError:  # column_kind rejects JSON, arrays and other types.
+        return False
+
+
+def get_entity_created_at_column(
+    schema: SchemaGraph, table: TableSchema, entity_created_at: str
+) -> ColumnSchema:
+    """Return the entity table's creation-time column named by entity_created_at.
+
+    Args:
+        schema: Registered SchemaGraph; its capabilities decide whether an
+            unquoted name may match case-insensitively (Snowflake).
+        table: The FOR EACH entity table, e.g. users for users.user_id.
+        entity_created_at: Column name on that table, e.g. "created_at",
+            holding when each entity first existed. Not table-qualified.
+
+    Returns:
+        The single matching ColumnSchema, whose type is a date or timestamp.
+
+    Raises:
+        ValueError: The name matches no column of the entity table, matches
+            more than one, or matches a column of another type. The message
+            says which, and lists the table's date/timestamp columns or says
+            it has none and one must be added.
+    """
+    matches = get_registered_column_matches(schema, table, entity_created_at)
+    if len(matches) == 1 and is_date_or_timestamp_column(matches[0]):
+        return matches[0]
+    if not matches:
+        problem = f"does not match a column of {table.name}"
+    elif len(matches) > 1:
+        names = ", ".join(column.name for column in matches)
+        problem = (
+            f"matches more than one column of {table.name} ({names}); "
+            "pass the exact name"
+        )
+    else:
+        problem = (
+            f"names {table.name}.{matches[0].name}, "
+            f"which is {matches[0].data_type}, not a date or timestamp"
+        )
+    candidates = [
+        column.name for column in table.columns if is_date_or_timestamp_column(column)
+    ]
+    if candidates:
+        hint = f"Date/timestamp columns on {table.name}: {', '.join(candidates)}."
+    else:
+        hint = (
+            f"{table.name} has no date or timestamp column: add one, for example "
+            "each entity's first event time. See docs/pql.md."
+        )
+    raise ValueError(
+        f"entity_created_at={entity_created_at!r} {problem}. It must name a date "
+        f"or timestamp column on the entity table {table.name} holding when each "
+        f"entity first existed. {hint}"
+    )
 
 
 def bind_columns(

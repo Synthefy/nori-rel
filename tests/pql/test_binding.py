@@ -6,7 +6,11 @@ import pytest
 
 from nori_rel.contracts import ColumnSchema, SchemaGraph, TableSchema
 from nori_rel.pql import PQLScopeError, parse_pql
-from nori_rel.pql.binding import PQLBindingError, bind_columns
+from nori_rel.pql.binding import (
+    PQLBindingError,
+    bind_columns,
+    get_entity_created_at_column,
+)
 from nori_rel.pql.tree_access import node_ids, query_parts
 
 
@@ -193,3 +197,88 @@ def test_snowflake_unquoted_fallback_rejects_ambiguous_names(schema, ambiguous_k
         )
     with pytest.raises(PQLBindingError, match=f"AMBIGUOUS_{ambiguous_kind.upper()}"):
         bind_columns(parse_pql("PREDICT users.age FOR EACH users.user_id"), schema)
+
+
+def get_users_schema(*columns: tuple[str, str]) -> SchemaGraph:
+    """Return a SchemaGraph whose one users table has these (name, type) columns."""
+    return SchemaGraph(
+        database_id="registered-db",
+        schema_name="public",
+        discovered_at=datetime(2026, 1, 1, tzinfo=UTC),
+        tables=[
+            TableSchema(
+                name="users",
+                primary_key=["user_id"],
+                columns=[
+                    ColumnSchema(name=name, data_type=data_type, nullable=True)
+                    for name, data_type in [("user_id", "INTEGER"), *columns]
+                ],
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize("data_type", ["TIMESTAMPTZ", "DATE", "TIMESTAMP_NTZ"])
+def test_entity_created_at_returns_the_registered_temporal_column(data_type):
+    schema = get_users_schema(("created_at", data_type))
+    users = schema.tables[0]
+    assert get_entity_created_at_column(schema, users, "created_at") is users.columns[1]
+
+
+def test_entity_created_at_error_lists_the_entity_tables_temporal_columns():
+    schema = get_users_schema(
+        ("signup_date", "DATE"), ("profile", "JSONB"), ("updated_at", "TIMESTAMPTZ")
+    )
+    with pytest.raises(ValueError) as error:
+        get_entity_created_at_column(schema, schema.tables[0], "created_at")
+    assert str(error.value) == (
+        "entity_created_at='created_at' does not match a column of users. It must "
+        "name a date or timestamp column on the entity table users holding when "
+        "each entity first existed. Date/timestamp columns on users: signup_date, "
+        "updated_at."
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "data_type"), [("created_at", "TEXT"), ("profile", "JSONB")]
+)
+def test_entity_created_at_error_names_the_type_of_a_non_temporal_column(
+    name, data_type
+):
+    schema = get_users_schema(
+        ("created_at", "TEXT"), ("profile", "JSONB"), ("joined_on", "DATE")
+    )
+    with pytest.raises(ValueError) as error:
+        get_entity_created_at_column(schema, schema.tables[0], name)
+    message = str(error.value)
+    assert f"names users.{name}, which is {data_type}, not a date or timestamp" in (
+        message
+    )
+    assert message.endswith("Date/timestamp columns on users: joined_on.")
+
+
+def test_entity_created_at_error_says_to_add_a_column_when_the_table_has_none():
+    schema = get_users_schema(("country", "TEXT"))
+    with pytest.raises(ValueError) as error:
+        get_entity_created_at_column(schema, schema.tables[0], "created_at")
+    assert str(error.value).endswith(
+        "users has no date or timestamp column: add one, for example each "
+        "entity's first event time. See docs/pql.md."
+    )
+
+
+def test_entity_created_at_follows_snowflake_uppercase_matching():
+    schema = get_users_schema(("CREATED_AT", "TIMESTAMP_NTZ"))
+    schema.capabilities.unquoted_identifier_case = "upper"
+    users = schema.tables[0]
+    assert get_entity_created_at_column(schema, users, "created_at").name == (
+        "CREATED_AT"
+    )
+    users.columns.append(
+        ColumnSchema(name="Created_At", data_type="TIMESTAMP_NTZ", nullable=True)
+    )
+    assert get_entity_created_at_column(schema, users, "Created_At").name == (
+        "Created_At"
+    )
+    with pytest.raises(ValueError, match=r"more than one column of users \("):
+        get_entity_created_at_column(schema, users, "created_at")

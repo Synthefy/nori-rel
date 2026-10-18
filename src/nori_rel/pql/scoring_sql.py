@@ -3,12 +3,12 @@
 from datetime import datetime
 
 from nori_rel.contracts import SchemaGraph
-from nori_rel.pql.binding import bind_columns, get_registered_column_matches
+from nori_rel.pql.binding import bind_columns, get_entity_created_at_column
 from nori_rel.pql.context_sql import _utc
 from nori_rel.pql.dialects import SQLDialect
 from nori_rel.pql.parser import parse_pql
 from nori_rel.pql.relationships import bind_relationship
-from nori_rel.pql.sql_expressions import Scalar, column_kind, filter_sql
+from nori_rel.pql.sql_expressions import Scalar, filter_sql
 from nori_rel.pql.tree_access import node_ids, query_parts
 
 
@@ -46,10 +46,9 @@ def compile_scoring_filter_sql(
     bind_relationship(filter_tree, schema)  # Context filter must use this entity.
     ids, bound = node_ids(filter_tree), bind_columns(filter_tree, schema)
     entity, key = bound[ids[parts["entity_column"]]]
-    created = get_registered_column_matches(schema, entity, entity_created_at)
-    if len(created) != 1 or column_kind(created[0]) not in {"date", "timestamp"}:
-        raise ValueError("entity_created_at must name a registered date/timestamp")
-    entity_created_at = created[0].name
+    entity_created_at = get_entity_created_at_column(
+        schema, entity, entity_created_at
+    ).name
     params: dict[str, Scalar] = {"scoring_anchor": _utc(anchor_time)}
 
     def column_ref(node):
