@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.5 — 2026-10-18
 
 - A wrong `entity_created_at` now says why it is wrong (no such column on the
   entity table, an ambiguous match, or a column that is not a date or
