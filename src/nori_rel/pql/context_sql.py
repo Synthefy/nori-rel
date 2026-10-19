@@ -51,17 +51,32 @@ def get_eligible_anchor_times(
     return [a for a in requested if all(w.is_observed(a, cutoff) for w in windows)]
 
 
+def get_latest_eligible_event_time(
+    tree: Grammar.ProgContext, *, anchor_time: datetime, observed_through: datetime
+) -> datetime:
+    """Return the latest event time whose label window ends by the effective cutoff.
+
+    With ``entity_time``, each entity row is anchored at its own time t, and
+    its label is observed only when every aggregate's interval, measured from
+    t, ends by min(anchor_time, observed_through). For (0, 1, days) and a
+    cutoff of 25 Jul 00:00 that is 24 Jul 00:00.
+    """
+    cutoff = min(_utc(anchor_time), _utc(observed_through))
+    return min(target_window(a).latest_anchor(cutoff) for a in target_aggregates(tree))
+
+
 def compile_context_sql(
     tree: Grammar.ProgContext,
     schema: SchemaGraph,
     *,
-    anchor_times: Sequence[datetime],
+    anchor_times: Sequence[datetime] | None,
     anchor_time: datetime,
     observed_through: datetime,
     entity_created_at: str,
     max_context_rows: int | None = DEFAULT_MAX_CONTEXT_ROWS,
     dialect: SQLDialect | None = None,
     candidate_sql: str | None = None,
+    entity_time: str | None = None,
 ) -> tuple[str, dict[str, Scalar]]:
     """Compile a read-only SELECT of eligible historical candidates.
 
@@ -103,6 +118,13 @@ def compile_context_sql(
             anchor_time)`` that returns the pairs to keep; needs
             ``max_context_rows=None``. It is embedded as a CTE, can only
             narrow the candidates, and duplicates in it do not repeat rows.
+        entity_time: Optional registered date/timestamp column of the entity
+            table, e.g. "view_time", for event-time rows. Each entity row is
+            then one candidate anchored at its own time, with no
+            ``anchor_times`` (pass None): it is eligible when its time is not
+            NULL and its label interval, measured from that time, ends by
+            min(anchor_time, observed_through). Rows with the same time share
+            an anchor but are separate candidates.
 
     Returns:
         (sql, params), for cursor.execute(sql, params).fetchall(). Rows are
@@ -138,19 +160,30 @@ def compile_context_sql(
     # Validate the entire target, relationship, filters and horizon before execution.
     compile_label_sql(tree, schema, dialect=dialect)
     require_valid_context_row_limit(max_context_rows, candidate_sql)
-    anchors = get_eligible_anchor_times(
-        tree,
-        anchor_times=anchor_times,
-        anchor_time=anchor_time,
-        observed_through=observed_through,
+    if entity_time is not None and anchor_times is not None:
+        raise ValueError(
+            "entity_time anchors each row at its own time: anchor_times=None"
+        )
+    if entity_time is None and anchor_times is None:
+        raise ValueError("anchor_times is required unless entity_time is given")
+    anchors = (
+        []
+        if entity_time is not None
+        else get_eligible_anchor_times(
+            tree,
+            anchor_times=anchor_times,
+            anchor_time=anchor_time,
+            observed_through=observed_through,
+        )
     )
-    windows = [target_window(a) for a in target_aggregates(tree)]
-    _warn_about_unobserved_anchors(
-        sorted(set(map(_utc, anchor_times))),
-        anchors,
-        min(_utc(anchor_time), _utc(observed_through)),
-        in_days=any(w.unit == "days" for w in windows),
-    )
+    if entity_time is None:
+        windows = [target_window(a) for a in target_aggregates(tree)]
+        _warn_about_unobserved_anchors(
+            sorted(set(map(_utc, anchor_times))),
+            anchors,
+            min(_utc(anchor_time), _utc(observed_through)),
+            in_days=any(w.unit == "days" for w in windows),
+        )
 
     ids, bound = node_ids(tree), bind_columns(tree, schema)
     entity, key = bound[ids[parts["entity_column"]]]
@@ -177,9 +210,28 @@ def compile_context_sql(
     # retrieval and inference need separate budgets; LIMIT does not bound scans.
     users = dialect.table_reference(schema.schema_name, entity.name)
     label_event_aggregates = (
-        get_label_event_aggregates(tree) if max_context_rows is None else []
+        get_label_event_aggregates(tree)
+        if max_context_rows is None and entity_time is None
+        else []
     )
-    if label_event_aggregates:
+    if entity_time is not None:
+        # One candidate per entity row, anchored at its own time: there is no
+        # entity x anchor cross join for event-label candidates to avoid.
+        event_column = identifier(
+            get_entity_created_at_column(
+                schema, entity, entity_time, argument="entity_time"
+            ).name
+        )
+        params["latest_event_time"] = get_latest_eligible_event_time(
+            tree, anchor_time=anchor_time, observed_through=observed_through
+        )
+        sql = f"""WITH selected AS (
+    SELECT u.{identifier(key.name)} AS entity_id,
+           {dialect.timestamp_cast(f"u.{event_column}")} AS anchor_time
+    FROM {users} AS u
+    WHERE u.{event_column} IS NOT NULL
+      AND u.{event_column} <= {dialect.timestamp_cast("%(latest_event_time)s")}"""
+    elif label_event_aggregates:
         # Any one required aggregate gives a superset of the labelled rows;
         # label SQL computes the labels and unknown ones are still dropped.
         event_candidates = get_label_event_candidates_sql(
@@ -208,8 +260,9 @@ selected AS (
     if predicate:
         sql += f"\n      AND {predicate}"
     if max_context_rows is not None:
-        sql += """
-    ORDER BY a.anchor_time DESC, entity_id
+        newest_first = "anchor_time" if entity_time is not None else "a.anchor_time"
+        sql += f"""
+    ORDER BY {newest_first} DESC, entity_id
     LIMIT %(max_context_rows)s"""
     sql += "\n)"
     return (

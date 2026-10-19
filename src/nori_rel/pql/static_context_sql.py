@@ -39,6 +39,7 @@ def get_static_target_context_sql(
     query_filter: str | None = None,
     anchor_times: Sequence[datetime] | None = None,
     observed_through: datetime | None = None,
+    entity_time: str | None = None,
     dialect: SQLDialect | None = None,
     candidate_sql: str | None = None,
 ) -> tuple[str, dict[str, Scalar]]:
@@ -73,6 +74,8 @@ def get_static_target_context_sql(
         anchor_times: Accepted only so a temporal request fails with a clear
             message; anything but None raises.
         observed_through: Accepted for the same reason; must be None.
+        entity_time: Accepted for the same reason; must be None. A static
+            target has no label window to anchor at each row's time.
         dialect: Engine SQL syntax and optional snapshot-pinned relations.
         candidate_sql: Optional SELECT over ``candidates(entity_id,
             anchor_time)`` that narrows the rows; needs max_context_rows=None.
@@ -103,6 +106,11 @@ def get_static_target_context_sql(
         raise ValueError(
             "a static target has no label window: omit anchor_times and "
             "observed_through"
+        )
+    if entity_time is not None:
+        raise ValueError(
+            "a static target has no label window to anchor: omit entity_time; "
+            "entity_created_at gives each row its own feature cutoff"
         )
     # Validate the target type, its table and the filters before execution.
     compile_label_sql(tree, schema, dialect=dialect)

@@ -269,11 +269,12 @@ class PostgreSQLConnector:
         database_id: str,
         query: str,
         *,
-        anchor_times: Sequence[datetime],
+        anchor_times: Sequence[datetime] | None,
         anchor_time: datetime | None,
         observed_through: datetime,
         entity_created_at: str,
         max_context_rows: int | None = DEFAULT_MAX_CONTEXT_ROWS,
+        entity_time: str | None = None,
     ) -> tuple[pd.DataFrame, dict[str, int]]:
         """Execute temporal PQL context and labels in one read-only snapshot.
 
@@ -292,6 +293,8 @@ class PostgreSQLConnector:
                 connector context/row limits error; no silent reduction. None
                 reads every candidate that can have a known label, for the
                 caller to choose from, bounded by memory and the timeout.
+            entity_time: Optional entity date/timestamp column for event-time
+                rows, with anchor_times=None; see compile_context_sql.
 
         Returns:
             (rows, counts). rows is a DataFrame with columns context_row_id,
@@ -316,6 +319,7 @@ class PostgreSQLConnector:
             entity_created_at=entity_created_at,
             max_context_rows=max_context_rows,
             load_source_tables_for_dfs=False,
+            entity_time=entity_time,
         )
         return rows, counts
 
@@ -432,6 +436,7 @@ class PostgreSQLConnector:
         load_source_tables_for_dfs: bool = True,
         query_filter: str | None = None,
         candidate_sql: str | None = None,
+        entity_time: str | None = None,
     ):
         """Build historical labels and optionally load tables for feature creation.
 
@@ -461,6 +466,9 @@ class PostgreSQLConnector:
             candidate_sql: Optional caller SELECT over candidates(entity_id,
                 anchor_time) that narrows an uncapped read; see
                 compile_context_sql.
+            entity_time: Optional entity date/timestamp column for event-time
+                rows: each entity row is one candidate anchored at its own time,
+                and anchor_times must be None; see compile_context_sql.
             load_source_tables_for_dfs: Defaults to True. Load bounded original
                 database tables into Python so FastDFS can calculate features,
                 using the same transaction as labels. False returns only labels
@@ -510,6 +518,7 @@ class PostgreSQLConnector:
                     entity_created_at=entity_created_at,
                     max_context_rows=max_context_rows,
                     candidate_sql=candidate_sql,
+                    entity_time=entity_time,
                     query_filter=query_filter,
                 )
                 scoring_query = None

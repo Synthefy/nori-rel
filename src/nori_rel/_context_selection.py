@@ -105,18 +105,20 @@ def get_rows_in_selection_order(
     ``anchor_time`` and, unless the order is ``"newest_first"``,
     ``random_key``. ``"equal_per_cutoff"`` ranks rows by random key within
     their cutoff and then takes rank 0 of every cutoff, newest cutoff first,
-    then rank 1, and so on, so cutoffs fill equally until one runs out.
+    then rank 1, and so on, so cutoffs fill equally until one runs out. The
+    cutoffs are ``get_cutoff_column_name(pool)``'s values.
     """
+    cutoff_column = get_cutoff_column_name(pool)
     if time_sampling == "newest_first":
         return pool.sort_values("context_row_id", kind="stable")
     by_random_key = pool.sort_values(["random_key", "context_row_id"], kind="stable")
     if time_sampling == "random":
         return by_random_key
-    rank_within_cutoff = by_random_key.groupby("anchor_time", sort=False).cumcount()
+    rank_within_cutoff = by_random_key.groupby(cutoff_column, sort=False).cumcount()
     return (
         by_random_key.assign(rank_within_cutoff=rank_within_cutoff)
         .sort_values(
-            ["rank_within_cutoff", "anchor_time"],
+            ["rank_within_cutoff", cutoff_column],
             ascending=[True, False],
             kind="stable",
         )
@@ -350,6 +352,7 @@ def get_selected_context(
     max_context_rows: int | None,
     eligible_anchor_times: Sequence[datetime],
     max_kept_rows: int,
+    cutoff_frequency: str | None = None,
     random_key_anchor_time: datetime | None = None,
 ) -> tuple[pd.DataFrame, ContextPolicyReport]:
     """Return the context rows Nori gets and the report of how they were chosen.
@@ -370,6 +373,10 @@ def get_selected_context(
             draw a new sample from the same seed every time.
         max_kept_rows: The most rows a policy may keep
             (``RelationalLimits.max_context_rows``).
+        cutoff_frequency: None makes each anchor time a cutoff. A pandas
+            frequency such as "D" groups anchor times into cutoffs of that
+            length for ``equal_per_cutoff`` and the report: event-time rows,
+            each anchored at its own time, are counted by day.
 
     Returns:
         (context, report). ``context`` holds the kept rows of ``labelled``,
@@ -382,6 +389,11 @@ def get_selected_context(
     """
     pool = labelled.loc[:, CONTEXT_COLUMNS].copy()
     pool["anchor_time"] = pd.to_datetime(pool["anchor_time"], utc=True)
+    pool["cutoff_group"] = (
+        pool["anchor_time"].dt.floor(cutoff_frequency)
+        if cutoff_frequency is not None
+        else pool["anchor_time"]
+    )
     pool["label_value"] = pool["label"].astype(float)
     distinct_values = set(np.unique(pool["label_value"].to_numpy()))
     is_binary_label = bool(distinct_values) and distinct_values <= {0.0, 1.0}
@@ -456,11 +468,13 @@ def _get_report(
     has_positives = positive_label is not None
     anchor_times = sorted(
         set(pd.to_datetime(list(eligible_anchor_times), utc=True))
-        | set(pool["anchor_time"]),
+        | set(pool["cutoff_group"]),
         reverse=True,
     )
-    labelled_by_cutoff = pool.groupby("anchor_time")["is_positive"].agg(["size", "sum"])
-    kept_by_cutoff = kept.groupby("anchor_time")["is_positive"].agg(["size", "sum"])
+    labelled_by_cutoff = pool.groupby("cutoff_group")["is_positive"].agg(
+        ["size", "sum"]
+    )
+    kept_by_cutoff = kept.groupby("cutoff_group")["is_positive"].agg(["size", "sum"])
 
     def get_count(counts: pd.DataFrame, anchor_time, column: str) -> int:
         """Return one cutoff's count from a size/sum table, 0 when absent."""
