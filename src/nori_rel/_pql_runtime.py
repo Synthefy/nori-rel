@@ -12,6 +12,7 @@ from nori_rel._context_selection import (
     get_selected_context,
 )
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
+from nori_rel.connectors.base import get_dropped_foreign_keys
 from nori_rel.context_policy import ContextPolicy, ContextPolicyChooser
 from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
 from nori_rel.feature import FeatureBackend
@@ -109,7 +110,8 @@ def predict_pql(
     attrs["pipeline"] is the prediction's pipeline record and
     attrs["pipeline_id"] its identifier; both are None without a pipeline.
     attrs also holds context_rows_sha256 and feature_matrix_sha256, the audit
-    hashes of this run's inputs.
+    hashes of this run's inputs, and dropped_foreign_keys, the keys from a
+    selected table to one the source did not select, which no feature follows.
     A saved feature_program replays on NoriDFS instead of
     the runtime's feature search. A ``PipelineManifest`` in ``pipeline``
     replaces the feature search and the model with its saved ones: the caller
@@ -271,6 +273,9 @@ def predict_pql(
         **counts,
         "feature_count": 0,
         "context_policy": context_report.model_dump(mode="json"),
+        "dropped_foreign_keys": get_dropped_foreign_keys(
+            snapshot.schema, snapshot.tables
+        ),
     }
     if snapshot.provenance:
         metadata["snapshot"] = snapshot.provenance.model_dump(mode="json")

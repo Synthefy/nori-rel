@@ -448,6 +448,7 @@ def test_pql_to_http_exact_context_features_and_results(
         "context_rows_sha256": ANY,
         "feature_matrix_sha256": ANY,
         "context_policy": ANY,
+        "dropped_foreign_keys": [],
     }
     report = result["metadata"]["context_policy"]
     assert report["chosen_by"] == "default"

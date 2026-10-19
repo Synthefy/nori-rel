@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -37,6 +37,46 @@ def get_context_read_row_cap(
     if type(max_context_rows) is not int or not 0 < max_context_rows <= ceiling:
         raise SnapshotLimitError(f"max_context_rows must be an integer in 1..{ceiling}")
     return max_context_rows
+
+
+def get_loaded_foreign_keys(
+    schema: SchemaGraph, loaded_tables: Collection[str]
+) -> list[tuple[str, str, str, str]]:
+    """Return the single-column foreign keys between two loaded tables.
+
+    Each key is (child table, child column, parent table, parent column). A
+    selected table can have a key to a table the source did not select, such
+    as ``signups.device_id`` when ``device`` is too large to load; no
+    feature can follow it, so it is left out here and reported by
+    ``get_dropped_foreign_keys``. Multi-column keys are never followed.
+    """
+    return [
+        (table.name, key.columns[0], key.referred_table, key.referred_columns[0])
+        for table in schema.tables
+        for key in table.foreign_keys
+        if len(key.columns) == len(key.referred_columns) == 1
+        and table.name in loaded_tables
+        and key.referred_table in loaded_tables
+    ]
+
+
+def get_dropped_foreign_keys(
+    schema: SchemaGraph, loaded_tables: Collection[str]
+) -> list[str]:
+    """Return each single-column key to a table that was not loaded, as text.
+
+    For example ``["signups.device_id -> device.device_id"]``: the links a
+    prediction's features cannot follow, in schema order.
+    """
+    return [
+        f"{table.name}.{key.columns[0]} -> "
+        f"{key.referred_table}.{key.referred_columns[0]}"
+        for table in schema.tables
+        for key in table.foreign_keys
+        if len(key.columns) == len(key.referred_columns) == 1
+        and table.name in loaded_tables
+        and key.referred_table not in loaded_tables
+    ]
 
 
 class SnapshotProvenance(BaseModel):
