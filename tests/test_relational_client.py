@@ -223,10 +223,24 @@ def test_start_predict_returns_a_run_the_client_can_find_again() -> None:
         client.get_run("run_unknown")
 
 
+def test_static_targets_reject_time_arguments_before_returning() -> None:
+    runtime = FakeRuntime()
+    with pytest.raises(ValueError, match="takes no anchor_times, observed_through"):
+        _client(runtime).start_predict(
+            source=runtime.source,
+            query="PREDICT users.income FOR EACH users.user_id",
+            anchor_times=PQL_OPTIONS["anchor_times"],
+            observed_through=PQL_OPTIONS["observed_through"],
+        )
+    assert runtime.prediction is None
+
+
 def test_start_predict_checks_its_request_before_returning() -> None:
     runtime = FakeRuntime()
     with pytest.raises(ValueError, match="requires anchor_times"):
-        _client(runtime).start_predict(source=runtime.source, query="PREDICT x")
+        _client(runtime).start_predict(
+            source=runtime.source, query=PQL_OPTIONS["query"]
+        )
     with pytest.raises(TypeError, match="return_details"):
         _client(runtime).start_predict(
             source=runtime.source, return_details=True, **PQL_OPTIONS

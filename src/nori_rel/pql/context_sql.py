@@ -68,7 +68,7 @@ def compile_context_sql(
     Args:
         tree: parse_pql("PREDICT COUNT(orders.*,0,30,days) FOR users.user_id=42 "
             "WHERE users.country='US'"). Supports v0 temporal aggregate targets;
-            direct labels need a different exclusion policy and are rejected.
+            static targets use static_context_sql.get_static_target_context_sql.
         schema: Registered SchemaGraph: schema_name plus tables with columns
             [{name, data_type, nullable}], primary_key, foreign_keys and event
             time_column. For example orders.buyer_id -> users.user_id, with
@@ -118,7 +118,7 @@ def compile_context_sql(
         and follow the same order without a cap.
 
     Raises:
-        ValueError: Direct target, invalid limits, naive times or invalid creation
+        ValueError: Static target, invalid limits, naive times or invalid creation
             column. PQL scope/binding/type errors propagate from the compilers.
 
     No data is read here. The executor must use a consistent UTC source snapshot,
@@ -131,17 +131,13 @@ def compile_context_sql(
     parts = query_parts(tree)
     aggregate = parts["aggregate"]
     if aggregate is None:
-        raise ValueError("Historical context SQL requires a temporal aggregate target")
+        raise ValueError(
+            "Historical context SQL requires a temporal aggregate target; "
+            "get_static_target_context_sql builds static-target context"
+        )
     # Validate the entire target, relationship, filters and horizon before execution.
     compile_label_sql(tree, schema, dialect=dialect)
-    if max_context_rows is not None and (
-        type(max_context_rows) is not int or max_context_rows <= 0
-    ):
-        raise ValueError("max_context_rows must be a positive integer or None")
-    if candidate_sql is not None and max_context_rows is not None:
-        raise ValueError(
-            "candidate_sql filters the uncapped read: max_context_rows=None"
-        )
+    require_valid_context_row_limit(max_context_rows, candidate_sql)
     anchors = get_eligible_anchor_times(
         tree,
         anchor_times=anchor_times,
@@ -216,10 +212,48 @@ selected AS (
     ORDER BY a.anchor_time DESC, entity_id
     LIMIT %(max_context_rows)s"""
     sql += "\n)"
+    return (
+        get_numbered_context_sql(
+            sql, candidate_sql=candidate_sql, order_by="anchor_time DESC, entity_id"
+        ),
+        params,
+    )
+
+
+def require_valid_context_row_limit(
+    max_context_rows: int | None, candidate_sql: str | None
+) -> None:
+    """Raise ValueError unless the row cap and candidate_sql can be combined.
+
+    max_context_rows must be a positive integer or None, and candidate_sql
+    narrows only the uncapped read, so it needs max_context_rows=None.
+    """
+    if max_context_rows is not None and (
+        type(max_context_rows) is not int or max_context_rows <= 0
+    ):
+        raise ValueError("max_context_rows must be a positive integer or None")
+    if candidate_sql is not None and max_context_rows is not None:
+        raise ValueError(
+            "candidate_sql filters the uncapped read: max_context_rows=None"
+        )
+
+
+def get_numbered_context_sql(
+    selected_sql: str, *, candidate_sql: str | None, order_by: str
+) -> str:
+    """Return the context SELECT that numbers the rows of a ``selected`` CTE.
+
+    selected_sql is a WITH clause ending in ``selected(entity_id,
+    anchor_time)``. The result adds candidate_sql, when given, as a
+    ``chosen`` CTE over ``candidates(entity_id, anchor_time)`` that can only
+    narrow the rows, then selects (context_row_id, entity_id, anchor_time)
+    with IDs numbered 1.. in order_by order, e.g. "anchor_time DESC,
+    entity_id".
+    """
     candidate_filter = ""
     if candidate_sql is not None:
         # Literal percent signs must survive pyformat parameter binding.
-        sql += f""",
+        selected_sql += f""",
 candidates AS (SELECT entity_id, anchor_time FROM selected),
 chosen AS (
 {candidate_sql.replace("%", "%%")}
@@ -229,12 +263,11 @@ WHERE EXISTS (
     SELECT 1 FROM chosen AS c
     WHERE c.entity_id = s.entity_id AND c.anchor_time = s.anchor_time
 )"""
-    sql += f"""
-SELECT ROW_NUMBER() OVER (ORDER BY anchor_time DESC, entity_id) AS context_row_id,
+    return f"""{selected_sql}
+SELECT ROW_NUMBER() OVER (ORDER BY {order_by}) AS context_row_id,
        entity_id, anchor_time
 FROM selected{candidate_filter}
 ORDER BY context_row_id"""
-    return sql, params
 
 
 #: How many dropped anchors a warning lists by date.

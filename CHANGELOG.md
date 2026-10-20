@@ -39,6 +39,29 @@
   (for example `"signups.device_id -> devices.device_id"`); pipelines keep the
   list in their provenance.
 
+- Static PQL targets. `PREDICT users.income FOR EACH users.user_id` predicts a
+  column of the entity table, learned from the rows where it is known, for the
+  rows where it is NULL. It needs no dates: it takes no `anchor_times`,
+  `anchor_time` or `observed_through`, and `entity_created_at` is optional (with
+  it, each row's features stop at its own creation time). A Boolean column or a
+  comparison is binary, a numeric column is regression, and a 0/1 numeric
+  column needs `task=`. The target column never reaches the features.
+  `FOR ... IN (...)` scores stored rows too, and they leave the context, so
+  predictions can be checked against stored values. Static targets use FastDFS
+  or a custom `FeatureBackend` and make no saved pipeline. See
+  [static targets](docs/pql.md#static-targets).
+- `expected_context_sha256` reproduces a run without a pipeline too: pass a
+  prediction's `metadata["context_rows_sha256"]` to `predict`, and a run on
+  other context rows raises `PipelineContextError`. Without
+  `entity_created_at`, a static target's hash leaves out the read time, so an
+  unchanged source gives the same hash on every run.
+- A static target no longer raises "PQL inference currently requires a temporal
+  aggregate target". A temporal query without `anchor_times`,
+  `observed_through` or `entity_created_at` now raises "temporal PQL requires
+  anchor_times, observed_through and entity_created_at; a static target such as
+  PREDICT users.income takes none of them" instead of "PQL requires
+  anchor_times, observed_through and entity_created_at".
+
 ## 0.4.5 — 2026-10-18
 
 - A wrong `entity_created_at` now says why it is wrong (no such column on the

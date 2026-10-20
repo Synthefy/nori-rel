@@ -145,7 +145,7 @@ def test_scoring_paths_report_the_same_creation_column_error(schema):
     assert str(scoring_rows_error.value) == str(context_error.value)
 
 
-def test_direct_targets_need_separate_context_policy(schema):
+def test_static_targets_need_separate_context_policy(schema):
     with pytest.raises(ValueError, match="temporal aggregate"):
         compile_context(schema, query="PREDICT users.user_id FOR EACH users.user_id")
 

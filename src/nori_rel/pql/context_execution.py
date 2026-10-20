@@ -6,6 +6,8 @@ from nori_rel.pql.context_sql import compile_context_sql
 from nori_rel.pql.dialects import SQLDialect
 from nori_rel.pql.label_sql import compile_label_sql
 from nori_rel.pql.sql_expressions import Scalar, namespace_sql
+from nori_rel.pql.static_context_sql import get_static_target_context_sql
+from nori_rel.pql.tree_access import query_parts
 
 _PREPARED_CONTEXT_CTE_NAME = "__nori_context"
 
@@ -19,11 +21,15 @@ def compile_prepared_context_sql(
 ) -> tuple[str, dict[str, Scalar]]:
     """Return one SELECT joining candidate context to labels by context_row_id.
 
-    Inputs: parsed PQL, registered SchemaGraph, and compile_context_sql keyword
-    options (anchor_times, anchor_time, observed_through, entity_created_at,
-    optional max_context_rows, where None reads every candidate that can have
-    a known label). Values stay bound, including overlapping filter parameter
-    names in the two compilers.
+    Inputs: parsed PQL, registered SchemaGraph, and the context compiler's
+    keyword options. A temporal aggregate uses compile_context_sql's
+    (anchor_times, anchor_time, observed_through, entity_created_at, optional
+    max_context_rows, where None reads every candidate that can have a known
+    label), plus a query_filter it ignores. A static target uses
+    get_static_target_context_sql's (anchor_time, optional entity_created_at,
+    max_context_rows and query_filter). Values
+    stay bound, including overlapping filter parameter names in the two
+    compilers.
 
     Output: (sql, params), returning ordered columns
     (context_row_id, entity_id, anchor_time, label), including NULL labels.
@@ -32,8 +38,14 @@ def compile_prepared_context_sql(
     all CTEs read the same pinned source relations. No source tables are made.
     """
     dialect = dialect or SQLDialect()
+    if query_parts(tree)["aggregate"] is None:
+        compile_context = get_static_target_context_sql
+    else:
+        compile_context = compile_context_sql
+        # Scored rows never narrow a temporal target's historical context.
+        options.pop("query_filter", None)
     context_sql, context_params = namespace_sql(
-        *compile_context_sql(tree, schema, dialect=dialect, **options), "context"
+        *compile_context(tree, schema, dialect=dialect, **options), "context"
     )
     label_sql, label_params = namespace_sql(
         *compile_label_sql(

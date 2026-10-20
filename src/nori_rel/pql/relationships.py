@@ -29,7 +29,7 @@ def bind_relationship(
             columns: list[str] -- child/event key, e.g. ["user_id"] on orders.
             referred_table: str -- parent/entity table, e.g. "users".
             referred_columns: list[str] -- parent key, e.g. ["user_id"].
-        V0 requires one key column on each side. A direct target on the entity
+        V0 requires one key column on each side. A static target on the entity
         table (PREDICT users.age ...) returns None because no join is needed.
         None never means an unresolved/missing relationship; that raises.
 

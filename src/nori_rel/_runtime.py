@@ -485,7 +485,7 @@ class LocalRelationalRuntime:
 
     def feature_backend(
         self,
-        window: TargetWindow,
+        window: TargetWindow | None,
         task: PredictionTask,
         context: pd.DataFrame,
         labels: pd.Series,
@@ -510,6 +510,8 @@ class LocalRelationalRuntime:
         validates the context and validation slices according to the search
         configuration. ``agent_instructions`` reaches an agent search's request
         verbatim.
+        ``window`` is None for a static target, which has no label interval;
+        only FastDFS and a custom backend accept that.
         """
         chosen = self.features if feature_strategy is None else feature_strategy
         if metric is not None:

@@ -350,6 +350,7 @@ def get_selected_context(
     max_context_rows: int | None,
     eligible_anchor_times: Sequence[datetime],
     max_kept_rows: int,
+    random_key_anchor_time: datetime | None = None,
 ) -> tuple[pd.DataFrame, ContextPolicyReport]:
     """Return the context rows Nori gets and the report of how they were chosen.
 
@@ -363,6 +364,10 @@ def get_selected_context(
             ``policy`` is None.
         eligible_anchor_times: The training cutoffs whose label window is
             observed; each gets a report entry, even with no labelled rows.
+        random_key_anchor_time: When given, every row's random key uses this
+            time in place of its own cutoff. A static target's rows all share
+            the read time, which moves between runs, so keying on it would
+            draw a new sample from the same seed every time.
         max_kept_rows: The most rows a policy may keep
             (``RelationalLimits.max_context_rows``).
 
@@ -394,8 +399,13 @@ def get_selected_context(
         kept = pool
     else:
         if policy.time_sampling != "newest_first" or policy.balance is not None:
+            key_times = (
+                pool["anchor_time"]
+                if random_key_anchor_time is None
+                else pd.Series(pd.Timestamp(random_key_anchor_time), index=pool.index)
+            )
             pool["random_key"] = get_row_random_keys(
-                pool["entity_id"], pool["anchor_time"], policy.seed
+                pool["entity_id"], key_times, policy.seed
             )
         kept = get_rows_within_class_quotas(
             get_rows_within_entity_cap(pool, policy), policy

@@ -256,6 +256,29 @@ def test_complete_preparation_retains_ids_labels_cutoffs_and_provenance():
         source.close()
 
 
+def test_static_target_reads_labels_at_the_pinned_extraction_time():
+    source = PreparedConnector()
+    try:
+        snapshot, context, counts = source.prepare_inputs(
+            "test",
+            "PREDICT users.country='US' FOR users.user_id=2",
+            anchor_times=None,
+            anchor_time=None,
+            observed_through=None,
+            entity_created_at=None,
+            query_filter="users.country='CA'",
+        )
+        # User 2 is scored, so only the large-ID user remains as context.
+        assert context.entity_id.tolist() == [LARGE_ID]
+        assert context.label.astype(bool).tolist() == [True]
+        assert context.anchor_time.tolist() == [PINNED_AT]
+        assert counts["usable_rows"] == 1
+        assert snapshot.as_of == PINNED_AT
+        assert snapshot.scoring_filter_ids == (2,)
+    finally:
+        source.close()
+
+
 def test_databricks_preparation_retains_pinned_inputs_and_bounds_driver_buffers():
     source = PreparedConnector(engine=DatabaseEngine.DATABRICKS)
     try:

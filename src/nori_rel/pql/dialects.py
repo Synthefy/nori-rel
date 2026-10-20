@@ -84,6 +84,16 @@ class SQLDialect:
         )
         return f"CAST({expression} AS {kind})"
 
+    def get_not_nan_predicate(self, expression: str) -> str:
+        """Return a SQL predicate that is false only where expression is NaN.
+
+        PostgreSQL, Snowflake and Databricks all treat NaN as equal to NaN, so
+        comparing the value, cast to double, with a NaN double is false for
+        NaN and true for every other non-NULL number, including infinities.
+        """
+        kind = "DOUBLE PRECISION" if self.is_postgresql else "DOUBLE"
+        return f"CAST({expression} AS {kind}) <> CAST('NaN' AS {kind})"
+
     def anchor_relation(self, placeholders: Sequence[str]) -> str:
         """Create a typed one-column relation, including the empty-anchor case."""
         if not placeholders:

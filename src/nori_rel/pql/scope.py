@@ -181,7 +181,7 @@ def _expression(node) -> None:
 
     Input: ExpressionContext for SUM(...)/COUNT(...). Returns None; schema
     types and division behavior belong to SQL compilation, not the parser.
-    Direct columns in composed expressions await the direct-target contract.
+    Columns in composed expressions (static-target arithmetic) are rejected.
     """
     pending = [(node, 0)]
     aggregates = 0
@@ -200,7 +200,7 @@ def _expression(node) -> None:
                 "arithmetic requires numeric literals",
             )
         elif current.column() is not None:
-            _require(False, current, "direct-column arithmetic is not supported")
+            _require(False, current, "static-target arithmetic is not supported")
         pending.extend((child, depth + 1) for child in current.expression())
     _require(aggregates > 0, node, "arithmetic requires an aggregate")
     if aggregates > MAX_TARGET_AGGREGATES:
