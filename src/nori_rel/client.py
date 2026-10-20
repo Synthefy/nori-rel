@@ -32,6 +32,7 @@ from nori_rel.run import LocalExecutor, PredictionRun, RunContext, RunEvent
 if TYPE_CHECKING:
     from nori_rel._feature_search import AgenticSearch
     from nori_rel._runtime import LocalRelationalRuntime
+    from nori_rel.context_policy import ContextPolicy
     from nori_rel.feature import FeatureBackend, FeatureBackendName
     from nori_rel.limits import RelationalLimits
     from nori_rel.pipeline import NoriRelPipeline, PredictionDetails
@@ -67,6 +68,8 @@ class PredictionRequestArguments(TypedDict, total=False):
     observed_through: datetime | None
     entity_created_at: str | None
     max_context_rows: int | None
+    context: ContextPolicy | None
+    agent_instructions: str | None
     feature_program: Mapping[str, Any] | None
     metric: AgentSearchMetric | None
     feature_strategy: FeatureBackendName | FeatureBackend | AgenticSearch | None
@@ -299,6 +302,8 @@ class NoriRelClient:
         observed_through: datetime | None = None,
         entity_created_at: str | None = None,
         max_context_rows: int | None = None,
+        context: ContextPolicy | None = None,
+        agent_instructions: str | None = None,
         feature_program: Mapping[str, Any] | None = None,
         metric: AgentSearchMetric | None = None,
         feature_strategy: FeatureBackendName
@@ -324,6 +329,23 @@ class NoriRelClient:
         latest registered event timestamp. Register every event table's timestamp
         at connect(); unmapped tables/entity attributes must be immutable and
         events immediately available. max_context_rows defaults to 5,000.
+
+        context is a ContextPolicy that chooses the training rows in place of
+        max_context_rows (passing both raises). It selects among candidates
+        whose label is known, so an unknown label never takes a row, and can
+        balance a 0/1 label, spread rows over cutoffs, cap rows per entity and
+        map balanced probabilities back to the population rate. Without it,
+        the context is the newest max_context_rows candidates, with unknown
+        labels dropped afterwards. Either way attrs["context_policy"] reports
+        the rule used, who chose it, the class counts before and after
+        selection and the rows kept at each cutoff.
+
+        agent_instructions is plain text sent verbatim in the agent's request,
+        for example "Signups on 1-3 Jun had broken tracking; do not build
+        features from them". It needs features=AgenticSearch(...), replaces
+        AgenticSearch(task_hint=...), and cannot loosen the leak checks or the
+        scoring rules. metadata["context_policy"] records it with the agent
+        stages that received it; today the feature search is the only one.
 
         query_filter is an optional PQL entity predicate, e.g. "users.country='CA'".
         It selects scoring rows independently of historical WHERE, before features
@@ -364,7 +386,8 @@ class NoriRelClient:
         pipeline fixes the rest, and passing anything else raises ValueError.
         Each run reads new context rows with the pipeline's saved rules, at
         anchors placed before as_of as in the first run, so the context moves
-        forward with as_of. A PipelineError is raised before Nori runs if the
+        forward with as_of; a ContextPolicy the first run used is applied
+        again. A PipelineError is raised before Nori runs if the
         schema, the model or the feature columns do not fit the pipeline.
         expected_context_sha256 asks to reproduce an earlier run: pass its
         attrs["context_rows_sha256"], and a run on other context rows raises
@@ -544,6 +567,8 @@ class NoriRelClient:
         observed_through: datetime | None = None,
         entity_created_at: str | None = None,
         max_context_rows: int | None = None,
+        context: ContextPolicy | None = None,
+        agent_instructions: str | None = None,
         feature_program: Mapping[str, Any] | None = None,
         metric: AgentSearchMetric | None = None,
         feature_strategy: FeatureBackendName
@@ -588,6 +613,8 @@ class NoriRelClient:
                     "anchor_time": anchor_time,
                     "entity_created_at": entity_created_at,
                     "max_context_rows": max_context_rows,
+                    "context": context,
+                    "agent_instructions": agent_instructions,
                     "feature_program": feature_program,
                     "metric": metric,
                     "feature_strategy": feature_strategy,
@@ -604,6 +631,21 @@ class NoriRelClient:
                     "feature_strategy cannot be passed with feature_program: the "
                     "saved program always replays on NoriDFS"
                 )
+        if context is not None:
+            from nori_rel.context_policy import ContextPolicy
+
+            if not isinstance(context, ContextPolicy):
+                raise TypeError("context must be a ContextPolicy")
+            if max_context_rows is not None:
+                raise ValueError(
+                    "pass max_rows on the ContextPolicy, not max_context_rows"
+                )
+        if agent_instructions is not None:
+            self._check_agent_instructions(
+                agent_instructions,
+                feature_strategy=feature_strategy,
+                replaying_program=feature_program is not None,
+            )
         program = None
         if feature_program is not None:
             from nori_rel._feature_search import (
@@ -691,6 +733,8 @@ class NoriRelClient:
                     if max_context_rows is None
                     else max_context_rows
                 ),
+                context_policy=context,
+                agent_instructions=agent_instructions,
                 task=task,
                 output_type=output_type,
                 quantiles=quantiles,
@@ -705,6 +749,46 @@ class NoriRelClient:
             )
 
         return predict_frame
+
+    def _check_agent_instructions(
+        self,
+        agent_instructions: str,
+        *,
+        feature_strategy: FeatureBackendName | FeatureBackend | AgenticSearch | None,
+        replaying_program: bool,
+    ) -> None:
+        """Refuse agent_instructions that no agent would read.
+
+        The prediction's feature search is ``feature_strategy`` when given, and
+        otherwise the client's.
+
+        Raises:
+            ValueError: Blank text, a prediction without an agent search, a
+                replayed program, or a search that already has a task_hint.
+        """
+        from nori_rel._pql_runtime import get_feature_strategy_name
+
+        if not isinstance(agent_instructions, str) or not agent_instructions.strip():
+            raise ValueError("agent_instructions must be non-blank text")
+        features = (
+            feature_strategy
+            if feature_strategy is not None
+            else getattr(self._runtime, "features", "fastdfs")
+        )
+        if (
+            get_feature_strategy_name(features, replaying_program=replaying_program)
+            != "agentic"
+        ):
+            raise ValueError(
+                "agent_instructions needs an agent feature search: pass "
+                "feature_strategy=AgenticSearch(...). A FastDFS or NoriDFS "
+                "run, or a replayed feature_program, sends nothing to an agent"
+            )
+        if features.task_hint:
+            raise ValueError(
+                "pass agent_instructions to predict or AgenticSearch(task_hint=...), "
+                "not both"
+            )
 
     def _get_pipeline_prediction_run(
         self,
@@ -754,7 +838,12 @@ class NoriRelClient:
                 anchor_time=run_request.as_of,
                 observed_through=run_request.observed_through,
                 entity_created_at=manifest.task.entity_created_at,
-                max_context_rows=policy.max_context_rows,
+                max_context_rows=(
+                    DEFAULT_MAX_CONTEXT_ROWS
+                    if policy.max_context_rows is None
+                    else policy.max_context_rows
+                ),
+                context_policy=policy.row_policy,
                 task=manifest.task.task,
                 output_type=prediction.output_type,
                 quantiles=(

@@ -265,3 +265,44 @@ def test_folds_must_leave_context() -> None:
         AgenticFeatureConfig(n_folds=0)
     with pytest.raises(ValueError, match="leave context"):
         AgenticFeatureConfig(n_folds=4, holdout_fraction=0.25)
+
+
+def test_the_split_report_lists_every_fold_and_the_confirmation(
+    snapshot, anchors
+) -> None:
+    config = AgenticFeatureConfig(
+        holdout_fraction=0.2,
+        confirmation_fraction=0.2,
+        leak_check_anchors=0,
+        n_folds=2,
+    )
+    # Ten daily anchors from 3 Jan with labels 0..9 in cutoff order.
+    session = _session(
+        snapshot, anchors(10, start="2020-01-03"), config, _RecordingScorer()
+    )
+    try:
+        report = session.get_split_report()
+    finally:
+        session.close()
+
+    def day(number: int) -> pd.Timestamp:
+        """Return midnight UTC of January ``number``, 2020."""
+        return pd.Timestamp(2020, 1, number, tz="UTC")
+
+    assert report.split_boundary == "row_count"
+    assert (report.holdout_fraction, report.requested_folds) == (0.2, 2)
+    # Rows 0-3 are context for rows 4-5; rows 0-5 for rows 6-7; 8-9 confirm.
+    older, newer = report.folds
+    assert (older.context_rows, older.validation_rows) == (4, 2)
+    assert older.context_last_cutoff == day(6)
+    assert (older.validation_first_cutoff, older.validation_last_cutoff) == (
+        day(7),
+        day(8),
+    )
+    assert older.validation_label_mean == pytest.approx(4.5)
+    assert (newer.context_rows, newer.validation_label_mean) == (6, 6.5)
+    assert report.confirmation_rows == 2
+    assert (report.confirmation_first_cutoff, report.confirmation_last_cutoff) == (
+        day(11),
+        day(12),
+    )

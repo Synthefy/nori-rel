@@ -9,9 +9,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nori_rel import NoriRelClient
+from nori_rel import ClassBalance, ContextPolicy, NoriRelClient
 from nori_rel._runtime import HostedNoriPredictor
 from nori_rel.connectors.postgres import PostgreSQLConnector
+from nori_rel.limits import RelationalLimits
 
 DEC = datetime(2025, 12, 16, tzinfo=UTC)
 JAN = datetime(2026, 1, 1, tzinfo=UTC)
@@ -446,7 +447,15 @@ def test_pql_to_http_exact_context_features_and_results(
         "pipeline_id": result["pipeline"].pipeline_id,
         "context_rows_sha256": ANY,
         "feature_matrix_sha256": ANY,
+        "context_policy": ANY,
     }
+    report = result["metadata"]["context_policy"]
+    assert report["chosen_by"] == "default"
+    assert report["policy"] is None
+    assert report["max_context_rows"] == 5000
+    assert sum(cutoff["labelled_rows"] for cutoff in report["cutoffs"]) == len(target)
+    assert sum(cutoff["kept_rows"] for cutoff in report["cutoffs"]) == len(target)
+    assert len(target) == counts["usable_rows"]
     assert result["pipeline"].manifest.features.kind == "fastdfs"
     assert result["pipeline"].feature_names == tuple(captured["arrays"][-1][0].columns)
 
@@ -740,3 +749,206 @@ def test_legacy_ids_intersect_scoring_filter(full_pipeline):
             entity_created_at="created_at",
         )
     assert result["entity_id"].tolist() == [901]
+
+
+WEB_NONE = "COUNT(orders.* WHERE orders.channel='web',0,30,days)=0"
+WEB_SHARE = (
+    "COUNT(orders.* WHERE orders.channel='web',0,30,days)/COUNT(orders.*,0,30,days)"
+)
+STORE_COUNT = "COUNT(orders.* WHERE orders.channel='store',0,30,days)"
+
+
+def test_balanced_context_policy_reaches_the_sdk_and_corrects_probabilities(
+    full_pipeline,
+):
+    client, database, _, captured = full_pipeline
+    policy = ContextPolicy(
+        balance=ClassBalance(negatives_per_positive=8),
+        time_sampling="random",
+        seed=5,
+        min_positives=4,
+    )
+    result = run(client, database, WEB_NONE, context=policy)
+    # Candidates: users 1-18 at January and 1-18 plus 50 at February (37).
+    # Only users 17 and 18 have no web order in either window: 4 positives,
+    # 33 negatives, of which 4 * 8 = 32 are kept.
+    _, target, _ = captured["arrays"][-1]
+    assert sorted(target.tolist()) == [0.0] * 32 + [1.0] * 4
+    report = result["metadata"]["context_policy"]
+    assert report["chosen_by"] == "caller"
+    assert report["policy"] == policy.model_dump(mode="json")
+    assert [
+        sum(cutoff[key] for cutoff in report["cutoffs"])
+        for key in (
+            "labelled_rows",
+            "labelled_positives",
+            "kept_rows",
+            "kept_positives",
+        )
+    ] == [37, 4, 36, 4]
+    assert [
+        (cutoff["anchor_time"], cutoff["labelled_rows"], cutoff["labelled_positives"])
+        for cutoff in report["cutoffs"]
+    ] == [("2026-02-01T00:00:00Z", 19, 2), ("2026-01-01T00:00:00Z", 18, 2)]
+    factor = (4 / 33) / (4 / 32)
+    assert report["probability_correction_factor"] == pytest.approx(factor)
+    expected = [p * factor / (p * factor + 1 - p) for p in (0.2, 0.8)]
+    frame = result["predictions"]
+    assert frame["probability"].tolist() == pytest.approx(expected)
+    assert frame["prediction"].tolist() == [p >= 0.5 for p in expected]
+
+    pipeline = result["pipeline"]
+    assert pipeline.manifest.context_policy.row_policy == policy
+    assert pipeline.manifest.context_policy.max_context_rows is None
+    saved_cutoffs = pipeline.manifest.provenance["context_policy"]["cutoffs"]
+    assert sum(cutoff["kept_rows"] for cutoff in saved_cutoffs) == 36
+    replay = client.predict(
+        source=database,
+        pipeline=pipeline,
+        as_of=CUTOFF,
+        observed_through=CUTOFF,
+        return_details=True,
+    )
+    assert replay["metadata"]["context_policy"]["chosen_by"] == "pipeline"
+    assert (
+        replay["metadata"]["context_rows_sha256"]
+        == result["metadata"]["context_rows_sha256"]
+    )
+
+
+def test_balanced_mean_of_a_zero_one_label_is_corrected(full_pipeline, monkeypatch):
+    client, database, _, captured = full_pipeline
+
+    def reply(self, request, **kwargs):
+        """Answer every regression request with means 0.25 and 0.5."""
+        return httpx.Response(
+            200,
+            json={
+                "task": "regression",
+                "output_type": "mean",
+                "predictions": [0.25, 0.5],
+            },
+            request=request,
+        )
+
+    monkeypatch.setattr(httpx.Client, "send", reply)
+    # 18 rows survive the balance below; the fixture's floor is 32.
+    monkeypatch.setattr(
+        client._runtime, "limits", RelationalLimits(min_training_rows=2)
+    )
+    policy = ContextPolicy(balance=ClassBalance(), seed=1)
+    result = run(client, database, STORE_COUNT, context=policy, output_type="mean")
+    # Users 1-16 have one store order in January (label 1) and none in
+    # February; users 17, 18 and 50 have none: 16 ones and 21 zeros. The
+    # negatives follow the positives through time: January has 16 positives
+    # but only 2 negatives (users 17, 18) and keeps both; February has no
+    # positive, so its 19 negatives are not used, which would tie class to time.
+    _, target, _ = captured["arrays"][-1]
+    assert sorted(target.tolist()) == [0.0] * 2 + [1.0] * 16
+    report = result["metadata"]["context_policy"]
+    assert [
+        (cutoff["anchor_time"], cutoff["kept_rows"]) for cutoff in report["cutoffs"]
+    ] == [("2026-02-01T00:00:00Z", 0), ("2026-01-01T00:00:00Z", 18)]
+    factor = (16 / 21) / (16 / 2)
+    expected = [p * factor / (p * factor + 1 - p) for p in (0.25, 0.5)]
+    assert result["predictions"]["prediction"].tolist() == pytest.approx(expected)
+    # A model that outputs the sample rate, 16/18, returns the population rate.
+    sample_rate = 16 / 18
+    assert sample_rate * factor / (sample_rate * factor + 1 - sample_rate) == (
+        pytest.approx(16 / 37)
+    )
+
+
+def test_labelled_first_context_reads_only_the_rows_the_old_rule_kept(
+    full_pipeline,
+):
+    client, database, _, captured = full_pipeline
+    old = run(client, database, WEB_SHARE)
+    new = run(client, database, WEB_SHARE, context=ContextPolicy())
+    old_context, new_context = captured["prepared"][0][1], captured["prepared"][1][1]
+    # Users 17 and 18 have no order in either window: their 0/0 labels are
+    # unknown. The old rule reads them and drops them; the new one never does.
+    assert (old["metadata"]["candidate_rows"], old["metadata"]["usable_rows"]) == (
+        37,
+        33,
+    )
+    assert (new["metadata"]["candidate_rows"], new["metadata"]["usable_rows"]) == (
+        33,
+        33,
+    )
+    # Row IDs differ: the old rule's IDs keep gaps where unknown labels were.
+    columns = ["entity_id", "anchor_time", "label"]
+    pd.testing.assert_frame_equal(old_context[columns], new_context[columns])
+    assert (
+        sum(c["kept_rows"] for c in new["metadata"]["context_policy"]["cutoffs"]) == 33
+    )
+    assert new["metadata"]["context_policy"]["positive_label"] is None
+
+
+@pytest.mark.parametrize(
+    ("options", "error", "message"),
+    [
+        (
+            {"context": ContextPolicy(balance=ClassBalance())},
+            ValueError,
+            "output_type='mean'",
+        ),
+        (
+            {"context": ContextPolicy(), "max_context_rows": 100},
+            ValueError,
+            "not max_context_rows",
+        ),
+        ({"context": {"max_rows": 100}}, TypeError, "ContextPolicy"),
+    ],
+)
+def test_invalid_context_requests_fail_before_reading_data(
+    full_pipeline, options, error, message
+):
+    client, database, _, captured = full_pipeline
+    with pytest.raises(error, match=message):
+        run(client, database, STORE_COUNT, **options)
+    assert captured["prepared"] == []
+
+
+def test_a_pipeline_fixes_the_context_policy(full_pipeline):
+    client, database, _, _ = full_pipeline
+    pipeline = run(client, database, STORE_COUNT)["pipeline"]
+    with pytest.raises(ValueError, match="context cannot be passed with a pipeline"):
+        client.predict(
+            source=database,
+            pipeline=pipeline,
+            as_of=CUTOFF,
+            observed_through=CUTOFF,
+            context=ContextPolicy(),
+        )
+
+
+def test_candidate_sql_narrows_the_context_and_replays(full_pipeline):
+    client, database, _, _ = full_pipeline
+    policy = ContextPolicy(
+        candidate_sql=(
+            "SELECT c.entity_id, c.anchor_time FROM candidates c "
+            "WHERE c.entity_id <> 50"
+        ),
+    )
+    result = run(client, database, WEB_SHARE, context=policy)
+    report = result["metadata"]["context_policy"]
+    # Without user 50, each cutoff keeps users 1-16: 16 + 16 labelled rows.
+    assert [
+        (cutoff["anchor_time"], cutoff["labelled_rows"], cutoff["kept_rows"])
+        for cutoff in report["cutoffs"]
+    ] == [("2026-02-01T00:00:00Z", 16, 16), ("2026-01-01T00:00:00Z", 16, 16)]
+    assert report["policy"]["candidate_sql"] == policy.candidate_sql
+    pipeline = result["pipeline"]
+    assert pipeline.manifest.context_policy.row_policy == policy
+    replay = client.predict(
+        source=database,
+        pipeline=pipeline,
+        as_of=CUTOFF,
+        observed_through=CUTOFF,
+        return_details=True,
+    )
+    assert (
+        replay["metadata"]["context_rows_sha256"]
+        == result["metadata"]["context_rows_sha256"]
+    )

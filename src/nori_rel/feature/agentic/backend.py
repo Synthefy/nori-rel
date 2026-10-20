@@ -57,6 +57,7 @@ class AgenticFeatures(FeatureBackend):
         fallback: FeatureBackend | None = None,
         config: AgenticFeatureConfig | None = None,
         task_hint: str = "",
+        agent_instructions: str | None = None,
         expected_baseline_columns: tuple[str, ...] | None = None,
         run_context: RunContext | None = None,
         fall_back_on_search_failure: bool = False,
@@ -65,7 +66,8 @@ class AgenticFeatures(FeatureBackend):
 
         ``run_context`` receives the search's baseline, trials, spend and
         fallback, and its commands apply inside the search; without one,
-        nothing is reported. Spend comes from each model response of this
+        nothing is reported. ``agent_instructions`` is sent verbatim in the
+        agent's request. Spend comes from each model response of this
         search, never from the shared agent object. With
         ``fall_back_on_search_failure``, a search whose model provider could
         not answer, or whose agent found no program, returns the fallback's
@@ -86,6 +88,7 @@ class AgenticFeatures(FeatureBackend):
         self.fallback = fallback
         self.config = config or AgenticFeatureConfig()
         self.task_hint = task_hint
+        self.agent_instructions = agent_instructions
         self.expected_baseline_columns = expected_baseline_columns
         self.run_context = run_context or RunContext.unobserved()
         self.fall_back_on_search_failure = fall_back_on_search_failure
@@ -270,6 +273,7 @@ class AgenticFeatures(FeatureBackend):
             scorer=self.scorer,
             baseline_features=None if baseline is None else baseline.train,
             baseline_categorical=baseline_categorical,
+            agent_instructions=self.agent_instructions,
             baseline_plan=(
                 self.fallback.last_plan if isinstance(self.fallback, NoriDFS) else None
             ),

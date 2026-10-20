@@ -21,7 +21,11 @@ from typing import Any
 import pandas as pd
 
 from nori_rel._credentials import CredentialResolver
-from nori_rel.connectors.base import Snapshot, SnapshotProvenance
+from nori_rel.connectors.base import (
+    Snapshot,
+    SnapshotProvenance,
+    get_context_read_row_cap,
+)
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.contracts import (
     ColumnSchema,
@@ -893,20 +897,20 @@ class WarehouseConnector:
         anchor_time: datetime | None,
         observed_through: datetime,
         entity_created_at: str,
-        max_context_rows: int = DEFAULT_MAX_CONTEXT_ROWS,
+        max_context_rows: int | None = DEFAULT_MAX_CONTEXT_ROWS,
         query_filter: str | None = None,
         load_source_tables_for_dfs: bool = True,
+        candidate_sql: str | None = None,
     ) -> tuple[pd.DataFrame, dict[str, int], Snapshot | None]:
-        """Build same-pin historical labels and optional feature-source tables."""
-        ceiling = min(
-            self.settings.max_context_rows,
-            self.settings.max_rows_per_table,
-            self.settings.max_total_rows,
-        )
-        if type(max_context_rows) is not int or not 0 < max_context_rows <= ceiling:
-            raise SnapshotLimitError(
-                f"max_context_rows must be an integer in 1..{ceiling}"
-            )
+        """Build same-pin historical labels and optional feature-source tables.
+
+        max_context_rows=None reads every candidate that can have a known
+        label, for the caller to choose from. A warehouse query needs a row
+        cap, so that read uses max_total_rows, the rows one prediction may
+        load, which the snapshot below also counts the context rows against.
+        candidate_sql is an optional caller SELECT that narrows that read.
+        """
+        row_cap = get_context_read_row_cap(self.settings, max_context_rows)
         if query_filter is not None and not load_source_tables_for_dfs:
             raise ValueError("query_filter requires prediction input preparation")
         tree = parse_pql(query)
@@ -929,10 +933,14 @@ class WarehouseConnector:
                 entity_created_at=entity_created_at,
                 max_context_rows=max_context_rows,
                 dialect=dialect,
+                candidate_sql=candidate_sql,
             )
             self._validate_visible_table_keys(session, anchor_time)
             rows = self._get_query_frame(
-                connection, sql, params, max_rows=max_context_rows
+                connection,
+                sql,
+                params,
+                max_rows=self.settings.max_total_rows if row_cap is None else row_cap,
             )
             # Unquoted result aliases are uppercased by Snowflake, not by PostgreSQL.
             rows.columns = [str(name).lower() for name in rows.columns]
@@ -994,7 +1002,7 @@ class WarehouseConnector:
         anchor_time: datetime | None,
         observed_through: datetime,
         entity_created_at: str,
-        max_context_rows: int = DEFAULT_MAX_CONTEXT_ROWS,
+        max_context_rows: int | None = DEFAULT_MAX_CONTEXT_ROWS,
     ) -> tuple[pd.DataFrame, dict[str, int]]:
         """Return historical labels without downloading raw feature tables."""
         rows, counts, _ = self._get_prepared_inputs(

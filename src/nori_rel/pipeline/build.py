@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from nori_rel._feature_program import SavedFeatureProgram, program_record
+from nori_rel.context_policy import ContextPolicy
 from nori_rel.contracts import PredictionTask, RelationalOutputType, SchemaGraph
 from nori_rel.feature import FeatureBackend, FeatureMatrices
 from nori_rel.feature.dfs.noridfs import NoriDFS
@@ -45,6 +46,7 @@ PROVENANCE_KEYS = (
     "agentic_trials",
     "context_rows_sha256",
     "feature_matrix_sha256",
+    "context_policy",
 )
 
 
@@ -57,6 +59,7 @@ def get_pipeline_manifest(
     as_of: datetime,
     anchor_times: Sequence[datetime],
     max_context_rows: int,
+    context_policy: ContextPolicy | None = None,
     schema: SchemaGraph,
     tables: dict[str, pd.DataFrame],
     backend: FeatureBackend,
@@ -84,7 +87,10 @@ def get_pipeline_manifest(
             scoring rows were built at). Each context anchor is saved as its
             distance before ``as_of``.
         anchor_times: The historical times the context rows were built at.
-        max_context_rows: Most labeled rows that Nori reads as context.
+        max_context_rows: Most labeled rows that Nori reads as context,
+            under the newest-candidates rule.
+        context_policy: The ContextPolicy that chose the context rows, or
+            None for the newest-candidates rule; saved for replay.
         schema: Tables, columns, keys and time columns the run read.
         tables: The snapshot tables of the run, for their dtypes.
         backend: The feature backend that built the matrices.
@@ -140,6 +146,7 @@ def get_pipeline_manifest(
             [_get_utc_datetime(value) for value in anchor_times],
             as_of=_get_utc_datetime(as_of),
             max_context_rows=max_context_rows,
+            row_policy=context_policy,
         ),
         provenance=_get_json_ready_metadata(
             {key: metadata[key] for key in PROVENANCE_KEYS if key in metadata}

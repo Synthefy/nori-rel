@@ -492,6 +492,7 @@ class LocalRelationalRuntime:
         program: SavedFeatureProgram | None = None,
         run_context: RunContext | None = None,
         metric: AgentSearchMetric | None = None,
+        agent_instructions: str | None = None,
         feature_strategy: FeatureBackendName
         | FeatureBackend
         | AgenticSearch
@@ -507,7 +508,8 @@ class LocalRelationalRuntime:
         scores them with ``metric`` (MAE when ``None``); a metric outside
         ``AGENT_SEARCH_METRICS`` raises ``ValueError``. The planning session
         validates the context and validation slices according to the search
-        configuration.
+        configuration. ``agent_instructions`` reaches an agent search's request
+        verbatim.
         """
         chosen = self.features if feature_strategy is None else feature_strategy
         if metric is not None:
@@ -553,6 +555,7 @@ class LocalRelationalRuntime:
             predictor=self.predictor,
             run_context=run_context,
             metric=DEFAULT_REGRESSION_METRIC if metric is None else metric,
+            agent_instructions=agent_instructions,
         )
 
     def get_pipeline_predictor(self, record: Any) -> Predictor:

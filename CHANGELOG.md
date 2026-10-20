@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+- `predict(context=ContextPolicy(...))` chooses the context among every
+  historical (entity, cutoff) row with a known label. Without it, Nori-Rel keeps
+  the newest `max_context_rows` candidates and then drops unknown labels, which
+  can leave few rows for a rare or delayed label. A policy caps rows per entity
+  (`max_rows_per_entity`), balances a 0/1 label
+  (`balance=ClassBalance(positives="all", negatives_per_positive=1)`) and caps
+  the total (`max_rows`). Each quota fills newest first, at random, or equally
+  per cutoff (`time_sampling`), keyed by `seed`. Balanced negatives follow the
+  kept positives through time, at random within each class, so the date says
+  nothing about the class. Balanced probabilities and 0/1 means are mapped back
+  to the population rate unless `correct_probabilities=False`. See
+  [context policy](docs/context-policy.md).
+- `ContextPolicy(candidate_sql=...)` narrows the candidates with one read-only
+  `SELECT` over `candidates(entity_id, anchor_time)`, for filters a PQL `WHERE`
+  cannot express, such as a join to another table.
+- When a label is unknown unless an aggregate has an event (a ratio's
+  denominator, or AVG, MIN, MAX, FIRST and LAST), a policy's candidates start
+  from those events instead of every entity at every cutoff.
+- `metadata["context_policy"]` is a `ContextPolicyReport` for every
+  prediction, with or without a policy: who chose the rule, labelled and kept
+  rows and positives per cutoff, label counts, the probability correction, and,
+  with an agent search, its validation split and confirmation slice.
+- `predict(agent_instructions="...")` sends text verbatim at the end of an
+  agent search's request. It needs an `AgenticSearch` as the prediction's
+  `feature_strategy` (or the client's search) and replaces
+  `AgenticSearch(task_hint=...)`, which now raises a `FutureWarning`.
+- Pipelines save the policy in `context_policy.row_policy` and replay it at
+  each run's `as_of` with the same seed. Pipelines saved before keep their
+  `pipeline_id`.
+
 ## 0.4.5 — 2026-10-18
 
 - A wrong `entity_created_at` now says why it is wrong (no such column on the

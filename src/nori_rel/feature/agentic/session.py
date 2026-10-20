@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from nori_rel.context_policy import AgentSearchFoldReport, AgentSearchSplitReport
 from nori_rel.run.models import TrialOutcome
 
 from ..dfs.noridfs.contracts import (
@@ -87,6 +88,9 @@ class PlanningSession:
     scorer: ProgramScorer
     baseline_features: pd.DataFrame | None = None
     baseline_categorical: tuple[str, ...] = ()
+    #: The caller's ``agent_instructions``, sent verbatim in the agent's
+    #: request; ``None`` sends none.
+    agent_instructions: str | None = None
     #: The plan behind ``baseline_features`` when it came from NoriDFS. It is
     #: what lets the schema say what each baseline column computes.
     baseline_plan: FeaturePlan | None = None
@@ -591,6 +595,53 @@ class PlanningSession:
             score=float(np.mean([report.score for report in reports])),
             noise=float(np.mean([report.noise for report in reports])),
             predictions=reports[-1].predictions,
+        )
+
+    def get_split_report(self) -> AgentSearchSplitReport:
+        """Return how this search split its rows, for the prediction's report.
+
+        Each fold lists its context and validation row counts, the cutoffs
+        they span and the validation rows' mean label; the confirmation slice
+        lists its rows and cutoffs. Rows are this session's train anchors,
+        which are the prediction's context rows.
+        """
+        cutoffs = pd.Series(
+            pd.to_datetime(
+                self.train_anchors[self.anchors.cutoff_column], utc=True
+            ).to_numpy()
+        )
+        labels = self.train_target.astype(float)
+
+        def get_first_cutoff(rows: np.ndarray):
+            """Return the earliest cutoff among ``rows``, or None for none."""
+            return None if len(rows) == 0 else cutoffs.iloc[rows].min().to_pydatetime()
+
+        def get_last_cutoff(rows: np.ndarray):
+            """Return the latest cutoff among ``rows``, or None for none."""
+            return None if len(rows) == 0 else cutoffs.iloc[rows].max().to_pydatetime()
+
+        folds = tuple(
+            AgentSearchFoldReport(
+                context_rows=len(context),
+                context_last_cutoff=get_last_cutoff(context),
+                validation_rows=len(validation),
+                validation_first_cutoff=get_first_cutoff(validation),
+                validation_last_cutoff=get_last_cutoff(validation),
+                validation_label_mean=(
+                    float(labels.iloc[validation].mean()) if len(validation) else None
+                ),
+            )
+            for context, validation in self._folds
+        )
+        return AgentSearchSplitReport(
+            split_boundary="cutoff" if self.config.align_to_cutoffs else "row_count",
+            holdout_fraction=self.config.holdout_fraction,
+            confirmation_fraction=self.config.confirmation_fraction,
+            requested_folds=self.config.n_folds,
+            folds=folds,
+            confirmation_rows=len(self._confirmation),
+            confirmation_first_cutoff=get_first_cutoff(self._confirmation),
+            confirmation_last_cutoff=get_last_cutoff(self._confirmation),
         )
 
     def _rolling_folds(self) -> list[tuple[np.ndarray, np.ndarray]]:

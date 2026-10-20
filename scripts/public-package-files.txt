@@ -2,6 +2,7 @@
 nori_rel/__init__.py
 nori_rel/_checkpoint.py
 nori_rel/_compat.py
+nori_rel/_context_selection.py
 nori_rel/_credentials.py
 nori_rel/_feature_program.py
 nori_rel/_feature_search.py
@@ -18,6 +19,7 @@ nori_rel/connectors/errors.py
 nori_rel/connectors/postgres.py
 nori_rel/connectors/snowflake.py
 nori_rel/connectors/warehouse.py
+nori_rel/context_policy.py
 nori_rel/contracts.py
 nori_rel/feature/__init__.py
 nori_rel/feature/_contract.py
@@ -70,6 +72,7 @@ nori_rel/pql/context_sql.py
 nori_rel/pql/dialects.py
 nori_rel/pql/grammar/CHECKSUMS.txt
 nori_rel/pql/grammar/PQLGrammar.g4
+nori_rel/pql/label_events.py
 nori_rel/pql/label_sql.py
 nori_rel/pql/limits.py
 nori_rel/pql/parser.py

@@ -18,7 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql.sqltypes import Date, DateTime
 
 from nori_rel._credentials import CredentialResolver
-from nori_rel.connectors.base import Snapshot
+from nori_rel.connectors.base import Snapshot, get_context_read_row_cap
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.contracts import (
     ColumnSchema,
@@ -268,7 +268,7 @@ class PostgreSQLConnector:
         anchor_time: datetime | None,
         observed_through: datetime,
         entity_created_at: str,
-        max_context_rows: int = DEFAULT_MAX_CONTEXT_ROWS,
+        max_context_rows: int | None = DEFAULT_MAX_CONTEXT_ROWS,
     ) -> tuple[pd.DataFrame, dict[str, int]]:
         """Execute temporal PQL context and labels in one read-only snapshot.
 
@@ -284,7 +284,9 @@ class PostgreSQLConnector:
             entity_created_at: Registered entity creation column, e.g. "created_at".
                 Caller guarantees its meaning and historical attribute validity.
             max_context_rows: Candidate output cap, default 5,000. Requests above
-                connector context/row limits error; no silent reduction.
+                connector context/row limits error; no silent reduction. None
+                reads every candidate that can have a known label, for the
+                caller to choose from, bounded by memory and the timeout.
 
         Returns:
             (rows, counts). rows is a DataFrame with columns context_row_id,
@@ -318,7 +320,8 @@ class PostgreSQLConnector:
         """Return (snapshot, labeled_context, counts) from one transaction.
 
         options are prepare_context's anchor_times, anchor_time, observed_through,
-        entity_created_at, optional max_context_rows and optional query_filter.
+        entity_created_at, optional max_context_rows, optional query_filter and
+        optional candidate_sql (a SELECT that narrows an uncapped read).
         query_filter is a scalar entity predicate; matching IDs are stored in
         snapshot.scoring_filter_ids for intersection with FOR before features.
         Context columns are
@@ -411,6 +414,7 @@ class PostgreSQLConnector:
         max_context_rows=DEFAULT_MAX_CONTEXT_ROWS,
         load_source_tables_for_dfs: bool = True,
         query_filter: str | None = None,
+        candidate_sql: str | None = None,
     ):
         """Build historical labels and optionally load tables for feature creation.
 
@@ -431,9 +435,15 @@ class PostgreSQLConnector:
                 Exclude entities not yet created at their historical anchor.
             max_context_rows: Maximum candidate rows before unknown labels are
                 removed, default 5,000. Must fit connector resource limits.
+                None reads every candidate that can have a known label, with
+                no row cap: max_snapshot_bytes and the statement timeout
+                bound it, and it fails rather than truncates.
             query_filter: Optional scalar entity predicate for scoring only.
                 It is validated before data loading, and matching IDs are stored
                 on the returned snapshot. Does not change historical context.
+            candidate_sql: Optional caller SELECT over candidates(entity_id,
+                anchor_time) that narrows an uncapped read; see
+                compile_context_sql.
             load_source_tables_for_dfs: Defaults to True. Load bounded original
                 database tables into Python so FastDFS can calculate features,
                 using the same transaction as labels. False returns only labels
@@ -451,15 +461,7 @@ class PostgreSQLConnector:
             These tables are inputs for feature creation, not feature matrices.
         """
         snapshot = None
-        ceiling = min(
-            self.settings.max_context_rows,
-            self.settings.max_rows_per_table,
-            self.settings.max_total_rows,
-        )
-        if type(max_context_rows) is not int or not 0 < max_context_rows <= ceiling:
-            raise SnapshotLimitError(
-                f"max_context_rows must be an integer in 1..{ceiling}"
-            )
+        row_cap = get_context_read_row_cap(self.settings, max_context_rows)
         tree = parse_pql(query)
         engine = self._engine()
         try:
@@ -485,6 +487,7 @@ class PostgreSQLConnector:
                     observed_through=observed_through,
                     entity_created_at=entity_created_at,
                     max_context_rows=max_context_rows,
+                    candidate_sql=candidate_sql,
                 )
                 scoring_query = None
                 if query_filter is not None:
@@ -509,9 +512,8 @@ class PostgreSQLConnector:
                         count += len(frame)
                         size += int(frame.memory_usage(index=True, deep=True).sum())
                         if (
-                            count > max_context_rows
-                            or size > self.settings.max_snapshot_bytes
-                        ):
+                            row_cap is not None and count > row_cap
+                        ) or size > self.settings.max_snapshot_bytes:
                             raise SnapshotLimitError(
                                 "prepared context exceeds resource limits"
                             )

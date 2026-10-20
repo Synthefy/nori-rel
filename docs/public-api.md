@@ -15,6 +15,7 @@ These names are exported from `nori_rel`:
 | Connection configuration | `DatabaseCreateRequest`, `DatabaseEngine`, `SnowflakeConnection`, `DatabricksConnection` |
 | Connection/schema results | `Database`, `DatabaseStatus`, `ConnectionStatus`, `ConnectorCapabilities`, `SchemaGraph`, `TableSchema`, `ForeignKeySchema` |
 | Prediction settings | `RelationalLimits`, `RelationalOutputType`, `PredictionTask` |
+| Context selection | `ContextPolicy`, `ClassBalance`, and the `ContextPolicyReport` every prediction returns in `metadata["context_policy"]` |
 | Feature search | `AgenticSearch`, loaded on first use so the `agentic` extra stays optional |
 | Pipelines | `NoriRelPipeline`, `PipelineError` |
 | Lifecycle | `PredictionRun`, `RunEvent`, `PredictionCancelled`, `PredictionFailed`, `RunTimeout` |

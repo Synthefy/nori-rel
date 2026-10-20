@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,7 @@ from nori_rel._feature_program import (
     program_from_record,
     program_record,
 )
+from nori_rel.context_policy import AgentSearchSplitReport
 from nori_rel.contracts import (
     AgentSearchMetric,
     PredictionTask,
@@ -157,8 +159,19 @@ class AgenticSearch:
     limits: RunLimits = field(default_factory=RunLimits)
 
     def __post_init__(self) -> None:
-        """Require DuckDB and refuse settings the client or its agent cannot honour."""
+        """Require DuckDB and refuse settings the client or its agent cannot honour.
+
+        A non-empty ``task_hint`` warns: ``predict(agent_instructions=...)``
+        replaces it.
+        """
         require_agentic_modules("duckdb")
+        if self.task_hint:
+            warnings.warn(
+                "AgenticSearch(task_hint=...) is deprecated; pass "
+                "agent_instructions=... to predict instead",
+                FutureWarning,
+                stacklevel=3,
+            )
         if not self.config.extend_baseline:
             raise ValueError("the client's agent search extends NoriDFS")
         if self.config.allow_text:
@@ -266,12 +279,14 @@ class AgenticSearch:
         predictor: Predictor,
         run_context: RunContext | None = None,
         metric: AgentSearchMetric = DEFAULT_REGRESSION_METRIC,
+        agent_instructions: str | None = None,
     ) -> AgenticFeatures:
         """Return the search for one prediction; ``labels`` follow context order.
 
         ``run_context`` receives the search's progress events. ``metric`` is
         the regression metric candidate programs are scored with; binary
-        targets always score ROC-AUC.
+        targets always score ROC-AUC. ``agent_instructions`` is the
+        prediction's text for the agent.
         """
         kind: TaskKind = (
             "binary" if task is PredictionTask.CLASSIFICATION else "regression"
@@ -283,6 +298,7 @@ class AgenticSearch:
             fallback=seed,
             config=self.config,
             task_hint=self.task_hint,
+            agent_instructions=agent_instructions,
             run_context=run_context,
             fall_back_on_search_failure=True,
         )
@@ -363,6 +379,17 @@ def _get_required_api_key(
     return key
 
 
+def get_agent_search_split_report(backend: Any) -> AgentSearchSplitReport | None:
+    """Return how the backend's last agent search split its rows.
+
+    None for a backend that is not an agent search, and for a replayed
+    program, which runs no search.
+    """
+    if not isinstance(backend, AgenticFeatures) or backend.last_session is None:
+        return None
+    return backend.last_session.get_split_report()
+
+
 def agentic_summary(
     backend: Any, *, query: str, entity_created_at: str, schema: SchemaGraph
 ) -> dict[str, Any]:
@@ -424,6 +451,7 @@ __all__ = [
     "ClientProgramScorer",
     "FeatureBackendName",
     "agentic_summary",
+    "get_agent_search_split_report",
     "noridfs_backend",
     "program_from_record",
     "program_record",

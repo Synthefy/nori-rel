@@ -10,8 +10,33 @@ from typing import Protocol
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
 
+from nori_rel.connectors.errors import SnapshotLimitError
 from nori_rel.contracts import DatabaseEngine, SchemaGraph
+from nori_rel.limits import RelationalLimits
 from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS
+
+
+def get_context_read_row_cap(
+    limits: RelationalLimits, max_context_rows: int | None
+) -> int | None:
+    """Return the row cap of a context read, or None for an uncapped read.
+
+    An integer ``max_context_rows`` is the newest-candidates cap and must fit
+    the context, per-table and total row limits. None reads every candidate
+    that can have a known label; that read has no row cap of its own and is
+    bounded by ``max_snapshot_bytes`` and the statement timeout.
+
+    Raises:
+        SnapshotLimitError: An integer cap that is not in range.
+    """
+    if max_context_rows is None:
+        return None
+    ceiling = min(
+        limits.max_context_rows, limits.max_rows_per_table, limits.max_total_rows
+    )
+    if type(max_context_rows) is not int or not 0 < max_context_rows <= ceiling:
+        raise SnapshotLimitError(f"max_context_rows must be an integer in 1..{ceiling}")
+    return max_context_rows
 
 
 class SnapshotProvenance(BaseModel):
@@ -77,11 +102,13 @@ class RelationalConnector(Protocol):
         anchor_time: datetime | None,
         observed_through: datetime,
         entity_created_at: str,
-        max_context_rows: int = DEFAULT_MAX_CONTEXT_ROWS,
+        max_context_rows: int | None = DEFAULT_MAX_CONTEXT_ROWS,
     ) -> tuple[pd.DataFrame, dict[str, int]]:
         """Return bounded labeled context and candidate/usable/dropped counts.
 
         Inputs are PQL, aware cutoffs/anchors, and a registered creation column.
+        max_context_rows=None returns every candidate that can have a known
+        label, for the caller to choose from.
         DataFrame columns: context_row_id, entity_id, anchor_time, label.
         Counts: candidate_rows, usable_rows, dropped_unknown_labels (integers).
         """
@@ -94,6 +121,8 @@ class RelationalConnector(Protocol):
 
         Keyword options match prepare_context; query_filter is an optional
         entity predicate. Its matches are in snapshot.scoring_filter_ids.
+        candidate_sql optionally narrows an uncapped (max_context_rows=None)
+        read with the caller's SELECT over candidates(entity_id, anchor_time).
         Context columns are
         context_row_id, entity_id, anchor_time, label.
         """
