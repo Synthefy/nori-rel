@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.6 — 2026-10-20
 
 - `predict(context=ContextPolicy(...))` chooses the context among every
   historical (entity, cutoff) row with a known label. Without it, Nori-Rel keeps
