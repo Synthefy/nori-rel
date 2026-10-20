@@ -2,6 +2,10 @@
 
 ## 0.4.6 — 2026-10-20
 
+- Release certification for 0.4.6 ran the live warehouse suite on Snowflake
+  only: the Databricks test workspace rejected the certification credentials.
+  The Databricks connector module is unchanged since 0.4.5, which was certified
+  on Databricks; the shared warehouse code it uses was certified on Snowflake.
 - `predict(context=ContextPolicy(...))` chooses the context among every
   historical (entity, cutoff) row with a known label. Without it, Nori-Rel keeps
   the newest `max_context_rows` candidates and then drops unknown labels, which
