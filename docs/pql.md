@@ -8,14 +8,23 @@ PREDICT SUM(orders.amount,0,30,days) FOR EACH users.user_id
 
 This predicts each user's total order amount during `(anchor, anchor + 30 days]`.
 The source must describe the users-to-orders relationship through a foreign key.
-`COUNT`, `SUM`, `AVG`, `MIN`, and `MAX` temporal aggregates are supported.
-Direct column prediction and `NEXT` targets are unsupported.
+`COUNT`, `SUM`, `AVG`, `MIN`, and `MAX` temporal aggregates are supported;
+`NEXT` targets are not.
+
+A **static** target is a column of the entity table, such as an account's
+balance, with no time window. Nori learns it from the rows where the value is
+known and predicts it for the rest. It needs no dates; see
+[Static targets](#static-targets):
+
+```text
+PREDICT accounts.balance FOR EACH accounts.account_id
+```
 
 The entity table is the one named in `FOR EACH` (`users`). Each event table in
 the target (`orders`) needs a foreign key straight to the entity table and a
 time column registered in `time_columns` at `connect()`. This page covers the
-arguments that set up a prediction, the `entity_created_at` column, rates
-written as a division of two counts, and the v0 limits.
+arguments that set up a temporal prediction, the `entity_created_at` column,
+rates written as a division of two counts, static targets, and the v0 limits.
 
 ## Historical examples and prediction time
 
@@ -310,6 +319,85 @@ labels are not silently replaced by zero. The default request context cap is
 raises an error. Use [prediction metadata and limits](api.md) to inspect the
 resulting context.
 
+## Static targets
+
+A static target predicts a column of the `FOR EACH` table, with no time
+window: the rows where the value is known are the examples, and the rows where
+it is NULL are scored. The names follow Kumo's static and temporal predictive
+queries. A table with no dates works:
+
+```python
+source = client.connect(
+    engine="postgresql",
+    database_url=os.environ["DATABASE_URL"],
+    tables=["branches", "accounts", "transactions"],
+)
+predictions = client.predict(
+    source=source,
+    query="PREDICT accounts.balance FOR EACH accounts.account_id",
+)
+```
+
+- **Context rows.** Every row that passes the top-level `WHERE` and has a
+  known value (not NULL, and not NaN), minus the rows being scored, up to
+  `max_context_rows` (default 5,000), which counts these rows only. Above the
+  cap they are taken by primary key, so on a large table the context is the
+  lowest keys, often the oldest rows; with `entity_created_at`, newest first.
+  For a uniform sample, pass
+  `context=ContextPolicy(max_rows=5_000, time_sampling="random")`; the same
+  seed keeps the same rows on every run. See
+  [the context policy guide](context-policy.md). If the `FOR EACH` table has a
+  registered time column, rows dated after the read are left out, as they are
+  from the feature tables.
+- **Scoring rows.** `FOR EACH` scores the rows whose value is NULL or NaN.
+  `FOR accounts.account_id IN (3, 8)` scores those rows even when their value
+  is stored, and they then leave the context, so you can check predictions
+  against stored values without the model seeing them. `query_filter` narrows
+  the scored rows; a `FOR` row it rejects stays in the context.
+- **Features.** The target column is removed from the tables before features
+  are built. No feature reads any row's value: not the row's own column, and
+  not a path through related tables such as a branch's average balance.
+  Columns that copy or encode the target, such as `balance_band`, are yours to
+  remove: connect a view without them.
+
+| Argument | Static target |
+| --- | --- |
+| `anchor_times`, `observed_through`, `anchor_time` | Not accepted. Values are read as stored at the time of the read, and there is no label window to place. For a per-row cutoff, use `entity_created_at`. |
+| `entity_created_at` | Optional. Without it, every row's features use the time of the read: PostgreSQL's `CURRENT_TIMESTAMP`, or the warehouse's pinned extraction time. With it, each row's features are computed as of its own creation time, and rows with a null or later time are left out. |
+
+Leave `entity_created_at` out when the value is the row's current state, such
+as a balance. Pass it when the value describes the row when it was created,
+such as fraud on a transaction: an old transaction's features then stop at its
+own time and do not include later events, like a chargeback, that a new
+transaction cannot have yet. The `anchor_time` column of the result is each
+row's cutoff.
+
+The task follows the column:
+
+- A Boolean column, or a comparison such as `PREDICT users.income > 50000`, is
+  binary: the result has `probability` and a Boolean `prediction`. Like all
+  binary PQL, it needs `mode="hosted"`.
+- A numeric column is regression, with the usual `output_type` and
+  `quantiles`.
+- A numeric column whose known values, all of them and not only the context
+  rows, are 0 and 1 is ambiguous and raises until you pass
+  `task="classification"` or `task="regression"`. Regression with
+  `output_type="mean"` returns the probability of 1, which is how to get one
+  with local Nori.
+- A text column needs a comparison, such as `PREDICT users.plan = 'pro'`. The
+  target must be a column of the `FOR EACH` table and cannot be its primary
+  key.
+
+Not supported yet:
+
+- Backtests at a past cutoff. They need to know when each value was stored,
+  through a label-availability column or versioned labels.
+- Predictions for every stored row at once (leave-one-out). Name the rows in
+  `FOR` instead.
+- Feature searches other than FastDFS or a custom `FeatureBackend`: NoriDFS,
+  the agent search and saved programs scale with a label window. Saved
+  pipelines: `details["pipeline"]` is None.
+
 ## v0 limits
 
 - **No `OR`.** Filters combine conditions with `AND` only. Use `IN` for
@@ -321,7 +409,7 @@ resulting context.
 - **Windows** use `days` or `months`, with `0 <= start < end`. A window cannot
   look back before the anchor.
 - **Arithmetic** combines at most 8 aggregates with numeric literals.
-  Direct-column targets and direct-column arithmetic are not supported.
+  Arithmetic over static targets is not supported.
 - **Event tables** in the target must link to the entity table through one
   foreign key.
 - **`query_filter`** selects scoring entities by entity columns, with

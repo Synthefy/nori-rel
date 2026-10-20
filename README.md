@@ -102,6 +102,20 @@ over cutoffs, cap rows per entity and map balanced probabilities back to the
 population rate. `metadata["context_policy"]` reports the rows kept at each
 cutoff either way. See [`docs/context-policy.md`](docs/context-policy.md).
 
+No dates? A static target predicts a column of the entity table, learned from
+the rows where it is known, for the rows where it is NULL. No time arguments
+are needed:
+
+```python
+predictions = client.predict(
+    source=source,
+    query="PREDICT users.income FOR EACH users.user_id",
+)
+```
+
+See [Static targets](docs/pql.md#static-targets) for how context and scoring
+rows are chosen and how the target is kept out of the features.
+
 The default mode runs Nori in your process. The first local prediction downloads
 model weights; subsequent predictions can use the populated cache offline.
 Use `NoriRelClient(mode="hosted")` to send the generated context/query feature

@@ -10,6 +10,10 @@ from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, Unpack, cas
 
 import pandas as pd
 
+from nori_rel._pql_static import (
+    get_pql_target_kind,
+    require_static_target_arguments,
+)
 from nori_rel.contracts import (
     AgentSearchMetric,
     ConnectionStatus,
@@ -330,6 +334,17 @@ class NoriRelClient:
         at connect(); unmapped tables/entity attributes must be immutable and
         events immediately available. max_context_rows defaults to 5,000.
 
+        A static target predicts a stored column from the other rows whose
+        value is stored, with no dates needed:
+            client.predict(source=db,
+                query="PREDICT accounts.balance FOR EACH accounts.account_id")
+        FOR EACH scores the rows whose value is NULL; FOR IDs scores those
+        rows, which then never join the context. It takes no anchor_times,
+        anchor_time or observed_through. entity_created_at is optional: with
+        it each row's features are built as of its own time, without it as of
+        the read. The target column never reaches the features. A Boolean
+        column or a comparison is binary; a 0/1 numeric column needs task=.
+
         context is a ContextPolicy that chooses the training rows in place of
         max_context_rows (passing both raises). It selects among candidates
         whose label is known, so an unknown label never takes a row, and can
@@ -389,10 +404,11 @@ class NoriRelClient:
         forward with as_of; a ContextPolicy the first run used is applied
         again. A PipelineError is raised before Nori runs if the
         schema, the model or the feature columns do not fit the pipeline.
-        expected_context_sha256 asks to reproduce an earlier run: pass its
-        attrs["context_rows_sha256"], and a run on other context rows raises
-        PipelineContextError. Every prediction reports the hash of its context
-        rows and of its feature matrix in attrs and in the run summary.
+        expected_context_sha256 asks to reproduce an earlier run, with or
+        without a pipeline: pass its attrs["context_rows_sha256"], and a run on
+        other context rows raises PipelineContextError. Every prediction
+        reports the hash of its context rows and of its feature matrix in attrs
+        and in the run summary.
 
         PQL returns entity_id, anchor_time, prediction; binary adds probability,
         quantile output adds quantiles. attrs holds task/model and context counts.
@@ -405,8 +421,8 @@ class NoriRelClient:
         works too. Save the pipeline to predict again in another process
         without a feature search.
         log_summary emits INFO records through Python logging. Task is resolved
-        explicitly from the target; conflicting task overrides error. Direct PQL
-        and larger-context retrieval are not implemented yet.
+        explicitly from the target; conflicting task overrides error.
+        Larger-context retrieval is not implemented yet.
 
         Legacy compatibility supports only regression count/total/average/minimum/
         maximum over whole days and requires the same temporal guarantees.
@@ -694,9 +710,31 @@ class NoriRelClient:
             )
         ):
             raise ValueError("provide PQL query or legacy target arguments, not both")
-        if anchor_times is None or observed_through is None or not entity_created_at:
+        # Invalid PQL skips the time-argument checks, so the run reports the
+        # syntax error and its location rather than missing time arguments.
+        target_kind = "temporal" if legacy else get_pql_target_kind(query)
+        if target_kind == "static":
+            from nori_rel._pql_runtime import get_feature_strategy_name
+
+            require_static_target_arguments(
+                anchor_times=anchor_times,
+                anchor_time=anchor_time,
+                observed_through=observed_through,
+                feature_strategy=get_feature_strategy_name(
+                    feature_strategy
+                    if feature_strategy is not None
+                    else getattr(self._runtime, "features", "fastdfs"),
+                    replaying_program=feature_program is not None,
+                ),
+                has_pipeline=False,
+            )
+        elif target_kind == "temporal" and (
+            anchor_times is None or observed_through is None or not entity_created_at
+        ):
             raise ValueError(
-                "PQL requires anchor_times, observed_through and entity_created_at"
+                "temporal PQL requires anchor_times, observed_through and "
+                "entity_created_at; a static target such as PREDICT users.income "
+                "takes none of them"
             )
         if legacy:
             from nori_rel._legacy import aggregate_query
@@ -746,6 +784,7 @@ class NoriRelClient:
                 metric=metric,
                 keep_scoring_features=keep_scoring_features,
                 feature_strategy=feature_strategy,
+                expected_context_sha256=expected_context_sha256,
             )
 
         return predict_frame

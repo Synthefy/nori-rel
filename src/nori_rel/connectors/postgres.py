@@ -38,6 +38,7 @@ from nori_rel.pql.context_execution import compile_prepared_context_sql
 from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS
 from nori_rel.pql.scoring_sql import compile_scoring_filter_sql
 from nori_rel.pql.sql_expressions import identifier
+from nori_rel.pql.tree_access import query_parts
 
 
 def _is_local_host(host: str | None) -> bool:
@@ -365,7 +366,11 @@ class PostgreSQLConnector:
 
     @staticmethod
     def _resolve_anchor_time(
-        connection: Any, schema: SchemaGraph, anchor_time: datetime | None
+        connection: Any,
+        schema: SchemaGraph,
+        anchor_time: datetime | None,
+        *,
+        is_static_target: bool = False,
     ) -> datetime:
         """Keep an explicit cutoff, or find the latest registered event time.
 
@@ -376,6 +381,9 @@ class PostgreSQLConnector:
                 time_column="event_time" in schema "public".
             anchor_time: Explicit datetime returned unchanged, or None to query
                 the maximum timestamp across registered event tables.
+            is_static_target: True for a static target (PREDICT users.income),
+                read as stored now: None then returns this transaction's
+                start time, CURRENT_TIMESTAMP, instead.
 
         Returns:
             A datetime, e.g. datetime(2026, 2, 1, tzinfo=UTC). Inferred times are
@@ -387,6 +395,11 @@ class PostgreSQLConnector:
         """
         if anchor_time is not None:
             return anchor_time
+        if is_static_target:
+            read_time = connection.exec_driver_sql(
+                "SELECT CURRENT_TIMESTAMP", {}
+            ).scalar_one()
+            return pd.Timestamp(read_time).tz_convert("UTC").to_pydatetime()
         latest = []
         for table in schema.tables:
             if table.time_column is None:
@@ -482,7 +495,12 @@ class PostgreSQLConnector:
                     {"timeout": str(self.settings.statement_timeout_ms)},
                 )
                 schema = self._discover(connection, database_id)
-                anchor_time = self._resolve_anchor_time(connection, schema, anchor_time)
+                anchor_time = self._resolve_anchor_time(
+                    connection,
+                    schema,
+                    anchor_time,
+                    is_static_target=query_parts(tree)["aggregate"] is None,
+                )
                 sql, params = compile_prepared_context_sql(
                     tree,
                     schema,
@@ -492,6 +510,7 @@ class PostgreSQLConnector:
                     entity_created_at=entity_created_at,
                     max_context_rows=max_context_rows,
                     candidate_sql=candidate_sql,
+                    query_filter=query_filter,
                 )
                 scoring_query = None
                 if query_filter is not None:

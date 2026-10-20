@@ -165,6 +165,29 @@ def test_pinned_references_reach_context_labels_and_scoring(dialect, schema):
     assert str(ENTITY_ID) not in scoring_sql
 
 
+def test_static_context_reads_pinned_entities_with_warehouse_casts(dialect, schema):
+    refs = {"users": dialect.qualified_name("cat", "main", "users") + " AT (pinned)"}
+    pinned = SQLDialect(dialect.engine, refs)
+    tree = parse_pql(f"PREDICT users.country='US' FOR users.user_id={ENTITY_ID}")
+    sql, params = compile_prepared_context_sql(
+        tree,
+        schema,
+        dialect=pinned,
+        anchor_time=APR,
+        entity_created_at="created_at",
+        query_filter="users.country='CA'",
+    )
+    expected_type = (
+        "TIMESTAMP_TZ" if dialect.engine == DatabaseEngine.SNOWFLAKE else "TIMESTAMP"
+    )
+    assert sql.count(refs["users"]) == 2  # context rows, then their labels
+    assert f"AS {expected_type})" in sql
+    assert "::timestamptz" not in sql
+    assert str(ENTITY_ID) not in sql and "2026" not in sql
+    assert params["context_scoring_id_0"] == ENTITY_ID
+    assert params["context_anchor_time"] == APR
+
+
 def test_incomplete_pinned_references_fail_before_execution(dialect, schema):
     pinned = SQLDialect(
         dialect.engine, {"users": dialect.qualified_name("main", "users")}

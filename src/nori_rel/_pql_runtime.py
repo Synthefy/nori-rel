@@ -12,6 +12,12 @@ from nori_rel._context_selection import (
     get_selected_context,
 )
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
+from nori_rel._pql_static import (
+    READ_TIME_STAND_IN,
+    get_known_target_values,
+    get_static_target_task,
+    require_static_target_arguments,
+)
 from nori_rel.connectors.base import get_dropped_foreign_keys
 from nori_rel.context_policy import ContextPolicy, ContextPolicyChooser
 from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
@@ -80,7 +86,7 @@ def predict_pql(
     anchor_times,
     anchor_time,
     observed_through,
-    entity_created_at: str,
+    entity_created_at: str | None,
     max_context_rows=DEFAULT_MAX_CONTEXT_ROWS,
     context_policy: ContextPolicy | None = None,
     agent_instructions: str | None = None,
@@ -141,6 +147,19 @@ def predict_pql(
     cutoff and, for an agent search, how the agent split the rows.
     agent_instructions is sent verbatim in an agent search's request, and the
     report records it with the stages that received it.
+
+    A static target (PREDICT users.income FOR EACH users.user_id) learns a
+    stored column from the other rows whose value is stored. It takes no
+    anchor_times, anchor_time or observed_through, and entity_created_at is
+    optional: without it every row's features use the read time, with it each
+    row's own time. FOR EACH scores the rows whose value is NULL; scored rows
+    never join the context. Without entity_created_at, the read time is left
+    out of the random context keys and of context_rows_sha256, so a seeded
+    ContextPolicy and expected_context_sha256 give the same rows on every
+    run of an unchanged source. The target column is removed from the tables
+    before features run. Its task follows the column (Boolean or a comparison
+    is binary, numeric is regression; a 0/1 numeric column needs task=). It
+    uses FastDFS or a custom backend, and makes no saved pipeline.
     """
     run_context = run_context or RunContext.unobserved()
     chosen_features = runtime.features if feature_strategy is None else feature_strategy
@@ -152,50 +171,61 @@ def predict_pql(
         and get_feature_strategy_name(chosen_features, replaying_program=False)
         == "agentic"
     )
-    if feature_program is not None:
-        feature_program.validate_query(query, entity_created_at)
     tree = parse_pql(query)
     parts = query_parts(tree)
-    if parts["aggregate"] is None:
-        raise ValueError("PQL inference currently requires a temporal aggregate target")
-    resolved = (
-        PredictionTask.CLASSIFICATION
-        if parts["comparison"] is not None
-        else PredictionTask.REGRESSION
-    )
-    if task is not None and PredictionTask(task) != resolved:
-        raise ValueError("task contradicts the PQL target")
+    is_static = parts["aggregate"] is None
+    # Without entity_created_at, every row of a static target is cut off at
+    # the read time, which differs on every run.
+    is_read_time_cutoff = is_static and entity_created_at is None
+    if is_static:
+        require_static_target_arguments(
+            anchor_times=anchor_times,
+            anchor_time=anchor_time,
+            observed_through=observed_through,
+            feature_strategy=get_feature_strategy_name(
+                chosen_features, replaying_program=feature_program is not None
+            ),
+            has_pipeline=pipeline is not None,
+        )
+    elif feature_program is not None:
+        feature_program.validate_query(query, entity_created_at)
     threshold = 0.5 if decision_threshold is None else decision_threshold
     if not 0 < threshold < 1:
         raise ValueError("decision_threshold must lie strictly between 0 and 1")
-    if resolved is PredictionTask.CLASSIFICATION:
-        if output_type is not None or quantiles is not None:
-            raise ValueError("binary PQL does not accept regression output options")
-        output = None
+    predictor = (
+        runtime.predictor
+        if pipeline is None
+        else runtime.get_pipeline_predictor(pipeline.model)
+    )
+    # A static target's task depends on its column type and values, so it is
+    # resolved once the source has been read; the options that are wrong
+    # whatever the column holds fail here, before the read.
+    resolved = output = model = None
+    if is_static:
+        require_valid_static_target_options(
+            has_comparison=parts["comparison"] is not None,
+            task=task,
+            output_type=output_type,
+            quantiles=quantiles,
+            decision_threshold=decision_threshold,
+            context_policy=context_policy,
+        )
     else:
-        if decision_threshold is not None:
-            raise ValueError("decision_threshold requires binary PQL")
-        output = RelationalOutputType(output_type or "median")
-        if output is RelationalOutputType.QUANTILES:
-            if (
-                not quantiles
-                or any(not 0 < q < 1 for q in quantiles)
-                or list(quantiles) != sorted(set(quantiles))
-            ):
-                raise ValueError("quantiles must be sorted, unique and between 0 and 1")
-        elif quantiles is not None:
-            raise ValueError("quantiles requires output_type='quantiles'")
-        if (
-            context_policy is not None
-            and context_policy.balance is not None
-            and context_policy.correct_probabilities
-            and output is not RelationalOutputType.MEAN
-        ):
-            raise ValueError(
-                "a balanced ContextPolicy maps a 0/1 regression label back to "
-                "its population rate only for output_type='mean'; pass "
-                "output_type='mean' or correct_probabilities=False"
-            )
+        resolved = (
+            PredictionTask.CLASSIFICATION
+            if parts["comparison"] is not None
+            else PredictionTask.REGRESSION
+        )
+        if task is not None and PredictionTask(task) != resolved:
+            raise ValueError("task contradicts the PQL target")
+        output = get_checked_output_type(
+            resolved,
+            output_type=output_type,
+            quantiles=quantiles,
+            decision_threshold=decision_threshold,
+            context_policy=context_policy,
+        )
+        model = predictor.model_for(resolved)
     if metric is not None:
         _require_agent_search_metric(
             metric,
@@ -205,15 +235,9 @@ def predict_pql(
             and get_feature_strategy_name(chosen_features, replaying_program=False)
             == "agentic",
         )
-    predictor = (
-        runtime.predictor
-        if pipeline is None
-        else runtime.get_pipeline_predictor(pipeline.model)
-    )
-    model = predictor.model_for(resolved)
     if pipeline is not None:
         warn_if_other_nori_rel(pipeline)
-    if log_summary:
+    if log_summary and resolved is not None:
         logger.info("PQL task=%s; target=%s", resolved.value, parts["target"].getText())
     connector = runtime._connector(source)
     # Only a policy's own SQL is passed, so custom connectors need no new option.
@@ -241,13 +265,22 @@ def predict_pql(
             context_policy,
             chosen_by=get_context_policy_chooser(context_policy, pipeline),
             max_context_rows=max_context_rows,
-            eligible_anchor_times=get_eligible_anchor_times(
-                tree,
-                anchor_times=anchor_times,
-                anchor_time=snapshot.as_of,
-                observed_through=observed_through,
+            # A static target's rows share the read time, or each has its own
+            # creation time.
+            eligible_anchor_times=(
+                ([snapshot.as_of] if entity_created_at is None else [])
+                if is_static
+                else get_eligible_anchor_times(
+                    tree,
+                    anchor_times=anchor_times,
+                    anchor_time=snapshot.as_of,
+                    observed_through=observed_through,
+                )
             ),
             max_kept_rows=runtime.limits.max_context_rows,
+            random_key_anchor_time=(
+                READ_TIME_STAND_IN if is_read_time_cutoff else None
+            ),
         )
         if feature_program is not None:
             feature_program.validate_schema(snapshot.schema)
@@ -260,6 +293,24 @@ def predict_pql(
                 ),
             )
         scoring = build_prediction_rows(snapshot, query, entity_created_at)
+    if is_static:
+        resolved = get_static_target_task(
+            tree, snapshot.schema, task, get_known_target_values(snapshot, tree)
+        )
+        output = get_checked_output_type(
+            resolved,
+            output_type=output_type,
+            quantiles=quantiles,
+            decision_threshold=decision_threshold,
+            context_policy=context_policy,
+        )
+        model = predictor.model_for(resolved)
+        if log_summary:
+            logger.info(
+                "PQL task=%s; static target=%s",
+                resolved.value,
+                parts["target"].getText(),
+            )
     metadata = {
         "task": resolved.value,
         "model": model,
@@ -322,11 +373,18 @@ def predict_pql(
     if not np.isfinite(labels).all():
         raise ValueError("context labels must be finite numeric values")
     context_labels = labels
-    context_hash = get_context_rows_sha256(context, context_labels)
+    # The hash leaves out a shared read time, so an unchanged source hashes
+    # the same on every run and expected_context_sha256 can reproduce it.
+    context_hash = get_context_rows_sha256(
+        context.assign(anchor_time=READ_TIME_STAND_IN)
+        if is_read_time_cutoff
+        else context,
+        context_labels,
+    )
     require_expected_context(expected_context_sha256, context_hash)
     if pipeline is None:
         backend = runtime.feature_backend(
-            target_window(parts["aggregate"]),
+            None if is_static else target_window(parts["aggregate"]),
             resolved,
             context,
             labels,
@@ -424,7 +482,7 @@ def predict_pql(
         if report_updates:
             context_report = context_report.model_copy(update=report_updates)
             result.attrs["context_policy"] = context_report.model_dump(mode="json")
-    if pipeline is None:
+    if pipeline is None and not is_static:
         pipeline = get_pipeline_manifest(
             engine=source.engine,
             query=query,
@@ -509,6 +567,93 @@ def get_context_label_frame(context: pd.DataFrame, labels: pd.Series) -> pd.Data
     frame["anchor_time"] = pd.to_datetime(frame["anchor_time"], utc=True)
     frame["label"] = labels.to_numpy(dtype=float)
     return frame
+
+
+def get_checked_output_type(
+    resolved: PredictionTask,
+    *,
+    output_type,
+    quantiles,
+    decision_threshold,
+    context_policy: ContextPolicy | None,
+) -> RelationalOutputType | None:
+    """Return the regression output type, or None for binary, after checks.
+
+    Binary PQL takes no output_type or quantiles; regression takes no
+    decision_threshold, defaults to the median, and needs sorted, unique
+    quantiles in (0, 1) for output_type='quantiles'. A balanced ContextPolicy
+    that corrects a 0/1 regression label needs output_type='mean'.
+    """
+    if resolved is PredictionTask.CLASSIFICATION:
+        if output_type is not None or quantiles is not None:
+            raise ValueError("binary PQL does not accept regression output options")
+        return None
+    if decision_threshold is not None:
+        raise ValueError("decision_threshold requires binary PQL")
+    output = RelationalOutputType(output_type or "median")
+    require_valid_quantiles(output, quantiles)
+    if (
+        context_policy is not None
+        and context_policy.balance is not None
+        and context_policy.correct_probabilities
+        and output is not RelationalOutputType.MEAN
+    ):
+        raise ValueError(
+            "a balanced ContextPolicy maps a 0/1 regression label back to "
+            "its population rate only for output_type='mean'; pass "
+            "output_type='mean' or correct_probabilities=False"
+        )
+    return output
+
+
+def require_valid_quantiles(output: RelationalOutputType, quantiles) -> None:
+    """Raise ValueError for quantiles that do not fit the regression output.
+
+    output_type='quantiles' needs a sorted, unique list in (0, 1); any other
+    output type takes no quantiles.
+    """
+    if output is RelationalOutputType.QUANTILES:
+        if (
+            not quantiles
+            or any(not 0 < q < 1 for q in quantiles)
+            or list(quantiles) != sorted(set(quantiles))
+        ):
+            raise ValueError("quantiles must be sorted, unique and between 0 and 1")
+    elif quantiles is not None:
+        raise ValueError("quantiles requires output_type='quantiles'")
+
+
+def require_valid_static_target_options(
+    *,
+    has_comparison: bool,
+    task,
+    output_type,
+    quantiles,
+    decision_threshold,
+    context_policy: ContextPolicy | None,
+) -> None:
+    """Raise ValueError, before any read, for static-target options that are wrong.
+
+    A comparison is always binary, and so is task='classification': their
+    options are checked in full, as get_checked_output_type does. Otherwise
+    the task string, the output type and the quantile list are checked, and
+    only the rules that depend on the column (a Boolean or 0/1 column is
+    binary) wait for the read.
+    """
+    requested = None if task is None else PredictionTask(task)
+    if has_comparison and requested is PredictionTask.REGRESSION:
+        raise ValueError("task contradicts the PQL target")
+    known = PredictionTask.CLASSIFICATION if has_comparison else requested
+    if known is not None:
+        get_checked_output_type(
+            known,
+            output_type=output_type,
+            quantiles=quantiles,
+            decision_threshold=decision_threshold,
+            context_policy=context_policy,
+        )
+        return
+    require_valid_quantiles(RelationalOutputType(output_type or "median"), quantiles)
 
 
 def get_context_policy_chooser(

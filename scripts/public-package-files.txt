@@ -10,6 +10,7 @@ nori_rel/_legacy.py
 nori_rel/_names.py
 nori_rel/_pql_features.py
 nori_rel/_pql_runtime.py
+nori_rel/_pql_static.py
 nori_rel/_runtime.py
 nori_rel/client.py
 nori_rel/connectors/__init__.py
@@ -80,6 +81,7 @@ nori_rel/pql/relationships.py
 nori_rel/pql/scope.py
 nori_rel/pql/scoring_sql.py
 nori_rel/pql/sql_expressions.py
+nori_rel/pql/static_context_sql.py
 nori_rel/pql/tree_access.py
 nori_rel/pql/window.py
 nori_rel/py.typed

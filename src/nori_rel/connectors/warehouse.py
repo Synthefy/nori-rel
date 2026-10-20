@@ -46,6 +46,7 @@ from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS, _utc
 from nori_rel.pql.dialects import SQLDialect
 from nori_rel.pql.scoring_sql import compile_scoring_filter_sql
 from nori_rel.pql.sql_expressions import column_kind
+from nori_rel.pql.tree_access import query_parts
 
 _PYFORMAT_PARAMETER = re.compile(r"%%|%\(([^)]+)\)s")
 _SQL_QUOTED_TEXT = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`")
@@ -913,8 +914,13 @@ class WarehouseConnector:
                 session.schema,
                 session.dialect,
             )
-            anchor_time = self._get_scoring_anchor_time(
-                connection, schema, dialect, anchor_time
+            # A static target is read as stored at this pinned extraction.
+            anchor_time = (
+                session.pinned_at
+                if anchor_time is None and query_parts(tree)["aggregate"] is None
+                else self._get_scoring_anchor_time(
+                    connection, schema, dialect, anchor_time
+                )
             )
             sql, params = compile_prepared_context_sql(
                 tree,
@@ -926,6 +932,7 @@ class WarehouseConnector:
                 max_context_rows=max_context_rows,
                 dialect=dialect,
                 candidate_sql=candidate_sql,
+                query_filter=query_filter,
             )
             self._validate_visible_table_keys(session, anchor_time)
             rows = self._get_query_frame(

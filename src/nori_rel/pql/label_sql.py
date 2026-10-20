@@ -1,4 +1,4 @@
-"""Compile direct/aggregate labels with shared joins and parameterized predicates."""
+"""Compile static/aggregate labels with shared joins and parameterized predicates."""
 
 from functools import partial
 
@@ -144,7 +144,7 @@ def _single_label_sql(
 
     Args:
         tree: parse_pql(text), e.g. COUNT(orders.*,0,30,days)=0 as the target.
-            Supports COUNT(* / column), numeric SUM/AVG/MIN/MAX, direct numeric
+            Supports COUNT(* / column), numeric SUM/AVG/MIN/MAX, static numeric
             or Boolean columns, and scalar comparisons. Filters support column
             comparisons, IN, IS NULL/IS NOT NULL and AND. Context WHERE applies
             to entity rows; inline WHERE applies to events before aggregation.
@@ -152,7 +152,7 @@ def _single_label_sql(
             columns [{name, data_type, nullable}], primary_key,
             foreign_keys [{columns, referred_table, referred_columns}], and
             time_column. E.g. orders.buyer_id -> users.user_id, event_time mapped
-            to a timestamp. Direct targets require no event table/time mapping.
+            to a timestamp. Static targets require no event table/time mapping.
         aggregate_node: Optional original aggregate leaf from an arithmetic target.
             Compiles that leaf without applying the final target comparison.
         context_schema: Literal schema name for prepared historical context rows;
@@ -164,7 +164,7 @@ def _single_label_sql(
             context rows with complete future windows and non-null keys/timestamps.
             Use UTC timestamps/session timezone. Entity attributes must be
             immutable or valid for every supplied anchor: versioned attribute
-            joins are not supported. Direct context must exclude scoring labels.
+            joins are not supported. Static-target context must exclude scoring labels.
         dialect: Engine SQL syntax and optional snapshot-pinned source relations.
             Defaults to PostgreSQL for existing callers.
 
@@ -193,7 +193,7 @@ def _single_label_sql(
             or an interval that does not end after it starts.
 
     FOR selects scoring entities; it does not narrow the provided historical
-    cohort. The executor owns context eligibility, data completeness, direct
+    cohort. The executor owns context eligibility, data completeness, static
     label exclusion, bounded reads, features and Nori calls. This compiles SQL
     only; it cannot verify those data guarantees from SchemaGraph metadata.
     """
@@ -225,7 +225,7 @@ def _single_label_sql(
     if aggregate is None:
         label, kind = column_ref(target_node, "u")
         if parts["comparison"] is None and column_kind(kind) not in {"number", "bool"}:
-            raise ValueError("Direct targets require numeric or Boolean columns")
+            raise ValueError("Static targets require numeric or Boolean columns")
     else:
         window = target_window(aggregate)
         timestamp = next(c for c in target.columns if c.name == target.time_column)
