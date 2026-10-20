@@ -21,8 +21,9 @@ def compile_prepared_context_sql(
 
     Inputs: parsed PQL, registered SchemaGraph, and compile_context_sql keyword
     options (anchor_times, anchor_time, observed_through, entity_created_at,
-    optional max_context_rows). Values stay bound, including overlapping filter
-    parameter names in the two compilers.
+    optional max_context_rows, where None reads every candidate that can have
+    a known label). Values stay bound, including overlapping filter parameter
+    names in the two compilers.
 
     Output: (sql, params), returning ordered columns
     (context_row_id, entity_id, anchor_time, label), including NULL labels.

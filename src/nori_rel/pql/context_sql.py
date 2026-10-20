@@ -8,6 +8,10 @@ from nori_rel.contracts import SchemaGraph
 from nori_rel.pql._generated.PQLGrammarParser import PQLGrammarParser as Grammar
 from nori_rel.pql.binding import bind_columns, get_entity_created_at_column
 from nori_rel.pql.dialects import SQLDialect
+from nori_rel.pql.label_events import (
+    get_label_event_aggregates,
+    get_label_event_candidates_sql,
+)
 from nori_rel.pql.label_sql import compile_label_sql
 from nori_rel.pql.sql_expressions import Scalar, filter_sql
 from nori_rel.pql.tree_access import (
@@ -27,6 +31,26 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+def get_eligible_anchor_times(
+    tree: Grammar.ProgContext,
+    *,
+    anchor_times: Sequence[datetime],
+    anchor_time: datetime,
+    observed_through: datetime,
+) -> list[datetime]:
+    """Return the distinct UTC anchors, oldest first, whose labels are observed.
+
+    An anchor is eligible when every aggregate's whole label interval ends by
+    min(anchor_time, observed_through); the furthest interval end governs, and
+    a delayed start does not bring an anchor forward. Calendar months vary in
+    length, so each anchor's own interval end is checked, not one threshold.
+    """
+    cutoff = min(_utc(anchor_time), _utc(observed_through))
+    windows = [target_window(a) for a in target_aggregates(tree)]
+    requested = sorted(set(map(_utc, anchor_times)))
+    return [a for a in requested if all(w.is_observed(a, cutoff) for w in windows)]
+
+
 def compile_context_sql(
     tree: Grammar.ProgContext,
     schema: SchemaGraph,
@@ -35,8 +59,9 @@ def compile_context_sql(
     anchor_time: datetime,
     observed_through: datetime,
     entity_created_at: str,
-    max_context_rows: int = DEFAULT_MAX_CONTEXT_ROWS,
+    max_context_rows: int | None = DEFAULT_MAX_CONTEXT_ROWS,
     dialect: SQLDialect | None = None,
+    candidate_sql: str | None = None,
 ) -> tuple[str, dict[str, Scalar]]:
     """Compile a read-only SELECT of eligible historical candidates.
 
@@ -60,13 +85,24 @@ def compile_context_sql(
             Caller guarantees it means when that entity first existed/was known.
             Null creation times exclude entities. Other entity attributes must
             be immutable or valid at all supplied anchors; no versioned joins.
-        max_context_rows: Positive integer cap on candidate output rows.
-            Defaults to DEFAULT_MAX_CONTEXT_ROWS (5,000); callers may override it.
-            Applied after time eligibility and the PQL context filter. This is
-            NOT a guarantee of that many usable labels: later preparation drops
-            unknown labels, refills if needed and applies model/element budgets.
+        max_context_rows: Positive integer cap on candidate output rows, or
+            None for every candidate that can have a known label. Defaults to
+            DEFAULT_MAX_CONTEXT_ROWS (5,000); callers may override it. An
+            integer cap applies after time eligibility and the PQL context
+            filter, newest anchor first. It is NOT a guarantee of that many
+            usable labels: later preparation drops unknown labels without
+            refilling the cap, and then applies model/element budgets. None
+            removes the LIMIT, and when the label is unknown unless an
+            aggregate has an event in its window (a ratio's denominator; AVG,
+            MIN, MAX, FIRST, LAST), candidates start from that aggregate's
+            events in each anchor's window instead of every entity at every
+            anchor. The caller then chooses among the labelled rows.
         dialect: Engine SQL syntax and optional snapshot-pinned source relations.
             Defaults to PostgreSQL for existing callers.
+        candidate_sql: Optional caller SELECT over ``candidates(entity_id,
+            anchor_time)`` that returns the pairs to keep; needs
+            ``max_context_rows=None``. It is embedded as a CTE, can only
+            narrow the candidates, and duplicates in it do not repeat rows.
 
     Returns:
         (sql, params), for cursor.execute(sql, params).fetchall(). Rows are
@@ -78,8 +114,8 @@ def compile_context_sql(
         existed by their anchor. FOR IDs do not restrict this historical cohort.
 
         Selection is deterministic: newest anchor first, then primary key.
-        IDs are unique within this result, not durable across data changes.
-        This initial policy is not representative/random context sampling.
+        IDs are unique within this result, not durable across data changes,
+        and follow the same order without a cap.
 
     Raises:
         ValueError: Direct target, invalid limits, naive times or invalid creation
@@ -98,17 +134,26 @@ def compile_context_sql(
         raise ValueError("Historical context SQL requires a temporal aggregate target")
     # Validate the entire target, relationship, filters and horizon before execution.
     compile_label_sql(tree, schema, dialect=dialect)
-    if type(max_context_rows) is not int or max_context_rows <= 0:
-        raise ValueError("max_context_rows must be a positive integer")
-    cutoff = min(_utc(anchor_time), _utc(observed_through))
-    # Every leaf's whole interval must be observed, so the furthest end governs;
-    # a delayed start does not bring an anchor forward. Calendar months vary in
-    # length, so each anchor's own interval end is checked, not one threshold.
+    if max_context_rows is not None and (
+        type(max_context_rows) is not int or max_context_rows <= 0
+    ):
+        raise ValueError("max_context_rows must be a positive integer or None")
+    if candidate_sql is not None and max_context_rows is not None:
+        raise ValueError(
+            "candidate_sql filters the uncapped read: max_context_rows=None"
+        )
+    anchors = get_eligible_anchor_times(
+        tree,
+        anchor_times=anchor_times,
+        anchor_time=anchor_time,
+        observed_through=observed_through,
+    )
     windows = [target_window(a) for a in target_aggregates(tree)]
-    requested = sorted(set(map(_utc, anchor_times)))
-    anchors = [a for a in requested if all(w.is_observed(a, cutoff) for w in windows)]
     _warn_about_unobserved_anchors(
-        requested, anchors, cutoff, in_days=any(w.unit == "days" for w in windows)
+        sorted(set(map(_utc, anchor_times))),
+        anchors,
+        min(_utc(anchor_time), _utc(observed_through)),
+        in_days=any(w.unit == "days" for w in windows),
     )
 
     ids, bound = node_ids(tree), bind_columns(tree, schema)
@@ -116,7 +161,9 @@ def compile_context_sql(
     entity_created_at = get_entity_created_at_column(
         schema, entity, entity_created_at
     ).name
-    params: dict[str, Scalar] = {"max_context_rows": max_context_rows}
+    params: dict[str, Scalar] = {}
+    if max_context_rows is not None:
+        params["max_context_rows"] = max_context_rows
 
     def column_ref(node):
         """Return ('u."country"', ColumnSchema) for a bound context column."""
@@ -133,20 +180,59 @@ def compile_context_sql(
     # Keep the explicit candidate row cap for now. Large-context preparation,
     # retrieval and inference need separate budgets; LIMIT does not bound scans.
     users = dialect.table_reference(schema.schema_name, entity.name)
-    sql = f"""WITH anchors(anchor_time) AS ({anchor_sql}),
+    label_event_aggregates = (
+        get_label_event_aggregates(tree) if max_context_rows is None else []
+    )
+    if label_event_aggregates:
+        # Any one required aggregate gives a superset of the labelled rows;
+        # label SQL computes the labels and unknown ones are still dropped.
+        event_candidates = get_label_event_candidates_sql(
+            tree,
+            schema,
+            label_event_aggregates[0],
+            anchors_relation="anchors",
+            params=params,
+            dialect=dialect,
+        )
+        sql = f"""WITH anchors(anchor_time) AS ({anchor_sql}),
+label_event_candidates AS (
+    {event_candidates}
+),
+selected AS (
+    SELECT u.{identifier(key.name)} AS entity_id, c.anchor_time
+    FROM label_event_candidates AS c
+    JOIN {users} AS u ON u.{identifier(key.name)} = c.entity_id
+    WHERE u.{identifier(entity_created_at)} <= c.anchor_time"""
+    else:
+        sql = f"""WITH anchors(anchor_time) AS ({anchor_sql}),
 selected AS (
     SELECT u.{identifier(key.name)} AS entity_id, a.anchor_time
     FROM {users} AS u CROSS JOIN anchors AS a
     WHERE u.{identifier(entity_created_at)} <= a.anchor_time"""
     if predicate:
         sql += f"\n      AND {predicate}"
-    sql += """
+    if max_context_rows is not None:
+        sql += """
     ORDER BY a.anchor_time DESC, entity_id
-    LIMIT %(max_context_rows)s
-)
+    LIMIT %(max_context_rows)s"""
+    sql += "\n)"
+    candidate_filter = ""
+    if candidate_sql is not None:
+        # Literal percent signs must survive pyformat parameter binding.
+        sql += f""",
+candidates AS (SELECT entity_id, anchor_time FROM selected),
+chosen AS (
+{candidate_sql.replace("%", "%%")}
+)"""
+        candidate_filter = """ AS s
+WHERE EXISTS (
+    SELECT 1 FROM chosen AS c
+    WHERE c.entity_id = s.entity_id AND c.anchor_time = s.anchor_time
+)"""
+    sql += f"""
 SELECT ROW_NUMBER() OVER (ORDER BY anchor_time DESC, entity_id) AS context_row_id,
        entity_id, anchor_time
-FROM selected
+FROM selected{candidate_filter}
 ORDER BY context_row_id"""
     return sql, params
 

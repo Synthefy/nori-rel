@@ -97,6 +97,22 @@ def test_the_client_search_counts_any_higher_score_as_a_gain(snapshot, anchors):
         session.close()
 
 
+def test_prompt_ends_with_the_callers_instructions_verbatim(snapshot, anchors):
+    instructions = "Treat 1-3 Jun as broken tracking.\nPrefer drug-level history."
+    session = _session(snapshot, anchors)
+    try:
+        assert "Instructions from the user" not in ProgramAgentBase.user_prompt(
+            None, session, ""
+        )
+        session.agent_instructions = instructions
+        prompt = ProgramAgentBase.user_prompt(None, session, "orders")
+        assert "Task context: orders" in prompt
+        assert "Instructions from the user" in prompt
+        assert prompt.endswith("\n" + instructions)
+    finally:
+        session.close()
+
+
 def test_tools_carry_schemas_and_return_rejections_as_text(
     snapshot, anchors, sql
 ) -> None:
@@ -420,6 +436,7 @@ def test_one_agent_can_run_two_searches_without_shared_counters(agent_class):
             config=SimpleNamespace(
                 max_trials=1, allow_target_transform=False, min_relative_gain=0
             ),
+            agent_instructions=None,
         )
         return agent.run(session, hint)
 

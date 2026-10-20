@@ -295,7 +295,8 @@ class ProgramAgentBase(ABC):
 
         When programs extend the baseline, say so: the DFS columns are already
         in every scored table, so the useful program is the one that adds what
-        they lack.
+        they lack. The caller's ``agent_instructions`` close the request,
+        verbatim.
         """
         prompt = "Find the best feature program for this database."
         if session.baseline is not None and session.extends_baseline:
@@ -337,6 +338,12 @@ class ProgramAgentBase(ABC):
             )
         if task_hint:
             prompt += f"\nTask context: {task_hint}"
+        if session.agent_instructions:
+            prompt += (
+                "\nInstructions from the user. Follow them where they apply; "
+                "the leak checks and scoring rules still hold:\n"
+                f"{session.agent_instructions}"
+            )
         return prompt
 
     @abstractmethod

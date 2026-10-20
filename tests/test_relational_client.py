@@ -590,3 +590,78 @@ def test_a_feature_strategy_cannot_be_passed_with_a_feature_program() -> None:
     ):
         _predict(client, feature_strategy="fastdfs", feature_program={"queries": []})
     assert runtime.prediction is None
+
+
+INSTRUCTIONS = (
+    "Signups on 1-3 Jun had broken tracking; do not build features from them."
+)
+
+
+class OptionsRecordingRuntime(FakeRuntime):
+    """A runtime that keeps the keyword options of its last prediction."""
+
+    def __init__(self, features="fastdfs") -> None:
+        super().__init__()
+        self.features = features
+        self.options = None
+
+    def predict_pql(self, source, request, **options):
+        self.options = options
+        return super().predict_pql(source, request, **options)
+
+
+def test_agent_instructions_reach_an_agent_search() -> None:
+    runtime = OptionsRecordingRuntime(features=AgenticSearch(agent=object()))
+    _client(runtime).predict(
+        source=runtime.source, agent_instructions=INSTRUCTIONS, **PQL_OPTIONS
+    )
+    assert runtime.options["agent_instructions"] == INSTRUCTIONS
+
+
+def test_agent_instructions_follow_the_predictions_own_feature_search() -> None:
+    # A FastDFS client accepts the text when this prediction searches with an
+    # agent, and refuses it when this prediction picks NoriDFS.
+    runtime = OptionsRecordingRuntime(features="fastdfs")
+    search = AgenticSearch(agent=object())
+    _client(runtime).predict(
+        source=runtime.source,
+        agent_instructions=INSTRUCTIONS,
+        feature_strategy=search,
+        **PQL_OPTIONS,
+    )
+    assert runtime.options["agent_instructions"] == INSTRUCTIONS
+    agent_runtime = OptionsRecordingRuntime(features=search)
+    with pytest.raises(ValueError, match="needs an agent feature search"):
+        _client(agent_runtime).predict(
+            source=agent_runtime.source,
+            agent_instructions=INSTRUCTIONS,
+            feature_strategy="noridfs",
+            **PQL_OPTIONS,
+        )
+
+
+@pytest.mark.parametrize(
+    ("features", "extra", "message"),
+    [
+        ("fastdfs", {}, "needs an agent feature search"),
+        ("noridfs", {}, "needs an agent feature search"),
+        (None, {"agent_instructions": "   "}, "non-blank"),
+    ],
+)
+def test_agent_instructions_no_agent_would_read_are_refused(features, extra, message):
+    search = AgenticSearch(agent=object()) if features is None else features
+    runtime = OptionsRecordingRuntime(features=search)
+    options = {"agent_instructions": INSTRUCTIONS, **extra}
+    with pytest.raises(ValueError, match=message):
+        _client(runtime).predict(source=runtime.source, **options, **PQL_OPTIONS)
+    assert runtime.options is None
+
+
+def test_a_task_hint_is_deprecated_and_cannot_join_agent_instructions() -> None:
+    with pytest.warns(FutureWarning, match="agent_instructions"):
+        search = AgenticSearch(agent=object(), task_hint="order counts")
+    runtime = OptionsRecordingRuntime(features=search)
+    with pytest.raises(ValueError, match="not both"):
+        _client(runtime).predict(
+            source=runtime.source, agent_instructions=INSTRUCTIONS, **PQL_OPTIONS
+        )

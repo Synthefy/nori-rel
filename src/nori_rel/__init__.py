@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from nori_rel.client import NoriRelClient, PredictionOperation, PredictionTask
+from nori_rel.context_policy import ClassBalance, ContextPolicy, ContextPolicyReport
 from nori_rel.contracts import (
     AwsSecret,
     ConnectionStatus,
@@ -52,8 +53,11 @@ def __getattr__(name: str):
 __all__ = [
     "AgenticSearch",
     "AwsSecret",
+    "ClassBalance",
     "ConnectionStatus",
     "ConnectorCapabilities",
+    "ContextPolicy",
+    "ContextPolicyReport",
     "CredentialReference",
     "Database",
     "DatabaseCreateRequest",

@@ -12,6 +12,7 @@ from nori_rel._pql_features import build_prediction_rows
 from nori_rel.connectors.base import Snapshot
 from nori_rel.contracts import SchemaGraph
 from nori_rel.pql import parse_pql
+from nori_rel.pql.context_execution import compile_prepared_context_sql
 from nori_rel.pql.context_sql import compile_context_sql
 from nori_rel.pql.label_sql import compile_label_sql
 from nori_rel.pql.scoring_sql import compile_scoring_filter_sql
@@ -78,7 +79,7 @@ def compile_context(schema, query=QUERY, **overrides):
 
 @pytest.mark.parametrize("limit", [0, -1, 1.5, True, "5000"])
 def test_invalid_candidate_budget(schema, limit):
-    with pytest.raises(ValueError, match="positive integer"):
+    with pytest.raises(ValueError, match="positive integer or None"):
         compile_context(schema, max_context_rows=limit)
 
 
@@ -334,3 +335,133 @@ def test_a_month_window_keeps_february_without_a_warning(schema):
         )
     assert "2026-03-01" in str(record[0].message)
     assert "(0, 1, months)" not in str(record[0].message)
+
+
+def labelled_context(db, schema, *, query, max_context_rows, candidate_sql=None):
+    """Return (candidate_rows, sorted labelled (entity, anchor, label) rows)."""
+    sql, params = compile_prepared_context_sql(
+        parse_pql(query),
+        schema,
+        anchor_times=[JAN, FEB, MAR],
+        anchor_time=datetime(2026, 4, 1, tzinfo=UTC),
+        observed_through=datetime(2026, 3, 3, tzinfo=UTC),
+        entity_created_at="created_at",
+        max_context_rows=max_context_rows,
+        candidate_sql=candidate_sql,
+    )
+    rows = db.execute(sql, params).fetchall()
+    labelled = sorted(
+        (entity, anchor, None if label is None else float(label))
+        for _, entity, anchor, label in rows
+        if label is not None
+    )
+    return len(rows), labelled
+
+
+def test_uncapped_ratio_candidates_start_from_the_denominator_events(db, schema):
+    # January (Jan 1, Jan 31]: user 7 has a web and a store order -> 1/2.
+    # February (Feb 1, Mar 3]: user 42 has one web order -> 1/1; user 7 has
+    # none, so its 0/0 label is unknown and it never becomes a candidate.
+    # User 42 did not exist in January; GB user 99 fails the WHERE.
+    query = QUERY.replace(
+        "COUNT(orders.*,0,30,days)",
+        "COUNT(orders.* WHERE orders.channel='web',0,30,days)"
+        "/COUNT(orders.*,0,30,days)",
+    )
+    candidate_rows, labelled = labelled_context(
+        db, schema, query=query, max_context_rows=None
+    )
+    assert labelled == [(7, JAN, 0.5), (42, FEB, 1.0)]
+    assert candidate_rows == 2
+    legacy_rows, legacy_labelled = labelled_context(
+        db, schema, query=query, max_context_rows=5000
+    )
+    assert (legacy_rows, legacy_labelled) == (3, labelled)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "COUNT(orders.*,0,30,days)",
+        "SUM(orders.amount,0,30,days)",
+        "AVG(orders.amount,0,30,days)",
+        "MAX(orders.amount WHERE orders.channel='web',0,30,days)",
+        "SUM(orders.amount,0,30,days)/COUNT(orders.*,0,30,days)",
+        "AVG(orders.amount,0,30,days)/COUNT(orders.* WHERE orders.channel='web',"
+        "0,30,days)",
+        "COUNT(orders.* WHERE orders.channel='web',0,30,days)"
+        "/(COUNT(orders.*,0,30,days)+COUNT(orders.*,0,30,days))",
+        "COUNT(orders.* WHERE orders.channel='web',0,30,days)"
+        "/COUNT(orders.*,0,30,days)>0.75",
+    ],
+)
+def test_uncapped_candidates_hold_exactly_the_cross_join_labelled_rows(
+    db, schema, target
+):
+    """Labelled-first candidates equal every labelled entity-by-anchor row."""
+    query = QUERY.replace("COUNT(orders.*,0,30,days)", target, 1)
+    _, uncapped = labelled_context(db, schema, query=query, max_context_rows=None)
+    _, cross_join = labelled_context(db, schema, query=query, max_context_rows=5000)
+    assert uncapped == cross_join
+
+
+def test_uncapped_count_candidates_keep_the_cross_join_without_a_limit(db, schema):
+    sql, params = compile_context(schema, max_context_rows=None)
+    assert "LIMIT" not in sql
+    assert "max_context_rows" not in params
+    assert db.execute(sql, params).fetchall() == [
+        (1, 7, FEB),
+        (2, 42, FEB),
+        (3, 7, JAN),
+    ]
+
+
+RATIO_QUERY = QUERY.replace(
+    "COUNT(orders.*,0,30,days)",
+    "COUNT(orders.* WHERE orders.channel='web',0,30,days)/COUNT(orders.*,0,30,days)",
+)
+
+
+@pytest.mark.parametrize(
+    ("candidate_sql", "expected"),
+    [
+        # Keep one entity.
+        (
+            "SELECT entity_id, anchor_time FROM candidates WHERE entity_id = 7",
+            [(7, JAN, 0.5)],
+        ),
+        # Join a table, with a literal percent sign that must survive binding.
+        (
+            "SELECT c.entity_id, c.anchor_time FROM candidates c "
+            "JOIN pg_temp.users u ON u.user_id = c.entity_id "
+            "WHERE u.country LIKE 'U%'",
+            [(42, FEB, 1.0)],
+        ),
+        # Duplicates and non-candidate pairs (GB user 99) change nothing.
+        (
+            "SELECT entity_id, anchor_time FROM candidates "
+            "UNION ALL SELECT entity_id, anchor_time FROM candidates "
+            "UNION ALL SELECT 99, anchor_time FROM anchors",
+            [(7, JAN, 0.5), (42, FEB, 1.0)],
+        ),
+    ],
+)
+def test_candidate_sql_can_only_narrow_the_candidates(
+    db, schema, candidate_sql, expected
+):
+    candidate_rows, labelled = labelled_context(
+        db,
+        schema,
+        query=RATIO_QUERY,
+        max_context_rows=None,
+        candidate_sql=candidate_sql,
+    )
+    assert labelled == expected
+    assert candidate_rows == len(expected)
+
+
+def test_candidate_sql_needs_the_uncapped_read(schema):
+    with pytest.raises(ValueError, match="max_context_rows=None"):
+        compile_context(
+            schema, candidate_sql="SELECT * FROM candidates", max_context_rows=10
+        )

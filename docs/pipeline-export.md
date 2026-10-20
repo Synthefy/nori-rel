@@ -47,7 +47,9 @@ creation, prediction, export, a fresh client, and cleanup.
 ## What replay preserves
 
 The context policy stores each historical anchor's distance before the scoring
-cutoff. A new `as_of` shifts those anchors and reads fresh historical rows.
+cutoff, and either `max_context_rows` or the `ContextPolicy` the first run used
+(`row_policy`; see [context-policy.md](context-policy.md)). A new `as_of` shifts
+those anchors, reads fresh historical rows and applies the saved rule to them.
 Offsets are elapsed time, not calendar rules: a monthly schedule is not encoded
 as a calendar-month offset. Late-arriving rows or corrected values may therefore
 change a replay's context and predictions.

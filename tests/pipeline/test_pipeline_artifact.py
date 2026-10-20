@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from pipeline_records import QUERY, manifest_fields
 
-from nori_rel import NoriRelPipeline, PipelineError
+from nori_rel import ClassBalance, ContextPolicy, NoriRelPipeline, PipelineError
 from nori_rel.pipeline import (
     PIPELINE_ATTR,
     PipelineFeatureError,
@@ -201,6 +201,71 @@ def test_the_policy_comes_from_the_anchors_of_the_first_run() -> None:
 def test_the_policy_rejects_bad_offsets(offsets, message) -> None:
     with pytest.raises(ValueError, match=message):
         ContextPolicyRecord(anchor_offsets=offsets, max_context_rows=10)
+
+
+def test_pipelines_saved_before_row_policies_keep_their_id(manifest) -> None:
+    # The identifier of manifest_fields() computed on main before row_policy
+    # existed; a record without a policy must still hash to it.
+    assert manifest.context_policy.row_policy is None
+    assert manifest.pipeline_id == "pipe_16fffe1a9ab042d9"
+
+
+def test_a_row_policy_is_saved_replayed_and_part_of_the_id(manifest, tmp_path) -> None:
+    policy = ContextPolicy(
+        balance=ClassBalance(positives="all", negatives_per_positive=3),
+        time_sampling="equal_per_cutoff",
+        seed=42,
+    )
+    fields = manifest_fields()
+    fields["context_policy"] = {
+        "anchor_offsets": ["P90D", "P60D", "P30D"],
+        "row_policy": policy.model_dump(mode="json"),
+    }
+    with_policy = PipelineManifest.create(**fields)
+    other = PipelineManifest.create(
+        **{
+            **fields,
+            "context_policy": {
+                **fields["context_policy"],
+                "row_policy": policy.model_copy(update={"seed": 43}).model_dump(
+                    mode="json"
+                ),
+            },
+        }
+    )
+
+    assert with_policy.context_policy.row_policy == policy
+    assert with_policy.context_policy.max_context_rows is None
+    # The ID main computed for this record before candidate_sql existed.
+    assert with_policy.pipeline_id == "pipe_92c2b441940f5c13"
+    with_sql = PipelineManifest.create(
+        **{
+            **fields,
+            "context_policy": {
+                **fields["context_policy"],
+                "row_policy": policy.model_copy(
+                    update={"candidate_sql": "SELECT * FROM candidates"}
+                ).model_dump(mode="json"),
+            },
+        }
+    )
+    assert with_sql.pipeline_id != with_policy.pipeline_id
+    assert with_sql.context_policy.row_policy.candidate_sql == (
+        "SELECT * FROM candidates"
+    )
+    assert len({manifest.pipeline_id, with_policy.pipeline_id, other.pipeline_id}) == 3
+    path = tmp_path / "pipeline.json"
+    NoriRelPipeline(with_policy).save(path)
+    assert NoriRelPipeline.load(path).manifest.context_policy.row_policy == policy
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [{}, {"max_context_rows": 10, "row_policy": ContextPolicy()}],
+)
+def test_the_policy_record_holds_exactly_one_row_rule(rules) -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        ContextPolicyRecord(anchor_offsets=[timedelta(days=1)], **rules)
 
 
 def test_a_misspelled_plan_setting_fails_on_load(manifest) -> None:

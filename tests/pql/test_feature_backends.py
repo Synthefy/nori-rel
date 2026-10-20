@@ -51,9 +51,11 @@ class _ScriptedAgent:
 
     def __init__(self) -> None:
         self.hints: list[str] = []
+        self.instructions: list[str | None] = []
 
     def run(self, session, task_hint: str) -> AgentRunResult:
         self.hints.append(task_hint)
+        self.instructions.append(session.agent_instructions)
         session.validate_program(PROGRAM)
         return AgentRunResult(
             model="scripted",
@@ -174,6 +176,31 @@ def test_an_agent_program_that_beats_noridfs_is_kept(source, monkeypatch):
     assert "nr|anchor|entity_key" in options["categorical_columns"]
     assert "history__n_orders" not in options["categorical_columns"]
     assert result["prediction"].tolist() == [0.0] * 4
+    # The context report records how the agent split the rows it scored on.
+    split = result.attrs["context_policy"]["agent_search_split"]
+    assert split["requested_folds"] == len(split["folds"]) == 1
+    fold = split["folds"][0]
+    assert fold["context_rows"] + fold["validation_rows"] + split[
+        "confirmation_rows"
+    ] == len(final_train)
+
+
+def test_agent_instructions_reach_the_agent_and_the_report(source, monkeypatch):
+    _agentic()
+    agent = _ScriptedAgent()
+    search = AgenticSearch(agent=agent)
+    runtime, database, _ = _runtime(source, monkeypatch, search, _with_program)
+    instructions = "Prefer order history over account attributes."
+    try:
+        result = runtime.predict_pql(
+            database, QUERY, **OPTIONS, agent_instructions=instructions
+        )
+    finally:
+        runtime.close()
+    assert agent.instructions == [instructions]
+    report = result.attrs["context_policy"]
+    assert report["agent_instructions"] == instructions
+    assert report["agent_instruction_stages"] == ["feature_search"]
 
 
 def test_a_program_that_does_not_beat_noridfs_falls_back(source, monkeypatch):
@@ -231,6 +258,8 @@ def test_a_saved_program_replays_without_a_search(source, monkeypatch, saved_pro
     assert result.attrs["agentic_stop_reason"] == "replay"
     assert result.attrs["agentic_program"] == saved_program.model_dump(mode="json")
     assert result["prediction"].tolist() == [0.0] * 4
+    # A replay runs no search, so there is no agent split to report.
+    assert result.attrs["context_policy"]["agent_search_split"] is None
 
 
 @pytest.mark.parametrize(

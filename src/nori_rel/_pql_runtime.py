@@ -7,7 +7,12 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 
+from nori_rel._context_selection import (
+    get_probabilities_with_population_odds,
+    get_selected_context,
+)
 from nori_rel._pql_features import build_pql_features, build_prediction_rows
+from nori_rel.context_policy import ContextPolicy, ContextPolicyChooser
 from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
 from nori_rel.feature import FeatureBackend
 from nori_rel.pipeline import (
@@ -30,7 +35,10 @@ from nori_rel.pipeline.features import (
     get_tables_with_saved_dtypes,
 )
 from nori_rel.pql import parse_pql
-from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS
+from nori_rel.pql.context_sql import (
+    DEFAULT_MAX_CONTEXT_ROWS,
+    get_eligible_anchor_times,
+)
 from nori_rel.pql.tree_access import query_parts
 from nori_rel.pql.window import target_window
 from nori_rel.run import RunContext, Stage
@@ -73,6 +81,8 @@ def predict_pql(
     observed_through,
     entity_created_at: str,
     max_context_rows=DEFAULT_MAX_CONTEXT_ROWS,
+    context_policy: ContextPolicy | None = None,
+    agent_instructions: str | None = None,
     task=None,
     output_type=None,
     quantiles=None,
@@ -120,6 +130,15 @@ def predict_pql(
     in the same row order; all four stay out of the pipeline.
     feature_strategy is this prediction's feature search; None uses the
     runtime's.
+
+    context_policy chooses the context among every candidate with a known
+    label, in place of the newest max_context_rows candidates; balanced
+    probabilities and 0/1 means are mapped back to the population rate.
+    attrs["context_policy"] is the ContextPolicyReport of either rule: the
+    policy and who chose it, class counts before and after selection, rows per
+    cutoff and, for an agent search, how the agent split the rows.
+    agent_instructions is sent verbatim in an agent search's request, and the
+    report records it with the stages that received it.
     """
     run_context = run_context or RunContext.unobserved()
     chosen_features = runtime.features if feature_strategy is None else feature_strategy
@@ -133,7 +152,8 @@ def predict_pql(
     )
     if feature_program is not None:
         feature_program.validate_query(query, entity_created_at)
-    parts = query_parts(parse_pql(query))
+    tree = parse_pql(query)
+    parts = query_parts(tree)
     if parts["aggregate"] is None:
         raise ValueError("PQL inference currently requires a temporal aggregate target")
     resolved = (
@@ -163,6 +183,17 @@ def predict_pql(
                 raise ValueError("quantiles must be sorted, unique and between 0 and 1")
         elif quantiles is not None:
             raise ValueError("quantiles requires output_type='quantiles'")
+        if (
+            context_policy is not None
+            and context_policy.balance is not None
+            and context_policy.correct_probabilities
+            and output is not RelationalOutputType.MEAN
+        ):
+            raise ValueError(
+                "a balanced ContextPolicy maps a 0/1 regression label back to "
+                "its population rate only for output_type='mean'; pass "
+                "output_type='mean' or correct_probabilities=False"
+            )
     if metric is not None:
         _require_agent_search_metric(
             metric,
@@ -183,6 +214,12 @@ def predict_pql(
     if log_summary:
         logger.info("PQL task=%s; target=%s", resolved.value, parts["target"].getText())
     connector = runtime._connector(source)
+    # Only a policy's own SQL is passed, so custom connectors need no new option.
+    candidate_options = (
+        {"candidate_sql": context_policy.candidate_sql}
+        if context_policy is not None and context_policy.candidate_sql is not None
+        else {}
+    )
     with run_context.report_stage(Stage.MATERIALIZE):
         snapshot, context, counts = connector.prepare_inputs(
             source.id,
@@ -191,8 +228,24 @@ def predict_pql(
             anchor_time=anchor_time,
             observed_through=observed_through,
             entity_created_at=entity_created_at,
-            max_context_rows=max_context_rows,
+            # None reads every candidate that can have a known label, so the
+            # policy below chooses among labelled rows only.
+            max_context_rows=None if context_policy is not None else max_context_rows,
             query_filter=query_filter,
+            **candidate_options,
+        )
+        context, context_report = get_selected_context(
+            context,
+            context_policy,
+            chosen_by=get_context_policy_chooser(context_policy, pipeline),
+            max_context_rows=max_context_rows,
+            eligible_anchor_times=get_eligible_anchor_times(
+                tree,
+                anchor_times=anchor_times,
+                anchor_time=snapshot.as_of,
+                observed_through=observed_through,
+            ),
+            max_kept_rows=runtime.limits.max_context_rows,
         )
         if feature_program is not None:
             feature_program.validate_schema(snapshot.schema)
@@ -217,6 +270,7 @@ def predict_pql(
         ),
         **counts,
         "feature_count": 0,
+        "context_policy": context_report.model_dump(mode="json"),
     }
     if snapshot.provenance:
         metadata["snapshot"] = snapshot.provenance.model_dump(mode="json")
@@ -227,6 +281,13 @@ def predict_pql(
             counts["candidate_rows"],
             len(scoring),
         )
+        if context_policy is not None:
+            logger.info(
+                "PQL context policy kept %d of %d labelled rows over %d cutoffs",
+                len(context),
+                counts["usable_rows"],
+                sum(cutoff.kept_rows > 0 for cutoff in context_report.cutoffs),
+            )
     if scoring.empty:
         columns = ["entity_id", "anchor_time", "prediction"]
         if resolved is PredictionTask.CLASSIFICATION:
@@ -268,6 +329,7 @@ def predict_pql(
             run_context=run_context,
             metric=metric,
             feature_strategy=chosen_features,
+            agent_instructions=agent_instructions,
         )
     else:
         backend = get_saved_feature_backend(pipeline.features)
@@ -302,12 +364,17 @@ def predict_pql(
     if values.shape != (len(scoring),) or not np.isfinite(values).all():
         raise ValueError("Nori returned invalid predictions or the wrong row count")
     result = scoring[["entity_id", "anchor_time"]].copy()
+    correction_factor = context_report.probability_correction_factor
     if resolved is PredictionTask.CLASSIFICATION:
         if ((values < 0) | (values > 1)).any():
             raise ValueError("Nori returned probabilities outside [0, 1]")
+        if correction_factor is not None:
+            values = get_probabilities_with_population_odds(values, correction_factor)
         result["prediction"] = values >= threshold
         result["probability"] = values
     else:
+        if correction_factor is not None:
+            values = get_probabilities_with_population_odds(values, correction_factor)
         result["prediction"] = values
         if output is RelationalOutputType.QUANTILES:
             array = np.asarray(bands, dtype=float)
@@ -326,7 +393,10 @@ def predict_pql(
         }
     )
     if metadata["features"] in ("agentic", "saved_program"):
-        from nori_rel._feature_search import agentic_summary
+        from nori_rel._feature_search import (
+            agentic_summary,
+            get_agent_search_split_report,
+        )
 
         result.attrs.update(
             agentic_summary(
@@ -336,6 +406,19 @@ def predict_pql(
                 schema=snapshot.schema,
             )
         )
+        split_report = get_agent_search_split_report(backend)
+        report_updates = {}
+        if split_report is not None:
+            report_updates["agent_search_split"] = split_report
+        if agent_instructions is not None:
+            # A search session exists only once its agent has been asked.
+            report_updates["agent_instructions"] = agent_instructions
+            report_updates["agent_instruction_stages"] = (
+                ("feature_search",) if split_report is not None else ()
+            )
+        if report_updates:
+            context_report = context_report.model_copy(update=report_updates)
+            result.attrs["context_policy"] = context_report.model_dump(mode="json")
     if pipeline is None:
         pipeline = get_pipeline_manifest(
             engine=source.engine,
@@ -345,6 +428,7 @@ def predict_pql(
             as_of=scoring["anchor_time"].iloc[0],
             anchor_times=anchor_times,
             max_context_rows=max_context_rows,
+            context_policy=context_policy,
             schema=snapshot.schema,
             tables=snapshot.tables,
             backend=backend,
@@ -420,6 +504,19 @@ def get_context_label_frame(context: pd.DataFrame, labels: pd.Series) -> pd.Data
     frame["anchor_time"] = pd.to_datetime(frame["anchor_time"], utc=True)
     frame["label"] = labels.to_numpy(dtype=float)
     return frame
+
+
+def get_context_policy_chooser(
+    context_policy: ContextPolicy | None, pipeline
+) -> ContextPolicyChooser:
+    """Return who chose a prediction's context rule, as its report names it.
+
+    ``pipeline`` for a saved pipeline's rule, ``caller`` for a policy passed
+    to ``predict``, and ``default`` for the newest-candidates rule.
+    """
+    if pipeline is not None:
+        return "pipeline"
+    return "default" if context_policy is None else "caller"
 
 
 def get_feature_strategy_name(features, *, replaying_program: bool) -> str:

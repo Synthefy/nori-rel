@@ -27,6 +27,7 @@ from pydantic import (
 )
 
 from nori_rel._feature_program import SavedFeatureProgram
+from nori_rel.context_policy import ContextPolicy
 from nori_rel.contracts import (
     DatabaseEngine,
     PredictionTask,
@@ -79,16 +80,23 @@ class TaskRecord(_Record):
 class ContextPolicyRecord(_Record):
     """The rules that build the labeled context rows for each run.
 
-    A run takes its ``as_of`` time, puts one context anchor at ``as_of``
-    minus each offset, and keeps at most ``max_context_rows`` labeled rows.
-    The context therefore moves forward with ``as_of`` and includes the
-    labels that became known since the pipeline was saved. Offsets are listed
-    from the oldest anchor to the newest, so their count and spacing are
-    the policy.
+    A run takes its ``as_of`` time and puts one context anchor at ``as_of``
+    minus each offset. With ``row_policy`` it then chooses among every
+    candidate with a known label by that ``ContextPolicy``; without one it
+    keeps the newest ``max_context_rows`` candidates and drops unknown
+    labels. The context therefore moves forward with ``as_of`` and includes
+    the labels that became known since the pipeline was saved. Offsets are
+    listed from the oldest anchor to the newest, so their count and spacing
+    are the policy.
     """
 
     anchor_offsets: tuple[timedelta, ...] = Field(min_length=1)
-    max_context_rows: int = Field(gt=0)
+    #: The newest-candidates cap; ``None`` when ``row_policy`` is set.
+    max_context_rows: int | None = Field(default=None, gt=0)
+    #: The ContextPolicy the first run used; ``None`` for the newest
+    #: candidates up to ``max_context_rows``. Left out of ``pipeline_id``
+    #: when ``None``, so pipelines saved before it existed keep their ID.
+    row_policy: ContextPolicy | None = None
 
     @model_validator(mode="after")
     def validate_offsets(self) -> Self:
@@ -100,6 +108,13 @@ class ContextPolicyRecord(_Record):
             raise ValueError("anchor offsets must be listed from longest to shortest")
         return self
 
+    @model_validator(mode="after")
+    def validate_one_row_rule(self) -> Self:
+        """Require exactly one of ``max_context_rows`` and ``row_policy``."""
+        if (self.max_context_rows is None) == (self.row_policy is None):
+            raise ValueError("set exactly one of max_context_rows and row_policy")
+        return self
+
     def get_anchor_times(self, as_of: datetime) -> list[datetime]:
         """Return the context anchors for ``as_of``, oldest first."""
         if as_of.tzinfo is None:
@@ -108,10 +123,21 @@ class ContextPolicyRecord(_Record):
 
     @classmethod
     def from_anchor_times(
-        cls, anchor_times: Sequence[datetime], *, as_of: datetime, max_context_rows: int
+        cls,
+        anchor_times: Sequence[datetime],
+        *,
+        as_of: datetime,
+        max_context_rows: int,
+        row_policy: ContextPolicy | None = None,
     ) -> ContextPolicyRecord:
-        """Return the policy that gives ``anchor_times`` when run at ``as_of``."""
+        """Return the policy that gives ``anchor_times`` when run at ``as_of``.
+
+        With ``row_policy``, ``max_context_rows`` is not recorded: the policy
+        decides the rows.
+        """
         offsets = sorted({as_of - anchor for anchor in anchor_times}, reverse=True)
+        if row_policy is not None:
+            return cls(anchor_offsets=tuple(offsets), row_policy=row_policy)
         return cls(anchor_offsets=tuple(offsets), max_context_rows=max_context_rows)
 
 
@@ -337,6 +363,12 @@ class PipelineManifest(_Record):
 def get_pipeline_id(manifest: PipelineManifest) -> str:
     """Hash the sections that decide predictions into a ``pipe_`` identifier."""
     payload = manifest.model_dump(mode="json", include=set(PIPELINE_ID_FIELDS))
+    if manifest.context_policy.row_policy is None:
+        # Pipelines saved before row_policy existed hash without it.
+        del payload["context_policy"]["row_policy"]
+    elif manifest.context_policy.row_policy.candidate_sql is None:
+        # Policies saved before candidate_sql existed hash without it.
+        del payload["context_policy"]["row_policy"]["candidate_sql"]
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     digest = hashlib.sha256(encoded).hexdigest()
     return PIPELINE_ID_PREFIX + digest[:PIPELINE_ID_HEX_CHARS]

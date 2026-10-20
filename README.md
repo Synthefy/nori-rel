@@ -95,6 +95,13 @@ your table has none, add one, usually each entity's first event time. See
 [PQL and time semantics](docs/pql.md) for this column, rates written as
 `COUNT(...)/COUNT(...)`, and the v0 limits, with worked examples.
 
+`max_context_rows` caps candidates before unknown labels are dropped, so a
+rare or delayed label can leave few rows. `context=ContextPolicy(...)` instead
+chooses among labelled rows only, and can balance a 0/1 label, spread rows
+over cutoffs, cap rows per entity and map balanced probabilities back to the
+population rate. `metadata["context_policy"]` reports the rows kept at each
+cutoff either way. See [`docs/context-policy.md`](docs/context-policy.md).
+
 The default mode runs Nori in your process. The first local prediction downloads
 model weights; subsequent predictions can use the populated cache offline.
 Use `NoriRelClient(mode="hosted")` to send the generated context/query feature
@@ -185,6 +192,16 @@ it, with relative and normalized errors as percentages
 ```python
 client.predict(source=source, query=query, feature_strategy=search, metric="wape", ...)
 ```
+
+`predict(agent_instructions="...")` sends your own text, verbatim, at the end
+of the agent's request, for example "Signups on 1-3 Jun had broken tracking;
+do not build features from them". It needs an `AgenticSearch` as the
+prediction's feature search; with FastDFS, NoriDFS or a replayed program
+`predict` raises instead of dropping the text. It cannot loosen the leak checks
+or the scoring rules, which code enforces. `metadata["context_policy"]` records
+the text and the agent stages that received it. It replaces
+`AgenticSearch(task_hint=...)`, which still works with a `FutureWarning`;
+passing both raises.
 
 ## Inspect the features
 
