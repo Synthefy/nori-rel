@@ -31,6 +31,13 @@
 - Pipelines save the policy in `context_policy.row_policy` and replay it at
   each run's `as_of` with the same seed. Pipelines saved before keep their
   `pipeline_id`.
+- A foreign key from a selected table to a table the source did not select,
+  such as `signups.device_id` when `devices` is too large to load, no longer
+  stops NoriDFS or an agent search with "referred key references missing
+  table". Both connectors leave such keys out of the snapshot, FastDFS as
+  before, and every prediction lists them in `metadata["dropped_foreign_keys"]`
+  (for example `"signups.device_id -> devices.device_id"`); pipelines keep the
+  list in their provenance.
 
 ## 0.4.5 — 2026-10-18
 

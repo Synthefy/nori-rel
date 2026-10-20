@@ -18,7 +18,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql.sqltypes import Date, DateTime
 
 from nori_rel._credentials import CredentialResolver
-from nori_rel.connectors.base import Snapshot, get_context_read_row_cap
+from nori_rel.connectors.base import (
+    Snapshot,
+    get_context_read_row_cap,
+    get_loaded_foreign_keys,
+)
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.contracts import (
     ColumnSchema,
@@ -645,24 +649,12 @@ class PostgreSQLConnector:
             if total_bytes > max_bytes:
                 raise SnapshotLimitError("snapshot exceeds the configured memory limit")
             frames[table_schema.name] = frame
-        foreign_keys: list[tuple[str, str, str, str]] = []
-        primary_keys: dict[str, list[str]] = {}
-        for table in schema.tables:
-            primary_keys[table.name] = table.primary_key
-            for foreign_key in table.foreign_keys:
-                if len(foreign_key.columns) == len(foreign_key.referred_columns) == 1:
-                    foreign_keys.append(
-                        (
-                            table.name,
-                            foreign_key.columns[0],
-                            foreign_key.referred_table,
-                            foreign_key.referred_columns[0],
-                        )
-                    )
+        primary_keys = {table.name: table.primary_key for table in schema.tables}
         return Snapshot(
             tables=frames,
             primary_keys=primary_keys,
-            foreign_keys=foreign_keys,
+            # Keys to tables the source did not select cannot be followed.
+            foreign_keys=get_loaded_foreign_keys(schema, frames),
             time_columns={
                 table.name: table.time_column
                 for table in schema.tables

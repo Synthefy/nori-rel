@@ -47,6 +47,7 @@ PROVENANCE_KEYS = (
     "context_rows_sha256",
     "feature_matrix_sha256",
     "context_policy",
+    "dropped_foreign_keys",
 )
 
 

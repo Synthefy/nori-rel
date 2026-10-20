@@ -25,6 +25,7 @@ from nori_rel.connectors.base import (
     Snapshot,
     SnapshotProvenance,
     get_context_read_row_cap,
+    get_loaded_foreign_keys,
 )
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.contracts import (
@@ -845,17 +846,8 @@ class WarehouseConnector:
         return Snapshot(
             tables=frames,
             primary_keys={table.name: table.primary_key for table in schema.tables},
-            foreign_keys=[
-                (
-                    table.name,
-                    key.columns[0],
-                    key.referred_table,
-                    key.referred_columns[0],
-                )
-                for table in schema.tables
-                for key in table.foreign_keys
-                if len(key.columns) == len(key.referred_columns) == 1
-            ],
+            # Keys to tables the source did not select cannot be followed.
+            foreign_keys=get_loaded_foreign_keys(schema, frames),
             time_columns={
                 table.name: table.time_column
                 for table in schema.tables

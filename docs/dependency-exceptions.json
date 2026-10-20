@@ -74,7 +74,7 @@
       "sha256": "f7bb370f0c4c48217a74d5e7b775b5b6ab7df83285ae6d47e7ba9ad52d796bd3"
     },
     "src/nori_rel/_pql_runtime.py": {
-      "sha256": "af56b0afa39b78dd943c011c1b1c2a8f4d62cd88271aab772f8cc54caa807725"
+      "sha256": "222a7db000b2eafecbcc3949f4ed2ae7df6280b75c78481b6b6faa08395ad681"
     },
     "src/nori_rel/_runtime.py": {
       "sha256": "8024bb4f89bc43defa0bb34933f2ab2897b8822d62e2cacac224ad89e750b399"
@@ -86,7 +86,7 @@
       "sha256": "062b7b032c2a4d0d07484e5014b7dc46b6486887ecf158b3d101cb387abde71d"
     },
     "src/nori_rel/connectors/base.py": {
-      "sha256": "9def6df6acad464d489a1ddb350464ce8afca9f44814022f9c7d6c3d6978f09e"
+      "sha256": "c23abc8c0870526d802fc2ffad8e05310501fbafc0f672b3e0141c9904f5a99f"
     },
     "src/nori_rel/connectors/databricks.py": {
       "sha256": "94dda158d238f3e30c74ecad302e39b88e8e5592a3273cfcfdbc714c8b7d1daa"
@@ -95,13 +95,13 @@
       "sha256": "b94959788800d6d8eeb7c577cd8bbda9a7e1fd5203117375032bf4d802fa1861"
     },
     "src/nori_rel/connectors/postgres.py": {
-      "sha256": "c6e02f79dadd2abf2750e08fc5dd73509ba27437429b508376084423b94103bb"
+      "sha256": "adabf87e0230449fc4d26e898abeae693c2b481cebba0b4552a13533bbb99bad"
     },
     "src/nori_rel/connectors/snowflake.py": {
       "sha256": "d89c52d0873b39f514082cb02e552b0ac7b96ed01c44a8440d0d623bc247b578"
     },
     "src/nori_rel/connectors/warehouse.py": {
-      "sha256": "35590e704b07956447e5b9d02fe4a2070ee0213b5bb6b438a05fe45ee7b6ffa4"
+      "sha256": "4e7e4f71fc95ed37465cf4b6235c22423396feefd388a6091f60447c3bbf16b9"
     },
     "src/nori_rel/context_policy.py": {
       "sha256": "541af1d54c0724961e0b6f781b1be09c775631a15bb588fdbaef121b897718de"
@@ -194,7 +194,7 @@
       "sha256": "8db4b38eea226eace60bdccd40dc75962450c1654375d3f6cae41548aa14b8f6"
     },
     "src/nori_rel/pipeline/build.py": {
-      "sha256": "ec0e8971e9f0da755a00f3693661b91c3c80da45f40d7237f558d9cd564a4141"
+      "sha256": "43ec61c8b94d0e3bfebe57da315180b365a98c0379629179bbefa37873e209f6"
     },
     "src/nori_rel/pipeline/checks.py": {
       "sha256": "dada632404fe1c23fd7b608f1626ff9d37c84d6df36e5be258786df1ea536b3e"

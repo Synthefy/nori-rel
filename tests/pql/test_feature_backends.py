@@ -464,3 +464,40 @@ def test_a_stop_before_the_agent_starts_rejects_a_held_steer_at_once(
     rejection = next(e for e in events if e.data.get("reason") == "not_applicable")
     later_stage = next(e for e in events if e.data.get("stage") == "predict_batch")
     assert rejection.event_id < later_stage.event_id
+
+
+@pytest.fixture
+def source_with_unselected_parent(source):
+    """The users/orders source, with users.region_id keyed to a regions table
+    that the source does not select."""
+    _, db = source
+    db.execute("CREATE TABLE regions (region_id integer PRIMARY KEY, name text)")
+    db.execute("INSERT INTO regions VALUES (1, 'west')")
+    db.execute(
+        "ALTER TABLE users ADD COLUMN region_id integer REFERENCES regions(region_id)"
+    )
+    db.execute("UPDATE users SET region_id = 1")
+    return source
+
+
+@pytest.mark.parametrize("features", ["fastdfs", "noridfs", "agentic"])
+def test_a_key_to_an_unselected_table_is_dropped_and_reported(
+    source_with_unselected_parent, monkeypatch, features
+):
+    if features == "agentic":
+        _agentic()
+        features = AgenticSearch(agent=_ScriptedAgent())
+    runtime, database, calls = _runtime(
+        source_with_unselected_parent, monkeypatch, features, _with_program
+    )
+    try:
+        result = runtime.predict_pql(database, QUERY, **OPTIONS)
+    finally:
+        runtime.close()
+    assert result.attrs["dropped_foreign_keys"] == [
+        "users.region_id -> regions.region_id"
+    ]
+    train = calls[-1][0]
+    # No feature follows the dropped key into the unselected table.
+    assert not any("regions" in column for column in train.columns)
+    assert len(result) == 4
