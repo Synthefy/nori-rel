@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import heapq
-from collections import defaultdict
+import math
+from collections import Counter, defaultdict
 from collections.abc import Mapping
 
 import numpy as np
@@ -17,8 +19,13 @@ from .contracts import (
     NativeFeatureConfig,
     NativeFeatureMatrix,
     RelationPath,
+    SiblingPathConfig,
+    get_sibling_edges,
 )
-from .planner import build_feature_plan
+from .planner import (
+    build_feature_plan,
+    get_sibling_match_columns,
+)
 
 _ROW = "__nr_row__"
 _ENTITY = "__nr_entity__"
@@ -29,6 +36,10 @@ _TIME = "__nr_time__"
 _STEP_TIME = "__nr_step_time__"
 _AT = "__nr_at__"
 _TIE = "__nr_tie__"
+#: A path row's own time: the terminal (descendant) or association (bridge) row's
+#: time. A path's time is the latest along it, so a signup's journey views all
+#: carry the signup's time; their own times keep their order for first and last.
+_OWN_TIME = "__nr_own_time__"
 _DAY_NS = float(pd.Timedelta(days=1).value)
 _MISSING_CATEGORY = "__nori_rel_missing__"
 _CATEGORY_ESCAPE = "__nori_rel_escape__:"
@@ -49,8 +60,18 @@ class NativeRelationalFeaturizer:
         config: NativeFeatureConfig | None = None,
         *,
         excluded_columns: Mapping[str, set[str]] | None = None,
+        sibling_paths: SiblingPathConfig | None = None,
+        include_composition_features: bool = False,
+        composition_pairs: tuple[tuple[str, str], ...] = (),
     ) -> NativeRelationalFeaturizer:
-        """Freeze paths, operations, windows, and output order from fit schema."""
+        """Freeze paths, operations, windows, and output order from fit schema.
+
+        ``sibling_paths`` opts into the sibling family; see ``SiblingPathConfig``.
+        ``include_composition_features`` opts into first values, and entropy,
+        the most common and last value's shares and distinct counts of
+        categorical columns, over the rows a path reaches; ``composition_pairs``
+        adds the same over pairs of columns. See ``build_feature_plan``.
+        """
         excluded = {
             table: set(columns) for table, columns in (excluded_columns or {}).items()
         }
@@ -59,6 +80,9 @@ class NativeRelationalFeaturizer:
             anchors,
             config or NativeFeatureConfig(),
             excluded_columns=excluded,
+            sibling_paths=sibling_paths,
+            include_composition_features=include_composition_features,
+            composition_pairs=composition_pairs,
         )
         return cls(plan)
 
@@ -81,12 +105,28 @@ class NativeRelationalFeaturizer:
         values.update(_direct_features(database, anchors, self.plan.anchors, direct))
 
         by_path: dict[RelationPath, list[FeatureSpec]] = defaultdict(list)
+        by_pair: dict[
+            tuple[RelationPath, RelationPath, str | None, str | None],
+            list[FeatureSpec],
+        ] = defaultdict(list)
         for feature in self.plan.features:
-            if feature.path is not None:
+            if feature.paired_path is not None and feature.path is not None:
+                pair = (
+                    feature.path,
+                    feature.paired_path,
+                    feature.column,
+                    feature.paired_column,
+                )
+                by_pair[pair].append(feature)
+            elif feature.path is not None:
                 by_path[feature.path].append(feature)
         for path in self.plan.paths:
             specs = by_path.get(path)
-            if specs:
+            if specs and path.is_sibling:
+                values.update(
+                    _get_sibling_path_features(database, anchors, path, specs)
+                )
+            elif specs:
                 values.update(
                     _path_features(
                         database,
@@ -96,6 +136,18 @@ class NativeRelationalFeaturizer:
                         self.plan.config.include_missing_in_modes,
                     )
                 )
+
+        for (path, paired_path, _, _), specs in by_pair.items():
+            values.update(
+                _get_pair_path_features(
+                    database,
+                    anchors,
+                    path,
+                    paired_path,
+                    specs,
+                    self.plan.config.include_missing_in_modes,
+                )
+            )
 
         missing = [column for column in self.plan.columns if column not in values]
         if missing:
@@ -267,6 +319,62 @@ def _path_features(
         sources,
         specs,
         include_missing_in_modes,
+    )
+
+
+_PAIR_VALUE = "__nr_pair_value__"
+_PAIR_SECOND = "__nr_pair_second__"
+
+
+def _get_pair_path_features(
+    database: DatabaseView,
+    anchors: pd.DataFrame,
+    path: RelationPath,
+    paired_path: RelationPath,
+    specs: list[FeatureSpec],
+    include_missing_in_modes: bool,
+) -> dict[str, pd.Series | np.ndarray]:
+    """Return composition features of value pairs from two bridge paths.
+
+    Both paths reach up from the same association rows, which carry the same
+    entity, time and tie on each path. Each association row with both values
+    gives one pair value: the two joined by a unit separator, which category
+    values do not hold. A row missing either value is left out.
+    The pairs then go through the same sweep as one categorical column.
+    """
+    column, paired_column = specs[0].column, specs[0].paired_column
+    if column is None or paired_column is None:
+        raise RuntimeError("pair features need both columns")
+    events, sources = _materialize_bridge_path(database, path, [column])
+    paired_events, paired_sources = _materialize_bridge_path(
+        database, paired_path, [paired_column]
+    )
+    second = (
+        paired_events[[_ENTITY, _TIE, paired_sources[paired_column]]]
+        .rename(columns={paired_sources[paired_column]: _PAIR_SECOND})
+        .drop_duplicates([_ENTITY, _TIE])
+    )
+    joined = events.merge(second, on=[_ENTITY, _TIE], how="inner", validate="m:1")
+    first_values = joined[sources[column]]
+    known = first_values.notna() & joined[_PAIR_SECOND].notna()
+    joined = joined.loc[known].reset_index(drop=True)
+    joined[_PAIR_VALUE] = (
+        joined[sources[column]].astype(str) + "\x1f" + joined[_PAIR_SECOND].astype(str)
+    )
+    pair_events = joined[[_ENTITY, _TIME, _OWN_TIME, _TIE, _PAIR_VALUE]]
+    pair_specs = [
+        dataclasses.replace(
+            spec, column=_PAIR_VALUE, paired_path=None, paired_column=None
+        )
+        for spec in specs
+    ]
+    pair_sources = {_PAIR_VALUE: _PAIR_VALUE}
+    if _AT not in anchors:
+        return _static_path_features(
+            anchors, pair_events, pair_sources, pair_specs, include_missing_in_modes
+        )
+    return _temporal_path_features(
+        anchors, pair_events, pair_sources, pair_specs, include_missing_in_modes
     )
 
 
@@ -499,13 +607,16 @@ def _materialize_bridge_path(
         sort=False,
         validate="many_to_one",
     )
+    joined[_OWN_TIME] = joined[_STEP_TIME].to_numpy(dtype=float)
     joined[_TIME] = _compose_time(
         joined[_TIME].to_numpy(dtype=float),
         joined[_STEP_TIME].to_numpy(dtype=float),
         accumulated_timed=root_time is not None,
         step_timed=association_time is not None,
     )
-    mapping = joined[[_ENTITY, _NEXT, _TIME, _TIE]].rename(columns={_NEXT: _NODE})
+    mapping = joined[[_ENTITY, _NEXT, _TIME, _OWN_TIME, _TIE]].rename(
+        columns={_NEXT: _NODE}
+    )
     accumulated_timed = root_time is not None or association_time is not None
     current = association_edge.child_table
     sources: dict[str, str] = {}
@@ -560,9 +671,11 @@ def _materialize_bridge_path(
         accumulated_timed = accumulated_timed or parent_time is not None
         current = relation.parent_table
         if terminal:
-            columns = [_ENTITY, _TIME, _TIE, *sources.values()]
+            columns = [_ENTITY, _TIME, _OWN_TIME, _TIE, *sources.values()]
             return joined[columns].reset_index(drop=True), sources
-        mapping = joined[[_ENTITY, _NEXT, _TIME, _TIE]].rename(columns={_NEXT: _NODE})
+        mapping = joined[[_ENTITY, _NEXT, _TIME, _OWN_TIME, _TIE]].rename(
+            columns={_NEXT: _NODE}
+        )
     raise RuntimeError(f"bridge from {path.entity_table}.{root_key} has no parent tail")
 
 
@@ -673,7 +786,8 @@ def _materialize_path(
         )
         accumulated_timed = accumulated_timed or child_timed
         if terminal:
-            columns = [_ENTITY, _TIME, _TIE, *sources.values()]
+            joined[_OWN_TIME] = child_values
+            columns = [_ENTITY, _TIME, _OWN_TIME, _TIE, *sources.values()]
             return joined[columns].reset_index(drop=True), sources
         mapping = joined[[_NODE + "_child", _ENTITY, _TIME]].rename(
             columns={_NODE + "_child": _NODE}
@@ -689,6 +803,8 @@ def _temporal_path_features(
     specs: list[FeatureSpec],
     include_missing_in_modes: bool,
 ) -> dict[str, pd.Series | np.ndarray]:
+    if _OWN_TIME not in events:
+        events = events.assign(**{_OWN_TIME: np.nan})
     valid_time = np.isfinite(events[_TIME])
     if not valid_time.all():
         events = events.loc[valid_time].reset_index(drop=True)
@@ -704,10 +820,14 @@ def _temporal_path_features(
         anchors,
         events,
         sources,
-        [spec for spec in specs if spec.operation == "mode"],
+        [spec for spec in specs if spec.operation in _CATEGORY_OPERATIONS],
         include_missing_in_modes,
     )
-    needed = {spec.column for spec in specs if spec.column is not None}
+    needed = {
+        spec.column
+        for spec in specs
+        if spec.column is not None and spec.operation not in _CATEGORY_MIX_OPERATIONS
+    }
     states, state_names = _prefix_states(events, sources, needed, specs)
     del events
     upper = _lookup_states(anchors, states, _AT)
@@ -726,18 +846,18 @@ def _temporal_path_features(
                 values = values - _state(lower[spec.window_ns], "rows")
             output[spec.name] = values.clip(min=0)
         elif spec.operation == "recency":
-            event_time = pd.to_numeric(upper[_TIME], errors="coerce").to_numpy(
-                dtype=float
-            )
+            event_time = pd.to_numeric(
+                upper[state_names[(None, "latest_time")]], errors="coerce"
+            ).to_numpy(dtype=float)
             values = (anchors[_AT].to_numpy(dtype=float) - event_time) / _DAY_NS
             output[spec.name] = values
         elif spec.operation in {"mean_age", "oldest_age"}:
             output[spec.name] = _age_stat(spec.operation, anchors, upper, state_names)
-        elif spec.operation == "last":
-            output[spec.name] = upper[state_names[(spec.column, "last")]].reset_index(
-                drop=True
-            )
-        elif spec.operation == "mode":
+        elif spec.operation in {"first", "last"}:
+            output[spec.name] = upper[
+                state_names[(spec.column, spec.operation)]
+            ].reset_index(drop=True)
+        elif spec.operation in _CATEGORY_OPERATIONS:
             output[spec.name] = mode_values[spec.name]
         elif spec.operation == "missing_fraction":
             missing = _state(upper, state_names[(spec.column, "missing")])
@@ -762,11 +882,18 @@ def _temporal_mode_features(
     specs: list[FeatureSpec],
     include_missing: bool,
 ) -> dict[str, pd.Series]:
-    """Sweep strict-past events and resolve mode ties by canonical value."""
+    """Sweep strict-past events for each spec's category counts.
+
+    ``mode`` takes the most common value, resolving ties by canonical value;
+    ``distinct`` the number of values seen; ``mode_share`` the most common
+    value's share of the counted rows and ``last_share`` the latest counted
+    row's value's share; ``entropy`` the Shannon entropy (natural log) of the
+    values, kept incrementally as log(n) - sum(c log c) / n.
+    """
     if not specs:
         return {}
     ordered_events = events.sort_values(
-        [_ENTITY, _TIME, _TIE], kind="mergesort"
+        [_ENTITY, _TIME, _OWN_TIME, _TIE], kind="mergesort"
     ).reset_index(drop=True)
     ordered_anchors = anchors.sort_values(
         [_ENTITY, _AT, _ROW], kind="mergesort"
@@ -779,7 +906,11 @@ def _temporal_mode_features(
         if spec.column is None:
             raise RuntimeError("mode requires a source column")
         mode_sources.append(ordered_events[sources[spec.column]].to_numpy(dtype=object))
-        output_arrays.append(np.full(len(anchors), None, dtype=object))
+        if spec.operation == "mode":
+            output_arrays.append(np.full(len(anchors), None, dtype=object))
+        else:
+            empty = 0.0 if spec.operation == "distinct" else np.nan
+            output_arrays.append(np.full(len(anchors), empty, dtype=float))
 
     event_times = ordered_events[_TIME].to_numpy(dtype=float)
     anchor_rows = ordered_anchors[_ROW].to_numpy(dtype=np.int64)
@@ -791,6 +922,9 @@ def _temporal_mode_features(
         counts = [{} for _ in specs]
         values = [{} for _ in specs]
         heaps: list[list[tuple[int, tuple[str, str]]]] = [[] for _ in specs]
+        totals = [0] * len(specs)
+        count_log_sums = [0.0] * len(specs)
+        latest_identities: list[tuple[str, str] | None] = [None] * len(specs)
         position = 0
         for anchor_position in anchor_positions:
             cutoff = anchor_cutoffs[anchor_position]
@@ -812,16 +946,76 @@ def _temporal_mode_features(
                     counts[index][identity] = count
                     values[index][identity] = value
                     heapq.heappush(heaps[index], (-count, identity))
+                    totals[index] += 1
+                    latest_identities[index] = identity
+                    count_log_sums[index] += count * math.log(count)
+                    if count > 1:
+                        count_log_sums[index] -= (count - 1) * math.log(count - 1)
             row = anchor_rows[anchor_position]
             for index, heap in enumerate(heaps):
                 while heap and -heap[0][0] != counts[index][heap[0][1]]:
                     heapq.heappop(heap)
-                if heap:
+                operation = specs[index].operation
+                total = totals[index]
+                if operation == "distinct":
+                    output_arrays[index][row] = float(len(counts[index]))
+                elif not heap:
+                    continue
+                elif operation == "mode":
                     output_arrays[index][row] = values[index][heap[0][1]]
+                elif operation == "mode_share":
+                    output_arrays[index][row] = -heap[0][0] / total
+                elif operation == "last_share":
+                    latest = latest_identities[index]
+                    output_arrays[index][row] = counts[index][latest] / total
+                else:
+                    output_arrays[index][row] = (
+                        math.log(total) - count_log_sums[index] / total
+                    )
     return {
-        spec.name: pd.Series(result, dtype=object)
+        spec.name: pd.Series(
+            result, dtype=object if spec.operation == "mode" else float
+        )
         for spec, result in zip(specs, output_arrays, strict=True)
     }
+
+
+#: How mixed a categorical column's values are over a path's rows.
+_CATEGORY_MIX_OPERATIONS = frozenset(
+    {"distinct", "entropy", "last_share", "mode_share"}
+)
+#: Operations computed from a path's per-category counts.
+_CATEGORY_OPERATIONS = _CATEGORY_MIX_OPERATIONS | {"mode"}
+
+
+def get_category_mix(
+    values: pd.Series, operation: str, *, include_missing: bool = False
+) -> float:
+    """Return how mixed ``values`` are: their distinct count, entropy or a share.
+
+    ``distinct`` counts distinct values (0 without any); ``entropy`` is the
+    Shannon entropy in nats; ``mode_share`` is the most common value's share and
+    ``last_share`` the share of the last value, with ``values`` in row order.
+    Missing values are left out unless ``include_missing``; entropy and the
+    shares are NaN when nothing is left.
+    """
+    identities = [
+        category[0]
+        for value in values
+        if (category := _category(value, include_missing=include_missing)) is not None
+    ]
+    if operation == "distinct":
+        return float(len(set(identities)))
+    if not identities:
+        return float("nan")
+    counted = Counter(identities)
+    if operation == "last_share":
+        return counted[identities[-1]] / len(identities)
+    counts = np.array(list(counted.values()), dtype=float)
+    shares = counts / counts.sum()
+    if operation == "mode_share":
+        return float(shares.max())
+    return float(-(shares * np.log(shares)).sum())
 
 
 def _category(
@@ -880,10 +1074,12 @@ def _prefix_states(
     needed: set[str | None],
     specs: list[FeatureSpec],
 ) -> tuple[pd.DataFrame, dict[tuple[str | None, str], str]]:
-    events.sort_values([_ENTITY, _TIME, _TIE], kind="mergesort", inplace=True)
+    events.sort_values(
+        [_ENTITY, _TIME, _OWN_TIME, _TIE], kind="mergesort", inplace=True
+    )
     events.reset_index(drop=True, inplace=True)
     ordered = events
-    states = ordered[[_ENTITY, _TIME, _TIE]].copy()
+    states = ordered[[_ENTITY, _TIME, _OWN_TIME, _TIE]].copy()
     groups = ordered[_ENTITY]
     names: dict[tuple[str | None, str], str] = {
         (None, "rows"): "__nr_state_rows__",
@@ -893,18 +1089,23 @@ def _prefix_states(
         ordered.groupby(_ENTITY, sort=False).cumcount() + 1
     ).astype(float)
     path_operations = {spec.operation for spec in specs}
+    # Ages count from each row's own time. A path's time is the latest along it, so
+    # every journey view of an event-time signup carries the signup's time, and ages
+    # from it would all be zero. Rows without a time of their own keep the path's.
+    own_time = ordered[_OWN_TIME].astype(float)
+    age_time = own_time.where(np.isfinite(own_time), ordered[_TIME].astype(float))
+    if "recency" in path_operations:
+        name = "__nr_state_latest_time__"
+        names[(None, "latest_time")] = name
+        states[name] = age_time.groupby(groups, sort=False).cummax()
     if "mean_age" in path_operations:
         name = "__nr_state_time_days_sum__"
         names[(None, "time_days_sum")] = name
-        states[name] = (
-            (ordered[_TIME].astype(float) / _DAY_NS)
-            .groupby(groups, sort=False)
-            .cumsum()
-        )
+        states[name] = (age_time / _DAY_NS).groupby(groups, sort=False).cumsum()
     if "oldest_age" in path_operations:
         name = "__nr_state_oldest_time__"
         names[(None, "oldest_time")] = name
-        states[name] = ordered[_TIME].groupby(groups, sort=False).cummin()
+        states[name] = age_time.groupby(groups, sort=False).cummin()
     requested: dict[str, set[str]] = defaultdict(set)
     for spec in specs:
         if spec.column is not None:
@@ -923,6 +1124,21 @@ def _prefix_states(
         categorical = any(
             spec.column == column and spec.kind == "categorical" for spec in specs
         )
+        if "first" in operations:
+            values = (
+                source.astype(object)
+                if categorical
+                else pd.to_numeric(source, errors="coerce").astype(float)
+            )
+            present = values.notna()
+            is_first = present & (
+                present.astype(np.int64).groupby(groups, sort=False).cumsum() == 1
+            )
+            first_name = f"{base}_first__"
+            names[(column, "first")] = first_name
+            states[first_name] = (
+                values.where(is_first).groupby(groups, sort=False).ffill()
+            )
         if "last" in operations:
             names[(column, "last")] = last_name
             states[last_name] = (
@@ -958,7 +1174,9 @@ def _prefix_states(
             names[(column, statistic)] = name
             states[name] = values.groupby(groups, sort=False).ffill()
     del ordered, groups
-    states.sort_values([_TIME, _ENTITY, _TIE], kind="mergesort", inplace=True)
+    states.sort_values(
+        [_TIME, _ENTITY, _OWN_TIME, _TIE], kind="mergesort", inplace=True
+    )
     states.reset_index(drop=True, inplace=True)
     return states, names
 
@@ -1087,6 +1305,8 @@ def _static_path_features(
     specs: list[FeatureSpec],
     include_missing_in_modes: bool,
 ) -> dict[str, pd.Series | np.ndarray]:
+    if _OWN_TIME not in events:
+        events = events.assign(**{_OWN_TIME: np.nan})
     anchor_keys, event_keys = _aligned_keys(anchors[_ENTITY], events[_ENTITY])
     anchors = anchors.assign(**{_ENTITY: anchor_keys})
     events = events.assign(**{_ENTITY: event_keys})
@@ -1095,7 +1315,7 @@ def _static_path_features(
     )
     if events.empty:
         return _empty_path_values(len(anchors), specs)
-    ordered = events.sort_values([_ENTITY, _TIE], kind="mergesort")
+    ordered = events.sort_values([_ENTITY, _OWN_TIME, _TIE], kind="mergesort")
     result = pd.DataFrame({_ENTITY: anchors[_ENTITY]})
     groups = ordered.groupby(_ENTITY, sort=False)
     output: dict[str, pd.Series | np.ndarray] = {}
@@ -1114,6 +1334,8 @@ def _static_path_features(
             source = sources[spec.column]
             if spec.operation == "last":
                 aggregate = groups[source].last().rename(spec.name)
+            elif spec.operation == "first":
+                aggregate = groups[source].first().rename(spec.name)
             elif spec.operation == "mode":
                 aggregate = (
                     groups[source]
@@ -1129,6 +1351,16 @@ def _static_path_features(
                 aggregate = (
                     groups[source]
                     .agg(lambda values: values.isna().mean())
+                    .rename(spec.name)
+                )
+            elif spec.operation in _CATEGORY_MIX_OPERATIONS:
+                aggregate = (
+                    groups[source]
+                    .agg(
+                        lambda values, operation=spec.operation: get_category_mix(
+                            values, operation, include_missing=include_missing_in_modes
+                        )
+                    )
                     .rename(spec.name)
                 )
             else:
@@ -1160,12 +1392,284 @@ def _empty_path_values(
 ) -> dict[str, pd.Series | np.ndarray]:
     output: dict[str, pd.Series | np.ndarray] = {}
     for spec in specs:
-        if spec.operation == "count":
+        if spec.operation in {"count", "distinct"}:
             output[spec.name] = np.zeros(rows, dtype=float)
         elif spec.kind == "categorical":
             output[spec.name] = pd.Series([None] * rows, dtype=object)
         else:
             output[spec.name] = np.full(rows, np.nan)
+    return output
+
+
+_SIBLING_PARENT = "__nr_sibling_parent__"
+_SIBLING_MATCH = "__nr_sibling_match__"
+_SIBLING_ROWS = "__nr_sibling_rows__"
+
+
+def _get_shared_codes(
+    left: pd.Series, right: pd.Series
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return integer codes for two key series in one code space; -1 is missing."""
+    left, right = _aligned_keys(left, right)
+    codes, _ = pd.factorize(pd.concat([left, right], ignore_index=True))
+    return codes[: len(left)].astype(np.int64), codes[len(left) :].astype(np.int64)
+
+
+def _get_parent_attribute(
+    keys: pd.Series, parent_keys: pd.Series, attribute: pd.Series
+) -> pd.Series:
+    """Return the parent's ``attribute`` for each of ``keys``; missing when absent.
+
+    ``keys`` are a child table's references into the parent, ``parent_keys`` the
+    parent's primary key and ``attribute`` its column, row-aligned with it.
+    """
+    keys, parent_keys = _aligned_keys(keys, parent_keys)
+    lookup = pd.Series(attribute.to_numpy(), index=parent_keys.to_numpy())
+    lookup = lookup[~lookup.index.duplicated()]
+    return pd.Series(lookup.reindex(keys.to_numpy()).to_numpy())
+
+
+def _get_rows_before(
+    anchors: pd.DataFrame,
+    rows: pd.DataFrame,
+    group_columns: list[str],
+    cutoff_ns: np.ndarray,
+) -> pd.DataFrame:
+    """Return each anchor's latest group row strictly before its ``cutoff_ns``.
+
+    ``rows`` is sorted by ``_TIME``; ``anchors`` has ``_ROW`` and the
+    ``group_columns``. The result is in anchor row order; anchors with no
+    earlier row in their group get NaN.
+    """
+    left = (
+        anchors[[_ROW, *group_columns]]
+        .assign(**{_AT: cutoff_ns})
+        .sort_values(_AT, kind="mergesort")
+    )
+    matched = pd.merge_asof(
+        left,
+        rows,
+        left_on=_AT,
+        right_on=_TIME,
+        by=group_columns,
+        direction="backward",
+        allow_exact_matches=False,
+    )
+    return matched.sort_values(_ROW, kind="mergesort").reset_index(drop=True)
+
+
+#: Numeric aggregates a sibling path computes from running totals.
+_SIBLING_NUMERIC_OPERATIONS = frozenset({"sum", "mean", "max", "min"})
+
+
+def _get_sibling_path_features(
+    database: DatabaseView,
+    anchors: pd.DataFrame,
+    path: RelationPath,
+    specs: list[FeatureSpec],
+) -> dict[str, np.ndarray]:
+    """Compute sibling features: the parent's time-stamped rows before each cutoff.
+
+    One sort of the sibling rows by (parent, time) gives running counts, running
+    sums, counts, maxima and minima of numeric columns, first occurrences of each
+    foreign key and timestamp, and per-value counts for the match features; one
+    as-of join per window or match column then reads each anchor's totals
+    strictly before its cutoff. A window's sum is the running sum before the
+    cutoff minus the running sum before the window's start. Rows at the cutoff
+    itself are not earlier, so an event-time row never counts itself or rows
+    logged at the same instant.
+    """
+    up, group, down = get_sibling_edges(path)
+    entity = database.tables[path.entity_table]
+    entity_key = entity[database.primary_keys[path.entity_table]].reset_index(drop=True)
+    siblings = database.tables[down.child_table].reset_index(drop=True)
+    anchor_keys, entity_keys = _aligned_keys(anchors[_ENTITY], entity_key)
+    position = pd.Series(np.arange(len(entity_keys)), index=entity_keys.to_numpy())
+    entity_rows = position.reindex(anchor_keys.to_numpy()).to_numpy()
+    if np.isnan(entity_rows.astype(float)).any():
+        raise ValueError("anchor entity keys are missing from the entity table")
+    entity_rows = entity_rows.astype(np.int64)
+
+    anchor_parent_keys = (
+        entity[up.child_column].reset_index(drop=True).iloc[entity_rows]
+    )
+    sibling_parent_keys = siblings[down.child_column]
+    if group is not None:
+        # Group the parent's rows by its attribute: a drug's class, not the drug.
+        parent = database.tables[up.parent_table]
+        anchor_parent_keys = _get_parent_attribute(
+            anchor_parent_keys, parent[up.parent_column], parent[group.child_column]
+        )
+        sibling_parent_keys = _get_parent_attribute(
+            sibling_parent_keys, parent[up.parent_column], parent[group.child_column]
+        )
+    anchor_parent, sibling_parent = _get_shared_codes(
+        anchor_parent_keys, sibling_parent_keys
+    )
+    at = anchors[_AT].to_numpy(dtype=float)
+    keyed = anchors[[_ROW]].assign(**{_SIBLING_PARENT: anchor_parent})
+    rows = pd.DataFrame(
+        {
+            _SIBLING_PARENT: sibling_parent,
+            _TIME: _time_ns(siblings[database.time_columns[down.child_table]]),
+        }
+    )
+    distinct_columns = sorted(
+        {spec.column for spec in specs if spec.operation == "distinct"}
+    )
+    time_column = database.time_columns[down.child_table]
+    for column in distinct_columns:
+        if column != time_column:
+            rows[column] = pd.factorize(siblings[column])[0]
+    numeric_columns = sorted(
+        {spec.column for spec in specs if spec.operation in _SIBLING_NUMERIC_OPERATIONS}
+    )
+    for column in numeric_columns:
+        rows[f"value|{column}"] = pd.to_numeric(siblings[column], errors="coerce")
+    usable = (rows[_SIBLING_PARENT] >= 0) & np.isfinite(rows[_TIME])
+    rows = rows.loc[usable].sort_values(
+        [_SIBLING_PARENT, _TIME], kind="mergesort", ignore_index=True
+    )
+    by_parent = rows.groupby(_SIBLING_PARENT, sort=False)
+    totals = rows[[_SIBLING_PARENT, _TIME]].copy()
+    totals[_SIBLING_ROWS] = by_parent.cumcount().to_numpy() + 1
+    for column in distinct_columns:
+        key = [_SIBLING_PARENT, _TIME if column == time_column else column]
+        first = ~rows.duplicated(key)
+        if column != time_column:
+            first &= rows[column] >= 0
+        totals[f"distinct|{column}"] = (
+            first.astype(np.int64).groupby(rows[_SIBLING_PARENT], sort=False).cumsum()
+        )
+    for column in numeric_columns:
+        values = rows[f"value|{column}"]
+        groups = rows[_SIBLING_PARENT]
+        totals[f"sum|{column}"] = (
+            values.fillna(0.0).groupby(groups, sort=False).cumsum()
+        )
+        totals[f"rows|{column}"] = (
+            values.notna().astype(np.int64).groupby(groups, sort=False).cumsum()
+        )
+        totals[f"max|{column}"] = (
+            values.fillna(-np.inf)
+            .groupby(groups, sort=False)
+            .cummax()
+            .replace(-np.inf, np.nan)
+        )
+        totals[f"min|{column}"] = (
+            values.fillna(np.inf)
+            .groupby(groups, sort=False)
+            .cummin()
+            .replace(np.inf, np.nan)
+        )
+    first_time = by_parent[_TIME].min()
+    totals = totals.sort_values(_TIME, kind="mergesort", ignore_index=True)
+    latest = _get_rows_before(keyed, totals, [_SIBLING_PARENT], at)
+    earlier_rows = latest[_SIBLING_ROWS].fillna(0).to_numpy(dtype=float)
+    latest_time = latest[_TIME].to_numpy(dtype=float)
+    oldest_time = pd.Series(anchor_parent).map(first_time).to_numpy(dtype=float)
+    oldest_time[earlier_rows == 0] = np.nan
+
+    output: dict[str, np.ndarray] = {}
+    before_windows: dict[int, pd.DataFrame] = {}
+
+    def get_totals_before_window(window_ns: int) -> pd.DataFrame:
+        """Return each anchor's running totals strictly before its window starts."""
+        if window_ns not in before_windows:
+            before_windows[window_ns] = _get_rows_before(
+                keyed, totals, [_SIBLING_PARENT], at - float(window_ns)
+            )
+        return before_windows[window_ns]
+
+    def get_total(frame: pd.DataFrame, column: str) -> np.ndarray:
+        """Return one running total per anchor, 0 where no earlier row exists."""
+        return frame[column].fillna(0).to_numpy(dtype=float)
+
+    for spec in specs:
+        if spec.operation in _SIBLING_NUMERIC_OPERATIONS:
+            column = spec.column
+            if spec.operation in ("max", "min"):
+                output[spec.name] = latest[f"{spec.operation}|{column}"].to_numpy(
+                    dtype=float
+                )
+                continue
+            value_sum = get_total(latest, f"sum|{column}")
+            value_rows = get_total(latest, f"rows|{column}")
+            if spec.window_ns is not None:
+                before = get_totals_before_window(spec.window_ns)
+                value_sum = value_sum - get_total(before, f"sum|{column}")
+                value_rows = value_rows - get_total(before, f"rows|{column}")
+            if spec.operation == "sum":
+                output[spec.name] = value_sum
+            else:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    output[spec.name] = np.where(
+                        value_rows > 0, value_sum / value_rows, np.nan
+                    )
+        elif spec.operation == "count" and spec.window_ns is not None:
+            before = get_totals_before_window(spec.window_ns)
+            output[spec.name] = earlier_rows - get_total(before, _SIBLING_ROWS)
+        elif spec.operation == "count":
+            output[spec.name] = earlier_rows
+        elif spec.operation == "recency":
+            output[spec.name] = (at - latest_time) / _DAY_NS
+        elif spec.operation == "oldest_age":
+            output[spec.name] = (at - oldest_time) / _DAY_NS
+        elif spec.operation == "distinct":
+            output[spec.name] = (
+                latest[f"distinct|{spec.column}"].fillna(0).to_numpy(dtype=float)
+            )
+
+    match_specs = [spec for spec in specs if spec.operation.startswith("match_")]
+    pairs = dict(
+        (sibling_column, entity_column)
+        for entity_column, sibling_column in get_sibling_match_columns(database, path)
+    )
+    for column in sorted({spec.column for spec in match_specs}):
+        anchor_values, sibling_values = _get_shared_codes(
+            entity[pairs[column]].reset_index(drop=True).iloc[entity_rows],
+            siblings[column],
+        )
+        matched = pd.DataFrame(
+            {
+                _SIBLING_PARENT: sibling_parent,
+                _SIBLING_MATCH: sibling_values,
+                _TIME: _time_ns(siblings[time_column]),
+            }
+        )
+        matched = matched.loc[
+            (matched[_SIBLING_PARENT] >= 0)
+            & (matched[_SIBLING_MATCH] >= 0)
+            & np.isfinite(matched[_TIME])
+        ].sort_values([_SIBLING_PARENT, _SIBLING_MATCH, _TIME], kind="mergesort")
+        matched[_SIBLING_ROWS] = (
+            matched.groupby([_SIBLING_PARENT, _SIBLING_MATCH], sort=False).cumcount()
+            + 1
+        )
+        matched = matched.sort_values(_TIME, kind="mergesort", ignore_index=True)
+        latest_match = _get_rows_before(
+            keyed.assign(**{_SIBLING_MATCH: anchor_values}),
+            matched,
+            [_SIBLING_PARENT, _SIBLING_MATCH],
+            at,
+        )
+        match_rows = latest_match[_SIBLING_ROWS].fillna(0).to_numpy(dtype=float)
+        match_time = latest_match[_TIME].to_numpy(dtype=float)
+        for spec in match_specs:
+            if spec.column != column:
+                continue
+            if spec.operation == "match_count":
+                output[spec.name] = match_rows
+            elif spec.operation == "match_recency":
+                output[spec.name] = (at - match_time) / _DAY_NS
+            else:
+                output[spec.name] = (
+                    (match_rows > 0) & (match_time == latest_time)
+                ).astype(float)
+
+    missing = [spec.name for spec in specs if spec.name not in output]
+    if missing:
+        raise RuntimeError(f"sibling executor omitted planned features: {missing[:3]}")
     return output
 
 

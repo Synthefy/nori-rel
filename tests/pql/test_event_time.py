@@ -17,6 +17,7 @@ from nori_rel import ClassBalance, ContextPolicy, NoriRelClient
 from nori_rel._runtime import LocalRelationalRuntime
 from nori_rel.connectors.postgres import PostgreSQLConnector
 from nori_rel.contracts import DatabaseCreateRequest, EnvironmentCredential
+from nori_rel.feature.dfs.noridfs import NativeFeatureConfig, NoriDFS, SiblingPathConfig
 from nori_rel.limits import RelationalLimits
 from nori_rel.pql import parse_pql
 from nori_rel.pql.context_sql import compile_context_sql
@@ -357,3 +358,39 @@ def test_the_client_checks_entity_time_arguments(event_source):
             )
         with pytest.raises(ValueError, match="requires anchor_times"):
             client.predict(**base, entity_created_at="view_time")
+
+
+def test_device_siblings_are_the_devices_views_before_each_view(
+    event_source, monkeypatch
+):
+    features = NoriDFS(
+        NativeFeatureConfig(max_features=128, max_direct_features=8),
+        horizon="1D",
+        sibling_paths=SiblingPathConfig(parent_tables=("devices",)),
+    )
+    runtime, database, calls = _runtime(event_source, monkeypatch, features)
+    try:
+        runtime.predict_pql(database, QUERY, **OPTIONS)
+    finally:
+        runtime.close()
+    (train, _, query, _) = calls[0]
+    prefix = (
+        "nr|path|views%7CS%3Aviews.device_id-%3Edevices.device_id%7Cviews.device_id|"
+    )
+    count = query[prefix + "rows|count|all"].tolist()
+    day = query[prefix + "rows|count|86400000000000ns"].tolist()
+    recency = query[prefix + "rows|recency|all"].tolist()
+    # View 6 (device 3, 4 Mar 08:00): only view 5, 3 Mar 23:30, is earlier.
+    # View 7 (device 1, 4 Mar 20:00): views 1 and 2 on 1 Mar; none in the last day.
+    assert count == [1.0, 2.0]
+    assert day == [1.0, 0.0]
+    assert recency == pytest.approx([8.5 / 24, 3 + 8 / 24])
+    # Context rows read their device's history at their own time too: view 2 sees
+    # view 1, two hours earlier; view 4 does not see view 3, logged at the same instant.
+    assert sorted(train[prefix + "rows|count|all"].tolist()) == [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    ]

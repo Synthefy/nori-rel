@@ -181,7 +181,7 @@ class RelationPathRecord(_Record):
 
     entity_table: str
     edges: tuple[ForeignKeyRecord, ...] = Field(min_length=1)
-    direction: Literal["bridge", "descendant", "parent"]
+    direction: Literal["bridge", "descendant", "parent", "sibling"]
 
 
 class FeatureSpecRecord(_Record):
@@ -194,6 +194,9 @@ class FeatureSpecRecord(_Record):
     column: str | None = None
     path: RelationPathRecord | None = None
     window_ns: int | None = None
+    #: A pair feature's second bridge path and column; unset on every other feature.
+    paired_path: RelationPathRecord | None = None
+    paired_column: str | None = None
 
 
 class AnchorRecord(_Record):
@@ -369,9 +372,26 @@ def get_pipeline_id(manifest: PipelineManifest) -> str:
     elif manifest.context_policy.row_policy.candidate_sql is None:
         # Policies saved before candidate_sql existed hash without it.
         del payload["context_policy"]["row_policy"]["candidate_sql"]
+    _drop_unset_pair_fields(payload)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     digest = hashlib.sha256(encoded).hexdigest()
     return PIPELINE_ID_PREFIX + digest[:PIPELINE_ID_HEX_CHARS]
+
+
+def _drop_unset_pair_fields(payload: object) -> None:
+    """Remove unset pair fields from every saved feature, in place.
+
+    Pipelines saved before pair features existed hash without them.
+    """
+    if isinstance(payload, dict):
+        for field in ("paired_path", "paired_column"):
+            if field in payload and payload[field] is None:
+                del payload[field]
+        for value in payload.values():
+            _drop_unset_pair_fields(value)
+    elif isinstance(payload, list):
+        for value in payload:
+            _drop_unset_pair_fields(value)
 
 
 __all__ = [

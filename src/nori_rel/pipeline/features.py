@@ -206,6 +206,10 @@ def _get_feature_record(feature: FeatureSpec) -> FeatureSpecRecord:
         column=feature.column,
         path=None if feature.path is None else _get_path_record(feature.path),
         window_ns=feature.window_ns,
+        paired_path=None
+        if feature.paired_path is None
+        else _get_path_record(feature.paired_path),
+        paired_column=feature.paired_column,
     )
 
 
@@ -219,6 +223,10 @@ def _get_feature_spec(record: FeatureSpecRecord) -> FeatureSpec:
         column=record.column,
         path=None if record.path is None else _get_relation_path(record.path),
         window_ns=record.window_ns,
+        paired_path=None
+        if record.paired_path is None
+        else _get_relation_path(record.paired_path),
+        paired_column=record.paired_column,
     )
 
 

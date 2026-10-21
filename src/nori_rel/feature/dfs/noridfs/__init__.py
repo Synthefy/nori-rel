@@ -11,6 +11,7 @@ from .contracts import (
     NativeFeatureMatrix,
     PathDirection,
     RelationPath,
+    SiblingPathConfig,
 )
 from .engine import NativeRelationalFeaturizer
 
@@ -26,4 +27,5 @@ __all__ = [
     "NoriDFS",
     "PathDirection",
     "RelationPath",
+    "SiblingPathConfig",
 ]

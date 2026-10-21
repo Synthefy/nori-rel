@@ -12,12 +12,15 @@ from .contracts import (
     AnchorDefinition,
     ColumnKind,
     DatabaseView,
+    FeatureOperation,
     FeaturePlan,
     FeatureSpec,
     ForeignKey,
     NativeFeatureConfig,
     PathDirection,
     RelationPath,
+    SiblingPathConfig,
+    get_sibling_edges,
 )
 
 
@@ -27,8 +30,30 @@ def build_feature_plan(
     config: NativeFeatureConfig,
     *,
     excluded_columns: dict[str, set[str]] | None = None,
+    sibling_paths: SiblingPathConfig | None = None,
+    include_composition_features: bool = False,
+    composition_pairs: tuple[tuple[str, str], ...] = (),
 ) -> FeaturePlan:
-    """Create a task-name-free plan from fitted schema information."""
+    """Create a task-name-free plan from fitted schema information.
+
+    ``include_composition_features`` describes the rows that descendant and
+    bridge paths reach, in their own time order: for each categorical column,
+    how mixed its values are (entropy, the most common and the last value's
+    shares, distinct values), and for every column its first value. Over a
+    signup's journey views and their drugs and pharmacies, that is the journey's
+    drug-class mix and its first-touch pharmacy. The mode and the last value are
+    planned either way.
+
+    ``composition_pairs`` names pairs of categorical columns as
+    ``("table.column", "table.column")``, each at the end of a bridge path from
+    the same association rows. Each pair gets the same composition features over
+    its value pairs: over a journey, the most common drug class and pharmacy
+    company together.
+
+    ``sibling_paths`` adds the opt-in sibling family (see ``SiblingPathConfig``)
+    when the anchors have a cutoff. Its features take the budget first, after the
+    anchor and direct features, because a caller asked for them.
+    """
     database.validate()
     if anchors.entity_table not in database.tables:
         raise ValueError(f"missing entity table {anchors.entity_table!r}")
@@ -87,8 +112,15 @@ def build_feature_plan(
     )
 
     paths = _enumerate_paths(database, anchors, config)
+    siblings = (
+        get_sibling_paths(database, anchors, sibling_paths)
+        if sibling_paths is not None and anchors.cutoff_column is not None
+        else ()
+    )
     direct_share = (
-        config.max_features if not paths else max(1, config.max_features // 3)
+        config.max_features
+        if not paths and not siblings
+        else max(1, config.max_features // 3)
     )
     selected = anchor_features[: config.max_features]
     direct_limit = min(
@@ -97,7 +129,23 @@ def build_feature_plan(
         config.max_features - len(selected),
     )
     selected.extend(direct[:direct_limit])
-    tiers = _candidate_tiers(database, anchors, config, paths, excluded)
+    tiers = _candidate_tiers(
+        database,
+        anchors,
+        config,
+        paths,
+        excluded,
+        include_composition_features,
+        composition_pairs,
+    )
+    if siblings:
+        sibling_tiers = get_sibling_feature_tiers(database, siblings, sibling_paths)
+        if sibling_paths.max_features is not None:
+            # Cap the family as a whole, in its tier order, so the paths below it
+            # (a signup's own journey views) still get part of the budget.
+            capped = [feature for tier in sibling_tiers for feature in tier]
+            sibling_tiers = [capped[: sibling_paths.max_features]]
+        tiers = sibling_tiers + tiers
     for tier in tiers:
         for feature in tier:
             if len(selected) >= config.max_features:
@@ -114,9 +162,196 @@ def build_feature_plan(
         schema_digest=database.schema_digest,
         anchors=anchors,
         config=config,
-        paths=paths,
+        paths=paths + siblings,
         features=tuple(selected),
     )
+
+
+def get_sibling_paths(
+    database: DatabaseView, anchors: AnchorDefinition, config: SiblingPathConfig
+) -> tuple[RelationPath, ...]:
+    """Return the entity's sibling paths, at most ``config.max_paths``.
+
+    A sibling path goes up one foreign key of the entity to its parent and down
+    one foreign key into that parent from a time-stamped table: a view's device,
+    then the device's views. A table in ``config.parent_tables`` that the entity
+    does not reference, but one of its parents does, groups that parent's rows
+    by the reference: a signup's drug, grouped by ``drug.drug_class_id``, then
+    the paid subscriptions of every drug in the class. Siblings in the entity's
+    own table come first, then other tables, each in identity order.
+    """
+    entity = anchors.entity_table
+    entity_edges = [up for up in database.foreign_keys if up.child_table == entity]
+    direct_parents = {up.parent_table for up in entity_edges}
+
+    def get_down_edges(up: ForeignKey) -> list[ForeignKey]:
+        """Return the time-stamped tables' foreign keys into ``up``'s parent."""
+        return [
+            down
+            for down in database.foreign_keys
+            if (down.parent_table, down.parent_column)
+            == (up.parent_table, up.parent_column)
+            and down.child_table in database.time_columns
+        ]
+
+    excluded = set(config.excluded_paths)
+    paths = [
+        RelationPath(entity, (up, down), "sibling")
+        for up in entity_edges
+        if config.parent_tables is None or up.parent_table in config.parent_tables
+        for down in get_down_edges(up)
+        if (up.parent_table, down.child_table) not in excluded
+    ]
+    if config.parent_tables is not None:
+        paths.extend(
+            RelationPath(entity, (up, group, down), "sibling")
+            for up in entity_edges
+            for group in database.foreign_keys
+            if group.child_table == up.parent_table
+            and group.parent_table in config.parent_tables
+            and group.parent_table not in direct_parents
+            for down in get_down_edges(up)
+            if (group.parent_table, down.child_table) not in excluded
+        )
+    paths.sort(key=lambda path: (path.edges[-1].child_table != entity, path.identity))
+    return tuple(paths[: config.max_paths])
+
+
+def get_sibling_match_columns(
+    database: DatabaseView, path: RelationPath
+) -> list[tuple[str, str]]:
+    """Return (entity column, sibling column) pairs that name the same parent.
+
+    For a view's device's views, (drug_id, drug_id) pairs the view's drug with
+    each earlier view's drug. The path's own foreign keys are left out, and so is
+    a parent the entity references through more than one column.
+    """
+    up, _, down = get_sibling_edges(path)
+    entity_columns: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for relation in database.foreign_keys:
+        if relation.child_table == path.entity_table and relation != up:
+            entity_columns[(relation.parent_table, relation.parent_column)].append(
+                relation.child_column
+            )
+    pairs = []
+    for relation in database.foreign_keys:
+        if (
+            relation.child_table == down.child_table
+            and relation.child_column != down.child_column
+        ):
+            matches = entity_columns.get(
+                (relation.parent_table, relation.parent_column), []
+            )
+            if len(matches) == 1:
+                pairs.append((matches[0], relation.child_column))
+    return sorted(pairs)
+
+
+def get_sibling_distinct_columns(
+    database: DatabaseView, path: RelationPath
+) -> list[str]:
+    """Return the sibling table's foreign keys, other than the path's, then its time."""
+    _, _, down = get_sibling_edges(path)
+    columns = sorted(
+        relation.child_column
+        for relation in database.foreign_keys
+        if relation.child_table == down.child_table
+        and relation.child_column != down.child_column
+    )
+    return [*columns, database.time_columns[down.child_table]]
+
+
+def get_sibling_numeric_columns(
+    database: DatabaseView, path: RelationPath
+) -> list[str]:
+    """Return the sibling table's numeric columns other than its keys and time.
+
+    A drug name's earlier weekly claims give their claim counts and amounts; their
+    ``drug_id`` and ``week_start`` are not summed.
+    """
+    _, _, down = get_sibling_edges(path)
+    table = database.tables[down.child_table]
+    excluded = {
+        database.primary_keys.get(down.child_table),
+        database.time_columns[down.child_table],
+        *(
+            relation.child_column
+            for relation in database.foreign_keys
+            if relation.child_table == down.child_table
+        ),
+    }
+    return sorted(
+        str(column)
+        for column in table.columns
+        if column not in excluded
+        and pd.api.types.is_numeric_dtype(table[column])
+        and not pd.api.types.is_bool_dtype(table[column])
+    )
+
+
+def get_sibling_feature_tiers(
+    database: DatabaseView,
+    paths: tuple[RelationPath, ...],
+    config: SiblingPathConfig,
+) -> list[list[FeatureSpec]]:
+    """Return the sibling features in budget order, each tier interleaving paths.
+
+    Tiers: counts (all, then each window); recency and oldest age; with
+    ``include_numeric_aggregates``, sums and means of numeric columns (all, then
+    each window) and their all-time min and max; match features; distinct
+    counts. Numeric aggregates come before matches because a caller who asks for
+    them names the columns they want.
+    """
+    counts = [FeatureSpec.aggregate(path, "count") for path in paths]
+    for window in config.window_ns:
+        counts.extend(
+            FeatureSpec.aggregate(path, "count", window_ns=window) for path in paths
+        )
+    ages = [
+        FeatureSpec.aggregate(path, operation)
+        for operation in ("recency", "oldest_age")
+        for path in paths
+    ]
+    matches = []
+    if config.include_match_features:
+        for path in paths:
+            for _, column in get_sibling_match_columns(database, path):
+                matches.extend(
+                    FeatureSpec.aggregate(path, operation, column=column)
+                    for operation in ("match_count", "match_recency", "match_previous")
+                )
+    numeric = []
+    if config.include_numeric_aggregates:
+        columns = {
+            path: [
+                column
+                for column in get_sibling_numeric_columns(database, path)
+                if config.numeric_columns is None
+                or f"{path.edges[-1].child_table}.{column}" in config.numeric_columns
+            ]
+            for path in paths
+        }
+        for window in (None, *config.window_ns):
+            for operation in ("sum", "mean"):
+                numeric.extend(
+                    FeatureSpec.aggregate(
+                        path, operation, column=column, window_ns=window
+                    )
+                    for path in paths
+                    for column in columns[path]
+                )
+        for operation in ("max", "min"):
+            numeric.extend(
+                FeatureSpec.aggregate(path, operation, column=column)
+                for path in paths
+                for column in columns[path]
+            )
+    distinct = [
+        FeatureSpec.aggregate(path, "distinct", column=column)
+        for path in paths
+        for column in get_sibling_distinct_columns(database, path)
+    ]
+    return [counts, ages, numeric, matches, distinct]
 
 
 def _enumerate_paths(
@@ -242,12 +477,70 @@ def _path_has_usable_time(
     return any(edge.child_table in database.time_columns for edge in path.edges)
 
 
+#: Composition features of a pair of values, and the kind of each.
+_PAIR_OPERATIONS: tuple[tuple[FeatureOperation, ColumnKind], ...] = (
+    ("mode", "categorical"),
+    ("first", "categorical"),
+    ("entropy", "numeric"),
+    ("mode_share", "numeric"),
+    ("last_share", "numeric"),
+    ("distinct", "numeric"),
+)
+
+
+def get_composition_pair_features(
+    aggregate_paths: tuple[RelationPath, ...],
+    aggregate_columns: dict[RelationPath, tuple[list[str], list[str]]],
+    composition_pairs: tuple[tuple[str, str], ...],
+) -> list[FeatureSpec]:
+    """Return the composition features of each named pair of categorical columns.
+
+    A pair ``("drug_class.drug_class_name", "pharmacy.pharmacy_company_hash")``
+    matches every two bridge paths that start with the same edge down to an
+    association row, one ending at each column's table, where both columns are
+    planned categories. A name that matches no paths plans nothing.
+    """
+    bridges = [path for path in aggregate_paths if path.is_bridge]
+    features: list[FeatureSpec] = []
+    for first_name, second_name in composition_pairs:
+        first_table, first_column = first_name.split(".", 1)
+        second_table, second_column = second_name.split(".", 1)
+        for path in bridges:
+            if (
+                path.terminal_table != first_table
+                or first_column not in aggregate_columns[path][1]
+            ):
+                continue
+            for paired_path in bridges:
+                if (
+                    paired_path == path
+                    or paired_path.terminal_table != second_table
+                    or second_column not in aggregate_columns[paired_path][1]
+                    or paired_path.edges[0] != path.edges[0]
+                ):
+                    continue
+                features.extend(
+                    FeatureSpec.pair_aggregate(
+                        path,
+                        paired_path,
+                        operation,
+                        column=first_column,
+                        paired_column=second_column,
+                        kind=kind,
+                    )
+                    for operation, kind in _PAIR_OPERATIONS
+                )
+    return features
+
+
 def _candidate_tiers(
     database: DatabaseView,
     anchors: AnchorDefinition,
     config: NativeFeatureConfig,
     paths: tuple[RelationPath, ...],
     excluded: dict[str, set[str]],
+    include_composition_features: bool = False,
+    composition_pairs: tuple[tuple[str, str], ...] = (),
 ) -> list[list[FeatureSpec]]:
     parent_paths = tuple(path for path in paths if path.is_parent)
     aggregate_paths = tuple(
@@ -359,6 +652,44 @@ def _candidate_tiers(
             ),
         )
     )
+    if include_composition_features:
+        tiers.append(
+            _round_robin_columns(
+                aggregate_paths,
+                aggregate_columns,
+                1,
+                lambda path, column: FeatureSpec.aggregate(
+                    path, "first", column=column, kind="categorical"
+                ),
+            )
+        )
+        tiers.append(
+            _round_robin_columns(
+                aggregate_paths,
+                aggregate_columns,
+                0,
+                lambda path, column: FeatureSpec.aggregate(
+                    path, "first", column=column
+                ),
+            )
+        )
+        for operation in ("entropy", "mode_share", "last_share", "distinct"):
+            tiers.append(
+                _round_robin_columns(
+                    aggregate_paths,
+                    aggregate_columns,
+                    1,
+                    lambda path, column, operation=operation: FeatureSpec.aggregate(
+                        path, operation, column=column
+                    ),
+                )
+            )
+    if composition_pairs:
+        tiers.append(
+            get_composition_pair_features(
+                aggregate_paths, aggregate_columns, composition_pairs
+            )
+        )
     if config.include_missing_fractions:
         tiers.append(
             _round_robin_columns(
@@ -474,4 +805,9 @@ def _bounded_cardinality(series: pd.Series, limit: int) -> int | None:
     return len(values)
 
 
-__all__ = ["build_feature_plan"]
+__all__ = [
+    "build_feature_plan",
+    "get_sibling_distinct_columns",
+    "get_sibling_match_columns",
+    "get_sibling_paths",
+]
