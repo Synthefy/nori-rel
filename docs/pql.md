@@ -49,6 +49,7 @@ Pass timezone-aware UTC datetimes:
 | `observed_through` | Caller-verified completeness watermark for historical labels. |
 | `entity_created_at` | Name of the column on the entity table that holds when each entity first existed. See [below](#entity_created_at-when-each-entity-first-existed). |
 | `max_context_rows` | Cap on candidate context rows, default 5,000 and at most `RelationalLimits.max_context_rows` (60,000). Candidates are taken newest anchor first, then by primary key, before unknown labels are dropped. |
+| `entity_time` | Optional, for one prediction per event: the entity table's timestamp column. Replaces `anchor_times` and `entity_created_at`. See [Event-time rows](#event-time-rows-one-prediction-per-event). |
 
 A label window is `(anchor + start, anchor + end]`, counted in `days` (exact
 24-hour periods) or `months` (UTC calendar months). With monthly data, use
@@ -397,6 +398,51 @@ Not supported yet:
 - Feature searches other than FastDFS or a custom `FeatureBackend`: NoriDFS,
   the agent search and saved programs scale with a label window. Saved
   pipelines: `details["pipeline"]` is None.
+
+## Event-time rows: one prediction per event
+
+Some questions are about events, not entities: will this page view lead to a
+signup, is this transaction fraud. Each row of the entity table is one event,
+and its features should use everything known at the moment of the event,
+including what happened minutes before it. A shared anchor cannot give that:
+with `anchor_times`, every row is cut at the same midnight.
+
+`entity_time` names the entity table's timestamp column. Each entity row then
+becomes one example anchored at its own time `t`:
+
+```python
+details = client.predict(
+    source=source,
+    feature_strategy="noridfs",
+    # 1 if a signup credited to this view comes within a day of it.
+    query="PREDICT COUNT(signups.*, 0, 1, days) FOR EACH views.view_id",
+    entity_time="view_time",         # each view is anchored at its own time
+    anchor_time=run_time,            # the run: rows existing by then are scored
+    observed_through=run_time,       # context labels must have settled by then
+    query_filter="views.view_time >= 2026-07-25",  # score the run day's views
+    context=ContextPolicy(balance=ClassBalance(positives="all"), max_rows=20_000),
+    output_type="mean",
+    return_details=True,
+)
+```
+
+- **Label.** The window is measured from the row's own time: `(0, 1, days)` is
+  `(t, t + 1 day]`.
+- **Context rows.** One candidate per entity row, with no `anchor_times`. A row
+  is eligible when `t + end <= min(anchor_time, observed_through)`, that is, its
+  label had settled by the run. `ContextPolicy` chooses among them as usual.
+- **Scoring rows.** Entity rows with `t <= anchor_time` that pass `query_filter`,
+  each scored at its own time. Scoring a day's events in one batch gives the same
+  features as scoring each event when it happens.
+- **Features.** The row's own columns are visible at its own time. NoriDFS reads
+  other rows strictly before `t`, so rows at the same instant are not each
+  other's history; FastDFS keeps its rule of rows up to and including the
+  cutoff.
+- **Report.** `metadata["context_policy"]` counts the rows by UTC day, and
+  `equal_per_cutoff` balances days.
+- **Not yet.** The agent search, saved feature programs and pipelines raise; no
+  pipeline is recorded. An entity at several times, and features from an
+  entity's siblings (a device's other views) are later steps.
 
 ## v0 limits
 

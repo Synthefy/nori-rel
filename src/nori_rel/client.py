@@ -80,6 +80,7 @@ class PredictionRequestArguments(TypedDict, total=False):
     log_summary: bool
     pipeline: NoriRelPipeline | None
     expected_context_sha256: str | None
+    entity_time: str | None
 
 
 PredictionTask = Literal["regression", "classification"]
@@ -317,6 +318,7 @@ class NoriRelClient:
         log_summary: bool = True,
         pipeline: NoriRelPipeline | None = None,
         expected_context_sha256: str | None = None,
+        entity_time: str | None = None,
         return_details: bool = False,
         on_event: Callable[[RunEvent], None] | None = None,
     ) -> pd.DataFrame | PredictionDetails:
@@ -354,6 +356,17 @@ class NoriRelClient:
         labels dropped afterwards. Either way attrs["context_policy"] reports
         the rule used, who chose it, the class counts before and after
         selection and the rows kept at each cutoff.
+
+        entity_time names a date/timestamp column of the entity table to predict
+        per event, e.g. "view_time" for "will this page view lead to a signup?".
+        Each entity row is then one example anchored at its own time: its label
+        window starts there, its features read only rows from before that time
+        plus its own columns, and rows with the same time do not see each other.
+        Pass it instead of anchor_times and entity_created_at. Context rows are
+        those whose label window ends by min(anchor_time, observed_through);
+        scored rows are those that exist by anchor_time, after query_filter, each
+        scored at its own time. The agent search, saved programs and pipelines
+        do not support it yet, and no pipeline is recorded.
 
         agent_instructions is plain text sent verbatim in the agent's request,
         for example "Signups on 1-3 Jun had broken tracking; do not build
@@ -595,6 +608,7 @@ class NoriRelClient:
         pipeline: NoriRelPipeline | None = None,
         expected_context_sha256: str | None = None,
         keep_scoring_features: bool = False,
+        entity_time: str | None = None,
     ) -> Callable[[RunContext], pd.DataFrame]:
         """Check a predict request now; return the prediction to run later.
 
@@ -634,6 +648,7 @@ class NoriRelClient:
                     "feature_program": feature_program,
                     "metric": metric,
                     "feature_strategy": feature_strategy,
+                    "entity_time": entity_time,
                 },
                 log_summary=log_summary,
                 keep_scoring_features=keep_scoring_features,
@@ -727,7 +742,26 @@ class NoriRelClient:
                     replaying_program=feature_program is not None,
                 ),
                 has_pipeline=False,
+                entity_time=entity_time,
             )
+        elif entity_time is not None:
+            if legacy:
+                raise ValueError("entity_time needs a PQL query")
+            if not isinstance(entity_time, str) or not entity_time.strip():
+                raise ValueError("entity_time must name a date/timestamp column")
+            if anchor_times is not None:
+                raise ValueError(
+                    "entity_time anchors each row at its own time; omit anchor_times"
+                )
+            if entity_created_at not in (None, entity_time):
+                raise ValueError(
+                    "with entity_time, a row exists from its own time; "
+                    "omit entity_created_at or pass the same column"
+                )
+            if observed_through is None:
+                raise ValueError("PQL with entity_time requires observed_through")
+            # A row exists from its event time, so it is also the creation column.
+            entity_created_at = entity_time
         elif target_kind == "temporal" and (
             anchor_times is None or observed_through is None or not entity_created_at
         ):
@@ -785,6 +819,7 @@ class NoriRelClient:
                 keep_scoring_features=keep_scoring_features,
                 feature_strategy=feature_strategy,
                 expected_context_sha256=expected_context_sha256,
+                **({"entity_time": entity_time} if entity_time is not None else {}),
             )
 
         return predict_frame

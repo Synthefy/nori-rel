@@ -59,6 +59,7 @@ def require_static_target_arguments(
     observed_through: datetime | None,
     feature_strategy: str,
     has_pipeline: bool,
+    entity_time: str | None = None,
 ) -> None:
     """Raise ValueError for a static-target request argument that cannot apply.
 
@@ -66,7 +67,9 @@ def require_static_target_arguments(
     anchor_times, observed_through or anchor_time. Its features come from
     FastDFS or a custom FeatureBackend: NoriDFS, the agent search and saved
     programs scale with a label horizon it does not have. Saved pipelines do
-    not replay static targets yet.
+    not replay static targets yet. entity_time anchors a label window at each
+    row's time, which a static target does not have; entity_created_at gives
+    each row its own feature cutoff instead.
     """
     given = [
         name
@@ -83,6 +86,12 @@ def require_static_target_arguments(
             f"{', '.join(given)}: its labels are read as stored now, with no "
             "label window. Omit them; pass entity_created_at to compute each "
             "row's features as of its own time"
+        )
+    if entity_time is not None:
+        raise ValueError(
+            "a static target takes no entity_time: it has no label window to "
+            "anchor. Pass entity_created_at to compute each row's features as "
+            "of its own time"
         )
     if feature_strategy in _HORIZON_FEATURE_STRATEGIES:
         raise ValueError(

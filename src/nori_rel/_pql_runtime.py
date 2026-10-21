@@ -103,6 +103,7 @@ def predict_pql(
     metric: AgentSearchMetric | None = None,
     keep_scoring_features: bool = False,
     feature_strategy=None,
+    entity_time: str | None = None,
 ) -> pd.DataFrame:
     """Run temporal PQL through preparation, features and Nori inference.
 
@@ -148,6 +149,13 @@ def predict_pql(
     agent_instructions is sent verbatim in an agent search's request, and the
     report records it with the stages that received it.
 
+    entity_time names a date/timestamp column of the entity table for
+    event-time rows: each entity row is one example anchored at its own time,
+    for context and for scoring, and its features read only rows from before
+    that time plus its own columns. anchor_times must then be None, and the
+    report groups its cutoffs by UTC day. Agent search, saved programs and
+    pipelines do not support event-time rows yet; no pipeline is recorded.
+
     A static target (PREDICT users.income FOR EACH users.user_id) learns a
     stored column from the other rows whose value is stored. It takes no
     anchor_times, anchor_time or observed_through, and entity_created_at is
@@ -163,6 +171,15 @@ def predict_pql(
     """
     run_context = run_context or RunContext.unobserved()
     chosen_features = runtime.features if feature_strategy is None else feature_strategy
+    if entity_time is not None:
+        if feature_program is not None or pipeline is not None:
+            raise ValueError(
+                "entity_time does not support saved feature programs or pipelines yet"
+            )
+        if get_feature_strategy_name(chosen_features, replaying_program=False) == (
+            "agentic"
+        ):
+            raise ValueError("entity_time does not support the agent search yet")
     # An agent search holds steering from the run's first boundary until its
     # agent delivers it; a DFS run or a saved program rejects steering.
     run_context.steering_enabled = (
@@ -186,6 +203,7 @@ def predict_pql(
                 chosen_features, replaying_program=feature_program is not None
             ),
             has_pipeline=pipeline is not None,
+            entity_time=entity_time,
         )
     elif feature_program is not None:
         feature_program.validate_query(query, entity_created_at)
@@ -246,6 +264,8 @@ def predict_pql(
         if context_policy is not None and context_policy.candidate_sql is not None
         else {}
     )
+    if entity_time is not None:
+        candidate_options["entity_time"] = entity_time
     with run_context.report_stage(Stage.MATERIALIZE):
         snapshot, context, counts = connector.prepare_inputs(
             source.id,
@@ -265,10 +285,13 @@ def predict_pql(
             context_policy,
             chosen_by=get_context_policy_chooser(context_policy, pipeline),
             max_context_rows=max_context_rows,
+            # Event-time rows have one cutoff each; the report counts them by day.
             # A static target's rows share the read time, or each has its own
             # creation time.
             eligible_anchor_times=(
-                ([snapshot.as_of] if entity_created_at is None else [])
+                []
+                if entity_time is not None
+                else ([snapshot.as_of] if entity_created_at is None else [])
                 if is_static
                 else get_eligible_anchor_times(
                     tree,
@@ -278,6 +301,7 @@ def predict_pql(
                 )
             ),
             max_kept_rows=runtime.limits.max_context_rows,
+            cutoff_frequency="D" if entity_time is not None else None,
             random_key_anchor_time=(
                 READ_TIME_STAND_IN if is_read_time_cutoff else None
             ),
@@ -292,7 +316,9 @@ def predict_pql(
                     snapshot.tables, pipeline.source.column_dtypes
                 ),
             )
-        scoring = build_prediction_rows(snapshot, query, entity_created_at)
+        scoring = build_prediction_rows(
+            snapshot, query, entity_created_at, entity_time=entity_time
+        )
     if is_static:
         resolved = get_static_target_task(
             tree, snapshot.schema, task, get_known_target_values(snapshot, tree)
@@ -330,6 +356,8 @@ def predict_pql(
     }
     if snapshot.provenance:
         metadata["snapshot"] = snapshot.provenance.model_dump(mode="json")
+    if entity_time is not None:
+        metadata["entity_time"] = entity_time
     if log_summary:
         logger.info(
             "PQL context=%d usable/%d candidates; scoring=%d",
@@ -482,7 +510,7 @@ def predict_pql(
         if report_updates:
             context_report = context_report.model_copy(update=report_updates)
             result.attrs["context_policy"] = context_report.model_dump(mode="json")
-    if pipeline is None and not is_static:
+    if pipeline is None and entity_time is None and not is_static:
         pipeline = get_pipeline_manifest(
             engine=source.engine,
             query=query,

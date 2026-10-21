@@ -18,6 +18,7 @@ def build_prediction_rows(
     snapshot: Snapshot,
     query: str,
     entity_created_at: str | None,
+    entity_time: str | None = None,
 ) -> pd.DataFrame:
     """Resolve FOR into (query_row_id, entity_id, anchor_time) rows.
 
@@ -26,7 +27,8 @@ def build_prediction_rows(
     or not-yet-created entities. Top-level WHERE only filters historical context.
     Optional snapshot.scoring_filter_ids intersects IDs after missing-ID checks.
     Output IDs are unique within this scoring batch; original PK types survive.
-    Every row's anchor_time is snapshot.as_of.
+    Every row's anchor_time is snapshot.as_of, or with entity_time (an entity
+    date/timestamp column, for event-time rows) the row's own time.
 
     A static target (PREDICT users.income) differs in three ways: FOR EACH
     scores only the rows whose target column is NULL, entity_created_at may be
@@ -49,6 +51,13 @@ def build_prediction_rows(
         if is_static:
             rows["anchor_time"] = created
         rows = rows.loc[created.notna() & (created <= snapshot.as_of)]
+    if entity_time is not None:
+        time_column = get_entity_created_at_column(
+            snapshot.schema, table, entity_time, argument="entity_time"
+        )
+        rows["anchor_time"] = pd.to_datetime(
+            frame.loc[rows.index, time_column.name], utc=True
+        )
     selection = parts["selection"]
     if selection is not None:
         constant = selection.constant()
@@ -111,6 +120,11 @@ def build_pql_features(
         columns={"entity_id": key.name, "anchor_time": _CUTOFF}
     )
     query_targets[_ROW_ID] = ["query:" + str(i) for i in scoring["query_row_id"]]
+    # Context anchors can arrive as Python datetimes in an object column. With
+    # event-time rows they carry sub-second times, and FastDFS (featuretools)
+    # then rejects the column as a time index, so give both a UTC dtype.
+    train[_CUTOFF] = pd.to_datetime(train[_CUTOFF], utc=True)
+    query_targets[_CUTOFF] = pd.to_datetime(query_targets[_CUTOFF], utc=True)
     matrices = engine.compute(
         snapshot, train, query_targets, table.name, row_id_column=_ROW_ID
     )

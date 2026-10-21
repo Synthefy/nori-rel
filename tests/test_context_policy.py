@@ -501,3 +501,34 @@ def test_event_time_rows_are_balanced_per_cutoff_group_not_per_instant():
     counts = kept.groupby("cutoff_group")["is_positive"].agg(["size", "sum"])
     assert counts.loc[pd.Timestamp(DAY_2)].tolist() == [12, 6]
     assert counts.loc[pd.Timestamp(DAY_1)].tolist() == [4, 2]
+
+
+def test_cutoff_frequency_groups_event_time_rows_by_day():
+    # The same pool through get_selected_context: cutoff_frequency="D" builds
+    # the day groups that the balance and the report both use. Each row is at
+    # its own minute; DAY_1 has 2 positives and DAY_2 has 6, each day with 20
+    # negatives.
+    rows = []
+    for day, positives in ((DAY_1, 2), (DAY_2, 6)):
+        for minute in range(positives + 20):
+            rows.append(
+                (
+                    f"{day:%d}-{minute}",
+                    day + timedelta(minutes=minute),
+                    int(minute < positives),
+                )
+            )
+    context, report = get_selected_context(
+        make_labelled(rows),
+        ContextPolicy(balance=ClassBalance(), time_sampling="random", min_positives=1),
+        chosen_by="caller",
+        max_context_rows=None,
+        eligible_anchor_times=[],
+        max_kept_rows=60_000,
+        cutoff_frequency="D",
+    )
+    assert [
+        (cutoff.anchor_time, cutoff.kept_rows, cutoff.kept_positives)
+        for cutoff in report.cutoffs
+    ] == [(DAY_2, 12, 6), (DAY_1, 4, 2)]
+    assert context["anchor_time"].nunique() == len(context)

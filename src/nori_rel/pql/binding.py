@@ -88,7 +88,11 @@ def is_date_or_timestamp_column(column: ColumnSchema) -> bool:
 
 
 def get_entity_created_at_column(
-    schema: SchemaGraph, table: TableSchema, entity_created_at: str
+    schema: SchemaGraph,
+    table: TableSchema,
+    entity_created_at: str,
+    *,
+    argument: str = "entity_created_at",
 ) -> ColumnSchema:
     """Return the entity table's creation-time column named by entity_created_at.
 
@@ -98,6 +102,8 @@ def get_entity_created_at_column(
         table: The FOR EACH entity table, e.g. users for users.user_id.
         entity_created_at: Column name on that table, e.g. "created_at",
             holding when each entity first existed. Not table-qualified.
+        argument: The predict argument that named the column, for the error
+            message: "entity_created_at", or "entity_time" for event-time rows.
 
     Returns:
         The single matching ColumnSchema, whose type is a date or timestamp.
@@ -134,10 +140,14 @@ def get_entity_created_at_column(
             f"{table.name} has no date or timestamp column: add one, for example "
             "each entity's first event time. See docs/pql.md."
         )
+    meaning = (
+        "holding when each event happened"
+        if argument == "entity_time"
+        else "holding when each entity first existed"
+    )
     raise ValueError(
-        f"entity_created_at={entity_created_at!r} {problem}. It must name a date "
-        f"or timestamp column on the entity table {table.name} holding when each "
-        f"entity first existed. {hint}"
+        f"{argument}={entity_created_at!r} {problem}. It must name a date "
+        f"or timestamp column on the entity table {table.name} {meaning}. {hint}"
     )
 
 

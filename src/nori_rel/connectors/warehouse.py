@@ -886,7 +886,7 @@ class WarehouseConnector:
         database_id: str,
         query: str,
         *,
-        anchor_times: Sequence[datetime],
+        anchor_times: Sequence[datetime] | None,
         anchor_time: datetime | None,
         observed_through: datetime,
         entity_created_at: str,
@@ -894,6 +894,7 @@ class WarehouseConnector:
         query_filter: str | None = None,
         load_source_tables_for_dfs: bool = True,
         candidate_sql: str | None = None,
+        entity_time: str | None = None,
     ) -> tuple[pd.DataFrame, dict[str, int], Snapshot | None]:
         """Build same-pin historical labels and optional feature-source tables.
 
@@ -902,6 +903,8 @@ class WarehouseConnector:
         cap, so that read uses max_total_rows, the rows one prediction may
         load, which the snapshot below also counts the context rows against.
         candidate_sql is an optional caller SELECT that narrows that read.
+        entity_time anchors each entity row at its own time (event-time rows);
+        anchor_times must then be None.
         """
         row_cap = get_context_read_row_cap(self.settings, max_context_rows)
         if query_filter is not None and not load_source_tables_for_dfs:
@@ -932,6 +935,7 @@ class WarehouseConnector:
                 max_context_rows=max_context_rows,
                 dialect=dialect,
                 candidate_sql=candidate_sql,
+                entity_time=entity_time,
                 query_filter=query_filter,
             )
             self._validate_visible_table_keys(session, anchor_time)
@@ -997,11 +1001,12 @@ class WarehouseConnector:
         database_id: str,
         query: str,
         *,
-        anchor_times: Sequence[datetime],
+        anchor_times: Sequence[datetime] | None,
         anchor_time: datetime | None,
         observed_through: datetime,
         entity_created_at: str,
         max_context_rows: int | None = DEFAULT_MAX_CONTEXT_ROWS,
+        entity_time: str | None = None,
     ) -> tuple[pd.DataFrame, dict[str, int]]:
         """Return historical labels without downloading raw feature tables."""
         rows, counts, _ = self._get_prepared_inputs(
@@ -1013,6 +1018,7 @@ class WarehouseConnector:
             entity_created_at=entity_created_at,
             max_context_rows=max_context_rows,
             load_source_tables_for_dfs=False,
+            entity_time=entity_time,
         )
         return rows, counts
 

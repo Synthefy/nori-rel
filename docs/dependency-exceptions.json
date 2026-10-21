@@ -53,7 +53,7 @@
       "sha256": "aea6ec8749422d2a75654c8865a4cf427c3d9ca67c1bdca0905b4104f2a2fb54"
     },
     "src/nori_rel/_context_selection.py": {
-      "sha256": "fa285bb092e80549d768fa6bf378e78f075c6b01f21de9729f79dcf36ec00630"
+      "sha256": "20ffe33a332abfa3297af9e2da1dad914d06769010942b197e833795397cd38f"
     },
     "src/nori_rel/_credentials.py": {
       "sha256": "43ca5554a8d9dfba18a338ededac2deaaa19e19f2d83e03946fc534f38b3c14f"
@@ -71,19 +71,19 @@
       "sha256": "cbd203098a21e0b5fcd0b5c3a85b24bb375bdd48cd474d617fde67444911c762"
     },
     "src/nori_rel/_pql_features.py": {
-      "sha256": "1ac118378ee37858e776ff1475f3e5d253a37214b3c7b501ea5dc55460c850f0"
+      "sha256": "6a2c6fd340c785d04cc70e074bec3422ef750d4612b1fbef984b3f6225eb2350"
     },
     "src/nori_rel/_pql_runtime.py": {
-      "sha256": "bae5325ac9cde4d9bb4aa130f9318aa7762cd845ed7bc1a902a4c7f1a92edd16"
+      "sha256": "8fd5805de91383fe3501693c9cc3762dbede88cf850e764d2f519aac9acc7000"
     },
     "src/nori_rel/_pql_static.py": {
-      "sha256": "a79702f95865b023a70761260bf4f81b93ac64655ce44bfb52205ce9621388f6"
+      "sha256": "92fa6acf5772cc10527d3e12ad0682ab3de7944073dfb7da853034c366c12b0e"
     },
     "src/nori_rel/_runtime.py": {
       "sha256": "00a94ad18024e86788632dce1b9c00a2864cee721516b56d4607c6a5fca101fd"
     },
     "src/nori_rel/client.py": {
-      "sha256": "a19a39489ea7952b0198cc447e2b261ca9fb9d8c366dd1253dad0455c60f27e0"
+      "sha256": "836b179bee7a8a47b5d7642f975b0b9ab74d20e961d52734d68e7fc68523e40e"
     },
     "src/nori_rel/connectors/__init__.py": {
       "sha256": "062b7b032c2a4d0d07484e5014b7dc46b6486887ecf158b3d101cb387abde71d"
@@ -98,13 +98,13 @@
       "sha256": "b94959788800d6d8eeb7c577cd8bbda9a7e1fd5203117375032bf4d802fa1861"
     },
     "src/nori_rel/connectors/postgres.py": {
-      "sha256": "065592c7c474d44d965cc0480be75bc04034c2ca12dbdc1bd0c016b2499820a1"
+      "sha256": "c62b2ee77264f3133a22b2bfc393fdeacceff0e13132209081a70d89b38f8187"
     },
     "src/nori_rel/connectors/snowflake.py": {
       "sha256": "d89c52d0873b39f514082cb02e552b0ac7b96ed01c44a8440d0d623bc247b578"
     },
     "src/nori_rel/connectors/warehouse.py": {
-      "sha256": "2982079ed1e76d2d20af4d278ed5a43ec2b45469c3aabeaf919393d1a359a761"
+      "sha256": "336f78bf44f28638d2ee7ba4d243ae66e7430137d8833800b9d002ed297050cf"
     },
     "src/nori_rel/context_policy.py": {
       "sha256": "541af1d54c0724961e0b6f781b1be09c775631a15bb588fdbaef121b897718de"
@@ -179,7 +179,7 @@
       "sha256": "0cf562236e2b746725feb2cef37c9611260dd94901cd5c94a6b7c98d4f94adad"
     },
     "src/nori_rel/feature/dfs/noridfs/engine.py": {
-      "sha256": "55c021a895c970b9868c496b2b18899a254c715b86969063d19714f07ea4be3c"
+      "sha256": "53ded63aed451e6756de0ad6e606ecefed052bef93f59a174e50ca05fd56e6a6"
     },
     "src/nori_rel/feature/dfs/noridfs/planner.py": {
       "sha256": "7407a40a2ebc322f71254c47e0de73d17ac3a450578dc8cad8a573ed92e1262d"
@@ -248,13 +248,13 @@
       "sha256": "215f7165c7fe8cfcbcc28826b52e4b3722e8a3181f1bcdd572d0edfa891624c5"
     },
     "src/nori_rel/pql/binding.py": {
-      "sha256": "8f7ed39eb4584577cb27a8a7c77e728af840b43eb413ef4e1016f271ade648a2"
+      "sha256": "47579a0974e8d70333768d905a34aac795bbfa2618bc4158c6a23f4f5ae21424"
     },
     "src/nori_rel/pql/context_execution.py": {
       "sha256": "629a1487144dc49c66cca5eff640e8212b51ba3edc3a8df9bcad85ea6796ffa2"
     },
     "src/nori_rel/pql/context_sql.py": {
-      "sha256": "e6060082dd4f79709bbcfe53ba339e8134b8c6cb7b88300cdd8ef1fef466d729"
+      "sha256": "7a05e23066582a1aa0f9816f7748b70122e5e7234e675c7c9e9feadbcedca2d6"
     },
     "src/nori_rel/pql/dialects.py": {
       "sha256": "293a9699f1f91caba4178a65d6e713a9ee8e6429937fa4d2c212f0a5a12db7bf"
@@ -290,7 +290,7 @@
       "sha256": "02512fd78b315a7abd12f8f5bd492bd7f22f5c793466eeee902ee83f3ea9cb53"
     },
     "src/nori_rel/pql/static_context_sql.py": {
-      "sha256": "8383c6749104811582be2f57834b5e3c65852d6655f13a2e9835f88ff5974e63"
+      "sha256": "a8c0286bcdc23f3dcf4be1d6da1283662aa212f6a3bc09bc0f0ecf12a69551ab"
     },
     "src/nori_rel/pql/tree_access.py": {
       "sha256": "df92360fae13b4e3d43ed322529ee669f105ee29725b1b730f07e4915b165c28"

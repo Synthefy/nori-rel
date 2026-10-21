@@ -201,7 +201,7 @@ def _direct_features(
         right[alias] = root[column].reset_index(drop=True)
     root_time = database.time_columns.get(definition.entity_table)
     if root_time is not None:
-        right[_TIME] = _time_ns(root[root_time])
+        right[_TIME] = _get_root_time_ns(root[root_time])
     merged = left.merge(
         right,
         how="left",
@@ -350,8 +350,11 @@ def _materialize_parent_path(
             }
         )
         time_column = database.time_columns.get(current)
+        get_step_time_ns = (
+            _get_root_time_ns if current == path.entity_table else _time_ns
+        )
         payload[_STEP_TIME] = (
-            _time_ns(frame[time_column])
+            get_step_time_ns(frame[time_column])
             if time_column is not None
             else np.full(len(frame), np.nan)
         )
@@ -442,7 +445,7 @@ def _materialize_bridge_path(
             _NODE: root_keys,
             _ENTITY: root_keys,
             _TIME: (
-                _time_ns(root[root_time])
+                _get_root_time_ns(root[root_time])
                 if root_time is not None
                 else np.full(len(root), np.nan)
             ),
@@ -580,7 +583,7 @@ def _materialize_path(
     mapping = pd.DataFrame({_NODE: keys, _ENTITY: keys})
     root_time = database.time_columns.get(path.entity_table)
     mapping[_TIME] = (
-        _time_ns(root[root_time])
+        _get_root_time_ns(root[root_time])
         if root_time is not None
         else np.full(len(root), np.nan)
     )
@@ -1181,6 +1184,23 @@ def _aligned_keys(left: pd.Series, right: pd.Series) -> tuple[pd.Series, pd.Seri
     if pd.api.types.is_string_dtype(left) and pd.api.types.is_string_dtype(right):
         return left.astype(object), right.astype(object)
     return left.astype("string"), right.astype("string")
+
+
+# Databases store microseconds, and float nanoseconds near 2026 resolve about 256 ns,
+# so one microsecond is the smallest step that survives both.
+_ROOT_TIME_LEAD_NS = 1_000.0
+
+
+def _get_root_time_ns(series: pd.Series) -> np.ndarray:
+    """Return the entity's own times in float ns, one microsecond early.
+
+    The entity exists at its own time (entity_created_at <= cutoff), so its row
+    and the rows reached through it are visible at that time; a related row at
+    the same instant stays invisible, because path times take the later of the
+    two. An event-time row, anchored at its own timestamp, therefore reads its
+    own columns and the rows strictly before it.
+    """
+    return _time_ns(series) - _ROOT_TIME_LEAD_NS
 
 
 def _time_ns(series: pd.Series) -> np.ndarray:

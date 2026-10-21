@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- `predict(entity_time="view_time")` makes each entity row one example,
+  anchored at its own time, for predictions about events rather than entities
+  ("will this page view lead to a signup?"). The label window is measured from
+  the row's own time, a row is a context candidate once its label has settled
+  (`time + end <= min(anchor_time, observed_through)`), and its features read
+  only rows from before that time plus its own columns, so same-day history is
+  visible. `anchor_times` must then be omitted. The context report counts the
+  rows by UTC day, and `ContextPolicy(time_sampling="equal_per_cutoff")`
+  balances days. The agent search, saved feature programs and pipelines reject
+  `entity_time` for now, and static targets reject it with a pointer to
+  `entity_created_at`. See [event-time rows](docs/pql.md#event-time-rows-one-prediction-per-event).
+
 ## 0.4.6 — 2026-10-20
 
 - Release certification for 0.4.6 ran the live warehouse suite on Snowflake
