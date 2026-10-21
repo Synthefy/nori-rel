@@ -441,8 +441,86 @@ details = client.predict(
 - **Report.** `metadata["context_policy"]` counts the rows by UTC day, and
   `equal_per_cutoff` balances days.
 - **Not yet.** The agent search, saved feature programs and pipelines raise; no
-  pipeline is recorded. An entity at several times, and features from an
-  entity's siblings (a device's other views) are later steps.
+  pipeline is recorded. An entity at several times is a later step.
+
+### History from the same parent: sibling paths
+
+A view's most useful history is often its device's other views, which point at
+the device rather than at the view. NoriDFS reaches them through an opt-in
+sibling path: up one foreign key to a parent, then down to the parent's
+time-stamped rows.
+
+```python
+from nori_rel.feature.dfs.noridfs import NativeFeatureConfig, NoriDFS, SiblingPathConfig
+
+device_history = NoriDFS(
+    NativeFeatureConfig(max_features=128, max_direct_features=32),
+    horizon="1D",
+    sibling_paths=SiblingPathConfig(parent_tables=("devices",)),
+)
+details = client.predict(
+    source=source,
+    query="PREDICT COUNT(signups.*, 0, 1, days) FOR EACH views.view_id",
+    feature_strategy=device_history,
+    entity_time="view_time",
+    anchor_time=run_time,
+    observed_through=run_time,
+    return_details=True,
+)
+```
+
+For each row, over the parent's rows strictly before the row's cutoff:
+
+| Feature | Meaning |
+| --- | --- |
+| `count` | All earlier rows, and those in the last 1 hour, 6 hours, 24 hours and 7 days (`window_ns`). |
+| `recency`, `oldest_age` | Days since the latest and the earliest earlier row. |
+| `distinct` | Distinct values of each of their foreign keys, and distinct timestamps. |
+| `match_count`, `match_recency`, `match_previous` | For each foreign key the row shares with them, such as the drug: earlier rows with this row's value, days since the latest one, and 1 when the latest earlier timestamp had it. |
+
+With `entity_time`, the cutoff is each row's own time, so a page view counts its
+device's views earlier the same day and never itself or a view logged at the
+same instant. With `anchor_times`, the parent's rows before the shared anchor
+include the entity's own row. `parent_tables` picks the parents to go through,
+`max_paths` caps the paths, same-table siblings first. Sibling paths are off by
+default, so `feature_strategy="noridfs"` is unchanged.
+
+More `SiblingPathConfig` options, all off by default:
+
+| Option | What it adds |
+| --- | --- |
+| `include_numeric_aggregates=True` | `sum` and `mean` of each numeric column of the earlier rows, over all of them and over each window, plus their all-time `min` and `max`. `numeric_columns=("claims.paid_claims",)` limits the columns; each adds two features per window. |
+| `parent_tables=("drug_classes",)` | A table one step above a parent groups that parent's rows by it: a signup reaches the earlier rows of every drug in its drug's class, not just its drug's. |
+| `excluded_paths=(("drug_classes", "views"),)` | Leaves out (parent, child table) pairs. Use it when a child table holds only part of a parent's rows, chosen by what happens later: a views table kept only for devices that sign up describes a device's history fully, but a drug class's only partly. |
+| `max_features=40` | Caps the sibling family's share of `max_features`. Sibling features are planned before every other path, so without a cap they can take the whole budget. |
+
+### The rows a path reaches, as a whole
+
+`NoriDFS(include_composition_features=True)` describes the rows a descendant or
+bridge path reaches, such as a signup's journey views and their drugs and
+pharmacies, in the rows' own time order:
+
+| Feature | Meaning |
+| --- | --- |
+| `first` | The first row's value, for every column. |
+| `entropy` | How mixed a categorical column's values are, in nats. |
+| `mode_share`, `last_share` | The share of rows with the most common value, and with the last row's value. |
+| `distinct` | The number of distinct values. |
+
+`NoriDFS(composition_pairs=(("drugs.drug_class", "pharmacies.company"),))` adds
+the same features, and the mode, over pairs of values. Each pair comes from one
+row both columns hang off, such as one view's drug class and pharmacy company.
+A pair whose names reach no path plans nothing.
+
+A value two steps above the rows, such as a view's drug class (view, drug,
+class), needs `NativeFeatureConfig(max_depth=3)`. A column with many values also
+needs `max_categorical_cardinality` (default 32) set above its number of values.
+
+The order and ages of these rows follow each row's own time, not the path's.
+A path's time is the latest along it, so every journey view of a signup carries
+the signup's time on the path. `first` and `last` still follow the order of the
+views, and `recency`, `mean_age` and `oldest_age` count from when each view
+happened.
 
 ## v0 limits
 

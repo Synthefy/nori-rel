@@ -5,7 +5,13 @@ from __future__ import annotations
 import pandas as pd
 
 from .._basedfs import CUTOFF_COLUMN, BaseDFS, FeatureMatrices, RelationalData
-from .contracts import AnchorDefinition, DatabaseView, FeaturePlan, NativeFeatureConfig
+from .contracts import (
+    AnchorDefinition,
+    DatabaseView,
+    FeaturePlan,
+    NativeFeatureConfig,
+    SiblingPathConfig,
+)
 from .engine import NativeRelationalFeaturizer
 
 
@@ -21,10 +27,27 @@ class NoriDFS(BaseDFS):
         config: NativeFeatureConfig | None = None,
         *,
         horizon: str | pd.Timedelta | None = None,
+        sibling_paths: SiblingPathConfig | None = None,
+        include_composition_features: bool = False,
+        composition_pairs: tuple[tuple[str, str], ...] = (),
     ) -> None:
-        """Set the native feature budget and optional aggregation-window unit."""
+        """Set the native feature budget, optional window unit and sibling paths.
+
+        ``sibling_paths`` opts into features from a parent's other rows, such as a
+        page view's device's earlier views; see ``SiblingPathConfig``.
+        ``include_composition_features`` opts into the composition of the rows a
+        path reaches, in their own time order: first values, and how mixed each
+        categorical column is (entropy, the most common and last value's shares,
+        distinct values), such as a signup's journey's first pharmacy and its
+        drug-class mix. ``composition_pairs`` adds the same over pairs of
+        columns named ``("table.column", "table.column")``, such as a journey's
+        most common drug class and pharmacy company together.
+        """
         self.config = config or NativeFeatureConfig()
         self.horizon = horizon
+        self.sibling_paths = sibling_paths
+        self.include_composition_features = include_composition_features
+        self.composition_pairs = tuple(composition_pairs)
         #: A fitted plan to run instead of planning again; see ``from_plan``.
         self.saved_plan: FeaturePlan | None = None
         #: The plan from the last ``compute``, for callers that describe or
@@ -78,7 +101,12 @@ class NoriDFS(BaseDFS):
         )
         if self.saved_plan is None:
             featurizer = NativeRelationalFeaturizer.fit(
-                database, definition, self.config
+                database,
+                definition,
+                self.config,
+                sibling_paths=self.sibling_paths,
+                include_composition_features=self.include_composition_features,
+                composition_pairs=self.composition_pairs,
             )
         else:
             saved = self.saved_plan.anchors

@@ -12,24 +12,34 @@ from urllib.parse import quote
 import pandas as pd
 
 ColumnKind = Literal["numeric", "categorical", "datetime"]
-PathDirection = Literal["bridge", "descendant", "parent"]
+PathDirection = Literal["bridge", "descendant", "parent", "sibling"]
 FeatureOperation = Literal[
     "anchor",
     "direct",
     "count",
+    "distinct",
+    "entropy",
+    "first",
     "last",
+    "last_share",
     "lookup",
+    "match_count",
+    "match_previous",
+    "match_recency",
     "max",
     "mean",
     "mean_age",
     "missing_fraction",
     "min",
     "mode",
+    "mode_share",
     "oldest_age",
     "recency",
     "std",
     "sum",
 ]
+
+_HOUR_NS = 3_600_000_000_000
 
 
 @dataclass(frozen=True, order=True)
@@ -217,8 +227,95 @@ class NativeFeatureConfig:
 
 
 @dataclass(frozen=True)
+class SiblingPathConfig:
+    """Opt-in sibling paths: up to a parent, then down to that parent's other rows.
+
+    A sibling path goes from the entity to a parent it references (a page view to
+    its device) and back down to the time-stamped rows that reference the same
+    parent (that device's views, or its signups). Its features describe those
+    rows strictly before each row's cutoff:
+
+    - ``count`` over every earlier row and over each window in ``window_ns``;
+    - ``recency`` and ``oldest_age``: days since the latest and the earliest one;
+    - ``distinct``: distinct values of each of their foreign keys, and distinct
+      timestamps;
+    - with ``include_match_features``, for each foreign key the entity and those
+      rows share (both a view and its device's earlier views name a drug):
+      ``match_count`` (earlier rows with the entity's own value),
+      ``match_recency`` (days since the latest one) and ``match_previous``
+      (1 when the latest earlier timestamp had it).
+    - with ``include_numeric_aggregates``, for each numeric column of those rows
+      (not a key or the time column): ``sum`` and ``mean`` over every earlier
+      row and over each window in ``window_ns``, and ``min`` and ``max`` over
+      every earlier row. A drug's earlier weekly claims give its claims volume
+      over the last 12 weeks with ``window_ns`` set to 84 days.
+      ``numeric_columns`` names the ``table.column`` pairs to aggregate when not
+      every numeric column should be: each one adds two features per window.
+
+    With event-time rows (``entity_time``) each row's cutoff is its own time, so
+    these are the device's views before this view, including earlier the same
+    day. With a shared anchor they also include the entity's own row when it is
+    before the anchor. Off unless passed to ``NoriDFS(sibling_paths=...)``.
+    ``parent_tables`` limits the parents to go through, e.g. ``("devices",)``.
+
+    ``parent_tables`` may also name a table one step above a parent, to group by
+    that parent's attribute: with ``("drug_class",)``, a signup reaches the
+    earlier signups and paid subscriptions of every drug in its drug's class,
+    through ``drug.drug_class_id``. Such grouped paths are planned only for
+    tables named here, and not for a table the entity already references.
+
+    ``excluded_paths`` leaves out (parent, child table) pairs, the parent being
+    the grouping table for a grouped path. Use it when a child table holds only
+    some of a parent's rows in a way that depends on the future: a views table
+    restricted to devices that later sign up describes each device's history
+    completely, but a drug class's views only partly.
+    """
+
+    max_paths: int = 8
+    window_ns: tuple[int, ...] = (_HOUR_NS, 6 * _HOUR_NS, 24 * _HOUR_NS, 168 * _HOUR_NS)
+    include_match_features: bool = True
+    parent_tables: tuple[str, ...] | None = None
+    include_numeric_aggregates: bool = False
+    numeric_columns: tuple[str, ...] | None = None
+    excluded_paths: tuple[tuple[str, str], ...] = ()
+    #: The most features the sibling family takes from the budget; ``None`` lets
+    #: it take as many as the budget allows, before any other path.
+    max_features: int | None = None
+
+    def __post_init__(self) -> None:
+        """Require a positive path cap, positive unique windows and named parents."""
+        if self.parent_tables is not None and not self.parent_tables:
+            raise ValueError("parent_tables must name at least one table, or be None")
+        if self.max_paths < 1:
+            raise ValueError("max_paths must be positive")
+        if self.max_features is not None and self.max_features < 1:
+            raise ValueError("max_features must be positive, or None")
+        if any(window <= 0 for window in self.window_ns):
+            raise ValueError("sibling windows must be positive")
+        if len(set(self.window_ns)) != len(self.window_ns):
+            raise ValueError("sibling windows must be unique")
+
+
+def get_sibling_edges(
+    path: RelationPath,
+) -> tuple[ForeignKey, ForeignKey | None, ForeignKey]:
+    """Return a sibling path's (up edge, grouping edge or None, down edge).
+
+    ``views.device_id -> devices`` then ``views.device_id -> devices`` is a plain
+    sibling path; ``signups.drug_id -> drug``, ``drug.drug_class_id ->
+    drug_class`` then ``paid_subscriptions.drug_id -> drug`` groups the parent's
+    rows by its drug class.
+    """
+    if len(path.edges) == 3:
+        up, group, down = path.edges
+        return up, group, down
+    up, down = path.edges
+    return up, None, down
+
+
+@dataclass(frozen=True)
 class RelationPath:
-    """One bounded descendant, parent, or association-to-parent path."""
+    """One bounded descendant, parent, association-to-parent or sibling path."""
 
     entity_table: str
     edges: tuple[ForeignKey, ...]
@@ -226,10 +323,29 @@ class RelationPath:
 
     def __post_init__(self) -> None:
         """Require a non-empty path whose edges match its direction."""
-        if self.direction not in {"bridge", "descendant", "parent"}:
+        if self.direction not in {"bridge", "descendant", "parent", "sibling"}:
             raise ValueError(f"unknown path direction {self.direction!r}")
         if not self.edges:
             raise ValueError("relation paths require at least one edge")
+        if self.is_sibling:
+            if len(self.edges) not in (2, 3):
+                raise ValueError(
+                    "sibling paths require an up edge, an optional grouping edge "
+                    "and a down edge"
+                )
+            up, group, down = get_sibling_edges(self)
+            if up.child_table != self.entity_table:
+                raise ValueError("sibling path must start at the entity table")
+            if (down.parent_table, down.parent_column) != (
+                up.parent_table,
+                up.parent_column,
+            ):
+                raise ValueError("sibling path edges must share their parent")
+            if group is not None and group.child_table != up.parent_table:
+                raise ValueError(
+                    "a sibling path's grouping edge must start at the shared parent"
+                )
+            return
         if self.is_bridge:
             if len(self.edges) < 2:
                 raise ValueError("bridge paths require a descendant and a parent edge")
@@ -269,7 +385,9 @@ class RelationPath:
     def terminal_table(self) -> str:
         """Return the final table reached by the path."""
         edge = self.edges[-1]
-        return edge.child_table if self.direction == "descendant" else edge.parent_table
+        if self.direction in {"descendant", "sibling"}:
+            return edge.child_table
+        return edge.parent_table
 
     @property
     def is_parent(self) -> bool:
@@ -282,12 +400,28 @@ class RelationPath:
         return self.direction == "bridge"
 
     @property
+    def is_sibling(self) -> bool:
+        """Return whether the path goes up to a parent and down to its rows."""
+        return self.direction == "sibling"
+
+    @property
     def identity(self) -> str:
         """Return a canonical path identity."""
         if self.is_bridge:
             first, *parents = self.edges
             upward = "/".join(f"U:{edge.identity}" for edge in parents)
             return f"{self.entity_table}|D:{first.identity}|{upward}"
+        if self.is_sibling:
+            up, group, down = get_sibling_edges(self)
+            if group is not None:
+                return (
+                    f"{self.entity_table}|S:{up.identity}/G:{group.identity}"
+                    f"|{down.child_table}.{down.child_column}"
+                )
+            return (
+                f"{self.entity_table}|S:{up.identity}|"
+                f"{down.child_table}.{down.child_column}"
+            )
         if self.is_parent:
             steps = "/".join(edge.identity for edge in self.edges)
             return f"{self.entity_table}=>{steps}"
@@ -308,6 +442,10 @@ class FeatureSpec:
     column: str | None = None
     path: RelationPath | None = None
     window_ns: int | None = None
+    #: For a pair feature, the second bridge path and its column. The pair's
+    #: rows are those both paths reach from the same association row.
+    paired_path: RelationPath | None = None
+    paired_column: str | None = None
 
     @classmethod
     def anchor(
@@ -363,6 +501,43 @@ class FeatureSpec:
             window_ns,
         )
 
+    @classmethod
+    def pair_aggregate(
+        cls,
+        path: RelationPath,
+        paired_path: RelationPath,
+        operation: FeatureOperation,
+        *,
+        column: str,
+        paired_column: str,
+        kind: ColumnKind = "numeric",
+    ) -> FeatureSpec:
+        """Construct a composition feature of value pairs from two bridge paths.
+
+        Both paths start with the same edge down to an association row and go up
+        from it, so each association row gives one pair: ``column`` from the end
+        of ``path`` and ``paired_column`` from the end of ``paired_path``.
+        """
+        if not (path.is_bridge and paired_path.is_bridge):
+            raise ValueError("pair features need two bridge paths")
+        if path.edges[0] != paired_path.edges[0]:
+            raise ValueError("pair features need paths from the same association rows")
+        name = (
+            f"nr|pair|{_escape(path.identity)}|{_escape(column)}"
+            f"|{_escape(paired_path.identity)}|{_escape(paired_column)}|{operation}|all"
+        )
+        return cls(
+            name,
+            operation,
+            kind,
+            path.terminal_table,
+            column,
+            path,
+            None,
+            paired_path,
+            paired_column,
+        )
+
 
 @dataclass(frozen=True)
 class FeaturePlan:
@@ -394,18 +569,7 @@ class FeaturePlan:
             "anchors": self.anchors.__dict__,
             "config": self.config.__dict__,
             "paths": [path.identity for path in self.paths],
-            "features": [
-                {
-                    "name": feature.name,
-                    "operation": feature.operation,
-                    "kind": feature.kind,
-                    "table": feature.table,
-                    "column": feature.column,
-                    "path": feature.path.identity if feature.path is not None else None,
-                    "window_ns": feature.window_ns,
-                }
-                for feature in self.features
-            ],
+            "features": [_get_digest_entry(feature) for feature in self.features],
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.blake2s(encoded, digest_size=16).hexdigest()
@@ -418,6 +582,27 @@ class NativeFeatureMatrix:
     frame: pd.DataFrame
     categorical_columns: tuple[str, ...]
     plan_digest: str
+
+
+def _get_digest_entry(feature: FeatureSpec) -> dict[str, object]:
+    """Return the fields of one feature that a plan digest hashes.
+
+    The pair fields are left out when unset, so plans without pair features keep
+    their digests.
+    """
+    entry: dict[str, object] = {
+        "name": feature.name,
+        "operation": feature.operation,
+        "kind": feature.kind,
+        "table": feature.table,
+        "column": feature.column,
+        "path": feature.path.identity if feature.path is not None else None,
+        "window_ns": feature.window_ns,
+    }
+    if feature.paired_path is not None:
+        entry["paired_path"] = feature.paired_path.identity
+        entry["paired_column"] = feature.paired_column
+    return entry
 
 
 def _escape(value: str) -> str:
@@ -435,4 +620,5 @@ __all__ = [
     "NativeFeatureMatrix",
     "PathDirection",
     "RelationPath",
+    "SiblingPathConfig",
 ]

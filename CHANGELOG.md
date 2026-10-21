@@ -13,6 +13,27 @@
   balances days. The agent search, saved feature programs and pipelines reject
   `entity_time` for now, and static targets reject it with a pointer to
   `entity_created_at`. See [event-time rows](docs/pql.md#event-time-rows-one-prediction-per-event).
+- NoriDFS builds features from a row's history through a shared parent and
+  describes the rows a path reaches as a whole. All of it is opt-in, so
+  `feature_strategy="noridfs"` plans the same features as before:
+  - `NoriDFS(sibling_paths=SiblingPathConfig(...))` adds sibling paths: up one
+    foreign key to a parent, then down to its time-stamped rows strictly before
+    each row's cutoff, such as a page view's device's earlier views. They give
+    windowed counts, recency, oldest age, distinct values, and match features on
+    the row's own values. `include_numeric_aggregates` adds sums, means, minima
+    and maxima. A table one step above a parent in `parent_tables` groups by
+    that parent's attribute (every drug in a drug's class). `excluded_paths`
+    leaves out (parent, child table) pairs, and `max_features` caps the
+    family's share of the budget.
+  - `NoriDFS(include_composition_features=True)` adds, over the rows a
+    descendant or bridge path reaches in their own time order, first values,
+    entropy, the most common and the last value's shares, and distinct values.
+    `composition_pairs` adds the same over pairs of columns from two bridge
+    paths, such as the most common drug class and pharmacy company together.
+  - Recency, mean age and oldest age of the rows a path reaches count from each
+    row's own time rather than the latest time along the path, so an event
+    row's earlier rows (a signup's journey views) have their real ages.
+  See [sibling paths](docs/pql.md#history-from-the-same-parent-sibling-paths).
 
 ## 0.4.6 — 2026-10-20
 

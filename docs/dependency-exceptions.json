@@ -170,19 +170,19 @@
       "sha256": "ea3f8e449ddabdfa5439123e255288cf2cf407ba2b063a94570d2ed15a24d354"
     },
     "src/nori_rel/feature/dfs/noridfs/__init__.py": {
-      "sha256": "87a160dd1e226eb021248ca49c437dd47c1aad7293aef63b364525350b9bbaf4"
+      "sha256": "6da28e821d4112c1a74e29c346c7dedbdc54d93f437eb5f9cca3633e122bbafa"
     },
     "src/nori_rel/feature/dfs/noridfs/backend.py": {
-      "sha256": "5d264e067352ad096c9f590109fc84e9b31d60a949ac041ad4091709134dc87e"
+      "sha256": "9b6d757b43b758761798296ec9d4ea42e909e0485a8fadd55a60ec3ff947af1d"
     },
     "src/nori_rel/feature/dfs/noridfs/contracts.py": {
-      "sha256": "0cf562236e2b746725feb2cef37c9611260dd94901cd5c94a6b7c98d4f94adad"
+      "sha256": "0b8f2b959a641896fab8d906f4382a2eefc02feb79c4f2ba1faf8b94b6f373b6"
     },
     "src/nori_rel/feature/dfs/noridfs/engine.py": {
-      "sha256": "53ded63aed451e6756de0ad6e606ecefed052bef93f59a174e50ca05fd56e6a6"
+      "sha256": "a50eec847e0616ac935d9ae9a6641d04a8ca427bf807441ba5582e85e0df2fbc"
     },
     "src/nori_rel/feature/dfs/noridfs/planner.py": {
-      "sha256": "7407a40a2ebc322f71254c47e0de73d17ac3a450578dc8cad8a573ed92e1262d"
+      "sha256": "da9aedc407ed1f79a5b10df5a7a4f8ba999ecd3901f11f9e211ad0c3d8343da6"
     },
     "src/nori_rel/limits.py": {
       "sha256": "19ba86234b51ee680dcfc5da504568f788bc18106ac2b0bab61491fb555674a2"
@@ -209,10 +209,10 @@
       "sha256": "56316f40aa103274198842ce81d4cbbd28075d3ef0439c32650ffac802f1ab7c"
     },
     "src/nori_rel/pipeline/features.py": {
-      "sha256": "bc8937d2a29011aae522b222c65e9b79fda3763685aabf92bc8ec04ec68a9696"
+      "sha256": "29bf51edcf7d6d716c39c62c204f2bdd869c906422ad1727f4ee143bcf640a3b"
     },
     "src/nori_rel/pipeline/manifest.py": {
-      "sha256": "d1aad084bd1d2722b45d402663eb80079ddae65bba53597bf59f50866b5262a6"
+      "sha256": "2681e859ddbf0c5836e4d9973ff3b3f8f9e034dcb0d9a4a1c0de834c2f8c8b4e"
     },
     "src/nori_rel/pipeline/request.py": {
       "sha256": "cd6eba90949f2341cb3b44ae05a6f57360645e2f4e3a897000ea61e9a0a19d02"
