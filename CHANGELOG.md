@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.7 — 2026-10-21
 
 - `predict(entity_time="view_time")` makes each entity row one example,
   anchored at its own time, for predictions about events rather than entities
