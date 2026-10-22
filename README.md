@@ -37,6 +37,8 @@ your own Snowflake, PostgreSQL or Databricks tables. Fill in the connection and
 the query, keep credentials in Colab Secrets, and run the cells: it checks your
 tables' keys and time columns, predicts, checks the forecast on a window whose
 outcome is known, and saves a pipeline you can replay.
+A [worked example](colab/nori_rel_quickstart_example.ipynb) shows every output
+of the same notebook run on the public RelBench `rel-f1` Formula 1 database.
 
 ## Start from CSV or Excel files
 
