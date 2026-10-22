@@ -567,13 +567,13 @@ def test_live_warehouse_to_cached_real_local_nori(
     try:
         from synthefy_nori.hf import download_checkpoint
 
-        download_checkpoint(model="nori-30m")
+        download_checkpoint(model="nori-1-5")
     except (ImportError, OSError):
         if request.config.getoption("--require-local-model"):
             pytest.fail(
-                "local runtime and cached nori-30m weights are required", pytrace=False
+                "local runtime and cached nori-1-5 weights are required", pytrace=False
             )
-        pytest.skip("local runtime or nori-30m weights are not in the cache")
+        pytest.skip("local runtime or nori-1-5 weights are not in the cache")
     with NoriRelClient(
         device="cpu", limits=RelationalLimits(min_training_rows=2)
     ) as client:

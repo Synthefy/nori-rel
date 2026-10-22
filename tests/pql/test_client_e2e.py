@@ -116,7 +116,7 @@ def test_live_hosted_pql_smoke(hosted_api_key, source, target, usable_rows):
     context as unknown labels, and the 36 that remain stay above the runtime's
     32-row context floor. No hosted response is stubbed.
     NORI_REL_TEST_HOSTED_MODEL selects the gateway slug; the default is
-    synthefy/nori-30m.
+    synthefy/nori-1-5.
     """
     connector, db = source
     db.execute(
@@ -134,7 +134,7 @@ def test_live_hosted_pql_smoke(hosted_api_key, source, target, usable_rows):
     with NoriRelClient(
         mode="hosted",
         api_key=hosted_api_key,
-        model=os.getenv("NORI_REL_TEST_HOSTED_MODEL", "synthefy/nori-30m"),
+        model=os.getenv("NORI_REL_TEST_HOSTED_MODEL", "synthefy/nori-1-5"),
     ) as client:
         database = client.connect(
             engine="postgresql",

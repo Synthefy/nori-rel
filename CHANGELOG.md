@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Nori 1.5 is the default model. `NoriRelClient()` runs `model="nori-1-5"`
+  ([`Synthefy/Nori-1-5`](https://huggingface.co/Synthefy/Nori-1-5)) locally,
+  and hosted mode sends it as `synthefy/nori-1-5`. Pass `model="nori-30m"` for
+  the previous default. The `local` extra pins `synthefy-nori==0.22.0`, the
+  first runtime that loads Nori 1.5, and the connector extras require
+  `synthefy>=7.4.0`, the first SDK that maps `nori-1-5` to its hosted slug.
+- Migration: a pipeline records its model, so a pipeline saved before this
+  change replays only with `NoriRelClient(model="nori-30m")`. A local pipeline
+  also records its runtime, `synthefy-nori` 0.20.1: replay it where that runtime
+  is installed, or predict again with this release and save the new pipeline.
+- A local model name that the installed `synthefy-nori` does not have raises a
+  `RuntimeError` that names the runtime version and the models it has. Before,
+  an older runtime looked the name up as a Hugging Face repository and reported
+  "access denied".
+- Release certification runs Nori 1.5, locally and through the hosted gateway.
+
 ## 0.4.7 — 2026-10-21
 
 - `predict(entity_time="view_time")` makes each entity row one example,

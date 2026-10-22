@@ -15,11 +15,11 @@ Compatible upstream bounds still exclude the reported fixes:
 | --- | --- | --- |
 | PyArrow 20.0.0 | 23.0.1 | FastDFS 1.1 and 1.2 require `pyarrow<21`. |
 | OAuthlib 3.3.1 | 4.0.0 | Databricks SQL Connector 4.6.0 requires `oauthlib<4`. |
-| Setuptools 80.10.2 | 83.0.0 | `synthefy-nori==0.20.1` requires `setuptools<81`. |
+| Setuptools 80.10.2 | 83.0.0 | `synthefy-nori==0.22.0` requires `setuptools<81`. |
 
 No resolver overrides, runtime changes, or model changes bypass these bounds.
-The stable `synthefy` SDK was checked against PyPI and remains 7.2.0 for this
-review.
+The stable `synthefy` SDK was checked against PyPI on 2026-10-22 and is 7.4.0,
+the locked version.
 
 The isolated build backend is pinned to `uv_build==0.12.24` and included in the
 audited build group. Artifact installation and publication smoke checks use

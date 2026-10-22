@@ -23,13 +23,13 @@
       "sha256": "d43573919337c4759d30a3047d7852cc074a61e412006f0e22a6e3c6a8c57f03"
     },
     ".github/workflows/warehouse-tests.yml": {
-      "sha256": "13a196f86198ba03a34b6e8fab989f9c2f9c1c5c5769fe23855ca7e1af091951"
+      "sha256": "99c48f690c36a4886b33d415fff98acfc719303d2dcc4d760d838fae9dbbfa0e"
     },
     "docs/dependency-security.md": {
-      "sha256": "e98edb7c76868352a37e2e71c3c7f15c907516de649b0759a4d027a8b954152a"
+      "sha256": "f95472c6e9fa97e8d630e74160e8a972441282d5fde1d0749f8ab51c8bca2c0d"
     },
     "pyproject.toml": {
-      "sha256": "604e33e18db104df6d24a3cc9b90c17021c42754def74c59d6da3b9a5995e4fe"
+      "sha256": "070be5b5d8caedba4bc75d1e7d54caf83be45221c2048912c1e58ee9c29039e8"
     },
     "scripts/audit_dependencies.py": {
       "sha256": "13e0a9dc3c0c87cdb3dc65e6bc6cd00f045db0f8361a1d36f5ab6afe364e8d12"
@@ -80,10 +80,10 @@
       "sha256": "92fa6acf5772cc10527d3e12ad0682ab3de7944073dfb7da853034c366c12b0e"
     },
     "src/nori_rel/_runtime.py": {
-      "sha256": "00a94ad18024e86788632dce1b9c00a2864cee721516b56d4607c6a5fca101fd"
+      "sha256": "6cf90f77640138082d79ab9531d8c9b94064029c17d1da3d358f67b0298f1f34"
     },
     "src/nori_rel/client.py": {
-      "sha256": "836b179bee7a8a47b5d7642f975b0b9ab74d20e961d52734d68e7fc68523e40e"
+      "sha256": "5d829266be46fcc38f65675675a639956461acdbaab04e9af818ea4e2cce120e"
     },
     "src/nori_rel/connectors/__init__.py": {
       "sha256": "062b7b032c2a4d0d07484e5014b7dc46b6486887ecf158b3d101cb387abde71d"
@@ -332,7 +332,7 @@
       "sha256": "74bca3696c360d807bc0b742ad83180ca19b8ea8a34c614ec8aef35ceaaca968"
     },
     "uv.lock": {
-      "sha256": "46cceaaec99f89b11d083e3bedf885c90df0214da9fb75557da387adabf46f03"
+      "sha256": "2d4f5e0b5719af0aeeef50fb36afae407c34b4c9d19dfe7833d53728d6b5d103"
     }
   },
   "exceptions": [

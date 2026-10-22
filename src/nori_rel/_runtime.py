@@ -192,7 +192,7 @@ class LocalNoriPredictor:
             from synthefy_nori import NoriRegressor
         except ImportError as exc:
             raise ImportError(
-                'mode="local" requires `pip install synthefy-nori==0.20.1`'
+                'mode="local" requires `pip install "nori-rel[local]"`'
             ) from exc
         self.model = model
         self.device = device
@@ -271,7 +271,14 @@ class LocalNoriPredictor:
             return self._regressor
         try:
             checkpoint = get_pinned_checkpoint(self.model, self.revision)
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
+            # An older runtime treats a model name it does not know as a
+            # Hugging Face repository and reports a failed download.
+            unknown = _get_unknown_model_message(self.model)
+            if unknown is not None:
+                raise RuntimeError(unknown) from exc
+            if isinstance(exc, RuntimeError):
+                raise
             raise RuntimeError(self._get_weights_error_message()) from exc
         if (
             self.expected_sha256 is not None
@@ -331,6 +338,24 @@ class LocalNoriPredictor:
             "HF_HUB_OFFLINE=1 they must already be in the Hugging Face "
             "cache; delete a corrupted cached file and download it again."
         )
+
+
+def _get_unknown_model_message(model: str) -> str | None:
+    """Return why the installed runtime cannot load ``model``, or None if it can.
+
+    A name with a slash is a Hugging Face repository, which the runtime
+    downloads as given.
+    """
+    import synthefy_nori
+    from synthefy_nori.hf import NORI_MODELS
+
+    if "/" in model or model in NORI_MODELS:
+        return None
+    return (
+        f"synthefy-nori {synthefy_nori.__version__} has no model {model!r}; it "
+        f"has {', '.join(NORI_MODELS)}. Install the runtime that the `local` "
+        'extra pins: `pip install "nori-rel[local]"`.'
+    )
 
 
 #: ``NoriRegressor`` parameters a pipeline does not record: the per-call

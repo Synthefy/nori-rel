@@ -1398,10 +1398,10 @@ requires-dist = [
     { name = "sqlalchemy", marker = "extra == 'database'", specifier = ">=2.0,<3" },
     { name = "sqlalchemy", marker = "extra == 'databricks'", specifier = ">=2.0,<3" },
     { name = "sqlalchemy", marker = "extra == 'snowflake'", specifier = ">=2.0,<3" },
-    { name = "synthefy", marker = "extra == 'database'", specifier = ">=7.2.0,<8" },
-    { name = "synthefy", marker = "extra == 'databricks'", specifier = ">=7.2.0,<8" },
-    { name = "synthefy", marker = "extra == 'snowflake'", specifier = ">=7.2.0,<8" },
-    { name = "synthefy-nori", marker = "extra == 'local'", specifier = "==0.20.1" },
+    { name = "synthefy", marker = "extra == 'database'", specifier = ">=7.4.0,<8" },
+    { name = "synthefy", marker = "extra == 'databricks'", specifier = ">=7.4.0,<8" },
+    { name = "synthefy", marker = "extra == 'snowflake'", specifier = ">=7.4.0,<8" },
+    { name = "synthefy-nori", marker = "extra == 'local'", specifier = "==0.22.0" },
     { name = "urllib3", marker = "extra == 'database'", specifier = ">=2.8,<3" },
     { name = "urllib3", marker = "extra == 'databricks'", specifier = ">=2.8,<3" },
     { name = "urllib3", marker = "extra == 'snowflake'", specifier = ">=2.8,<3" },
@@ -2520,7 +2520,7 @@ wheels = [
 
 [[package]]
 name = "synthefy"
-version = "7.2.0"
+version = "7.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -2530,14 +2530,14 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fc/32/62b9bc4a5f132bd94898a406dbd593bdfda17acb4beae8223b83ce2c910f/synthefy-7.2.0.tar.gz", hash = "sha256:7d1d1b736c867e6a1ba63e1000ab32ff3911070039308ee1541687b09ce7b30a", size = 123374, upload-time = "2026-10-12T21:12:07.151Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e4/22/a113075d317ff2d7cc964f2611439755aeebcc002afd10e09749fede3811/synthefy-7.4.0.tar.gz", hash = "sha256:c2ba6d838baee40120d7cb84c4ee890d810d587e67de154c54b4f3a0971f1f40", size = 176728, upload-time = "2026-10-21T22:36:46.707Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/e3/c85c14a3e8269f3a58bc99d5c4c2922c290a5e5b2002109a80b85da194e2/synthefy-7.2.0-py3-none-any.whl", hash = "sha256:6526217dad3076ab5ada104984414a295ee2251b06a69d763ae5f7a43feede16", size = 113824, upload-time = "2026-10-12T21:12:05.451Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/54/889040815c8d6183f2c7b826cc9a6b85852c63fefc0000e6a94c31cbfd0a/synthefy-7.4.0-py3-none-any.whl", hash = "sha256:e01799aff0ec44de3fe77468fdf37a9c0fd0dd558d3e2c0b7d02640cddc607c2", size = 160414, upload-time = "2026-10-21T22:36:45.025Z" },
 ]
 
 [[package]]
 name = "synthefy-nori"
-version = "0.20.1"
+version = "0.22.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "einops" },
@@ -2561,9 +2561,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b8/67/3872feab6632e4393fa33aeec4ceb6bb5a13b0d9aae5908ede362e1488f7/synthefy_nori-0.20.1.tar.gz", hash = "sha256:27fe4ae15e98c2023d9902ba4f42a007dd3813c24710704d97f116dbb4a1d3ec", size = 661560, upload-time = "2026-09-02T20:37:42.534Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/66/a289012b057909bf28589b51878d915284369a7424385cd7091fe568e628/synthefy_nori-0.22.0.tar.gz", hash = "sha256:fb318a34be354de41ce108ecb70b02891827b4767f88fbc9c10975108c489e53", size = 705700, upload-time = "2026-10-20T20:34:27.021Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/10/4eca6ce57f7e6415accc2b4ba1edd67b5c67f722952c4f02ee9e43c6d807/synthefy_nori-0.20.1-py3-none-any.whl", hash = "sha256:922830c7a5e06d56e3b933a96a8fe88e9b26240394a7403b1c228824dace7bcd", size = 491012, upload-time = "2026-09-02T20:37:40.623Z" },
+    { url = "https://files.pythonhosted.org/packages/51/65/3d992751305e1d424bbdbf549d2e515b892e28c369f0f704b077ad2660e7/synthefy_nori-0.22.0-py3-none-any.whl", hash = "sha256:fed7c41e6714e1b6e429b102e6b21a43d9e70b26e50d8ace4d3b732b1138b5a5", size = 513704, upload-time = "2026-10-20T20:34:25.368Z" },
 ]
 
 [[package]]

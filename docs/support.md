@@ -11,11 +11,11 @@ Version 0.3.0 defines the initial public database-client contract.
 | Databricks | Unity Catalog Delta tables on a SQL warehouse, with retained versions. |
 | Features | FastDFS (default) and NoriDFS. |
 | Agent search | Opt-in `AgenticSearch` (`agentic` extra), after 0.3.0. Anthropic models or an OpenAI-compatible endpoint, with local or hosted Nori. It sends the configured provider the schema, column profiles that include up to 10 raw values of each profiled categorical column with their counts, up to 50 rows of each exploratory query result, and failed queries' error messages; the README lists exactly what. Offline tests use fake agents; release certification does not call a live model provider, so the agent's value on your data is not established. |
-| Synthefy SDK | `synthefy>=7.2.0,<8`, installed with each connector extra. |
+| Synthefy SDK | `synthefy>=7.4.0,<8`, installed with each connector extra. |
 | Local prediction | Temporal aggregate and static column regression; point and quantile output. |
 | Hosted prediction | Temporal aggregate and static column regression, and binary predicate and Boolean column targets. |
-| Local runtime | `synthefy-nori==0.20.1`, pinned in the `local` extra. A newer runtime release is not supported until a Nori-Rel release raises the pin. |
-| Models | Local: `nori-6m`, `nori-30m` (default), and `nori-100m`. Hosted: the default `nori-30m`. Release certification exercises `nori-30m` only. |
+| Local runtime | `synthefy-nori==0.22.0`, pinned in the `local` extra. A newer runtime release is not supported until a Nori-Rel release raises the pin. |
+| Models | Local: `nori-1-5` (default), `nori-6m`, `nori-30m`, and `nori-100m`. Hosted: the default `nori-1-5`. Release certification exercises `nori-1-5` only. |
 | Hardware | Release certification runs local inference on CPU (`device="cpu"`) on a Linux CI runner. By default, `device` selects CUDA, then MPS, then CPU; CUDA and MPS are not release-certified. Hosted inference needs no local accelerator or model weights. |
 | Pipelines | FastDFS and NoriDFS recipes, and saved agent SQL programs; schema/model checks, relative context anchors, fresh data on replay. |
 | Operations | Synchronous/background runs, progress, cooperative cancellation, agent-search stop and steer, pool cleanup. |
