@@ -38,5 +38,8 @@ Review the selected model's license and model card before redistributing weights
 ## Examples and research
 
 The examples on `main` generate synthetic data; they do not redistribute a
-research dataset. Research code, attribution, methods, and results are maintained
+research dataset. The Colab quickstart in `colab/` downloads RelBench's prepared
+[`rel-f1`](https://relbench.stanford.edu/datasets/rel-f1/) database from Stanford
+when it runs. That data is not included in this repository or its packages, and
+it keeps the terms of its source. Research code, attribution, methods, and results are maintained
 privately and are outside the supported release package.

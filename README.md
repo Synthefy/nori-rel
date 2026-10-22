@@ -28,6 +28,18 @@ For hosted inference, omit `local` and set `SYNTHEFY_NORI_API_KEY` privately.
 A hosted installation does not require the local model runtime or model weights.
 See [supported capabilities](docs/support.md) for platform and target limits.
 
+## Try it in Colab
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Synthefy/nori-rel/blob/main/colab/nori_rel_quickstart.ipynb)
+
+The [quickstart notebook](colab/nori_rel_quickstart.ipynb) runs with no account
+or key. It starts PostgreSQL in the Colab session, loads the public RelBench
+`rel-f1` Formula 1 database, and predicts each driver's average finishing
+position over the next 60 days. It then checks the forecast on a window whose
+outcome is known, replays the saved pipeline, and explains one prediction. Set
+`ENGINE` to point the same notebook at your own Snowflake, PostgreSQL or
+Databricks tables.
+
 ## Start from CSV or Excel files
 
 If your data is a set of exported files rather than a database, the
