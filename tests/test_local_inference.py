@@ -73,7 +73,7 @@ def test_local_is_the_default_and_needs_no_api_key(monkeypatch, no_network) -> N
         "device": "cpu",
     }
     assert predictor.checkpoint.revision == FAKE_CHECKPOINT_REVISION
-    assert no_network.requests == [("nori-30m", None)]
+    assert no_network.requests == [("nori-1-5", None)]
 
 
 def test_hosted_mode_is_explicit() -> None:
@@ -147,6 +147,22 @@ def test_an_uncached_pinned_revision_fails_clearly(no_network) -> None:
 
     with pytest.raises(RuntimeError, match=f"at revision {'f' * 40}"):
         _median(predictor)
+
+
+@pytest.mark.parametrize(
+    "model,match",
+    [("nori-9", "has no model 'nori-9'"), ("Synthefy/Private", "access denied")],
+)
+def test_a_failed_download_names_a_model_the_runtime_lacks(
+    monkeypatch, no_network, model, match
+) -> None:
+    def deny(*args):
+        raise RuntimeError("access denied")
+
+    monkeypatch.setattr("nori_rel._checkpoint.get_checkpoint_path", deny)
+
+    with pytest.raises(RuntimeError, match=match):
+        _median(LocalNoriPredictor(model))
 
 
 def test_a_pinned_checkpoint_loads_only_with_its_hash(no_network) -> None:

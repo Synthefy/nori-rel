@@ -324,8 +324,8 @@ uv run --no-sync pytest tests/connectors/test_warehouse_live.py \
   -m "parity and not warehouse"
 ```
 
-A live inference smoke test runs the real local 30M checkpoint from the Hugging
-Face cache. Install the `local` extra, populate the cache, and require the model
+A live inference smoke test runs the default Nori 1.5 checkpoint from the
+Hugging Face cache. Install the `local` extra, populate the cache, and require the model
 in release certification:
 
 ```bash

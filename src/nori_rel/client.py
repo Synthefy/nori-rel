@@ -114,7 +114,7 @@ class NoriRelClient:
         api_key: str | None = None,
         *,
         mode: ExecutionMode = "local",
-        model: str = "nori-30m",
+        model: str = "nori-1-5",
         classification_model: str | None = None,
         timeout: float = 300.0,
         max_retries: int = 2,

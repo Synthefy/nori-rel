@@ -79,7 +79,7 @@ def test_postgres_to_local_nori_makes_no_hosted_request(
             )
 
     assert result["predictions"]["prediction"].tolist() == [2.5]
-    assert result["metadata"]["model"] == "nori-30m"
+    assert result["metadata"]["model"] == "nori-1-5"
     model = result["pipeline"].manifest.model
     assert model.mode == "local"
     assert model.revision == fake_checkpoint.path.parent.name
@@ -99,13 +99,13 @@ def test_offline_postgres_to_cached_local_nori(
     try:
         from synthefy_nori.hf import download_checkpoint
 
-        download_checkpoint(model="nori-30m")
+        download_checkpoint(model="nori-1-5")
     except (ImportError, OSError):
         if request.config.getoption("--require-local-model"):
             pytest.fail(
-                "local runtime and cached nori-30m weights are required", pytrace=False
+                "local runtime and cached nori-1-5 weights are required", pytrace=False
             )
-        pytest.skip("local runtime or nori-30m weights are not in the cache")
+        pytest.skip("local runtime or nori-1-5 weights are not in the cache")
     with NoriRelClient(
         device="cpu", limits=RelationalLimits(min_training_rows=2)
     ) as client:

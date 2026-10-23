@@ -117,7 +117,7 @@ jobs:
           from dataclasses import asdict
           from pathlib import Path
           from nori_rel._checkpoint import get_pinned_checkpoint
-          checkpoint = get_pinned_checkpoint("nori-30m")
+          checkpoint = get_pinned_checkpoint("nori-1-5")
           provenance = asdict(checkpoint) | {"sha256": checkpoint.sha256}
           Path("reports").mkdir(exist_ok=True)
           Path("reports/local-checkpoint.json").write_text(json.dumps(provenance, indent=2) + "\n")
@@ -132,7 +132,7 @@ jobs:
       - name: Certify real PostgreSQL to hosted inference
         env:
           NORI_REL_TEST_HOSTED_API_KEY: ${{ secrets.NORI_REL_TEST_HOSTED_API_KEY }}
-          NORI_REL_TEST_HOSTED_MODEL: ${{ vars.NORI_REL_TEST_HOSTED_MODEL || 'synthefy/nori-30m' }}
+          NORI_REL_TEST_HOSTED_MODEL: ${{ vars.NORI_REL_TEST_HOSTED_MODEL || 'synthefy/nori-1-5' }}
         run: >-
           uv run --no-sync pytest
           tests/pql/test_client_e2e.py::test_live_hosted_pql_smoke

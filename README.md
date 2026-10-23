@@ -128,8 +128,9 @@ predictions = client.predict(
 See [Static targets](docs/pql.md#static-targets) for how context and scoring
 rows are chosen and how the target is kept out of the features.
 
-The default mode runs Nori in your process. The first local prediction downloads
-model weights; subsequent predictions can use the populated cache offline.
+The default mode runs Nori in your process. Both modes default to Nori 1.5
+(`model="nori-1-5"`); pass `model="nori-30m"` for the previous default. The
+first local prediction downloads model weights; subsequent predictions can use the populated cache offline.
 Use `NoriRelClient(mode="hosted")` to send the generated context/query feature
 matrices and labels to hosted Nori. Database connections, credentials, and raw
 source tables stay in the caller's process. Generated features can still contain

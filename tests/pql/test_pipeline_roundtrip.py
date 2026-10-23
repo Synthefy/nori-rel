@@ -360,7 +360,7 @@ def test_a_pipeline_rejects_changed_schemas_tasks_and_arguments(shop, checkpoint
         predict(metric="wape")
     with pytest.raises(PipelineModelError, match="uses local Nori"):
         predict(client={"mode": "hosted", "api_key": "test-only", "device": None})
-    with pytest.raises(PipelineModelError, match="model 'nori-30m'"):
+    with pytest.raises(PipelineModelError, match="model 'nori-1-5'"):
         predict(client={"model": "nori-6m"})
 
     db.execute("ALTER TABLE users ADD COLUMN tier text")

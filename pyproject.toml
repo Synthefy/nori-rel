@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-local = ["synthefy-nori==0.20.1", "fsspec>=2026.6.0"]
+local = ["synthefy-nori==0.22.0", "fsspec>=2026.6.0"]
 agentic = [
     "anthropic>=1,<2",
     "duckdb>=1.1,<2",
@@ -39,7 +39,7 @@ database = [
     "fastdfs>=1.1,<2",
     "psycopg[binary]>=3.2,<4",
     "sqlalchemy>=2.0,<3",
-    "synthefy>=7.2.0,<8",
+    "synthefy>=7.4.0,<8",
     "urllib3>=2.8,<3",
 ]
 snowflake = [
@@ -47,7 +47,7 @@ snowflake = [
     "fastdfs>=1.1,<2",
     "snowflake-connector-python>=4.8,<5",
     "sqlalchemy>=2.0,<3",
-    "synthefy>=7.2.0,<8",
+    "synthefy>=7.4.0,<8",
     "urllib3>=2.8,<3",
 ]
 databricks = [
@@ -56,7 +56,7 @@ databricks = [
     "databricks-sql-connector>=4.6,<5",
     "fastdfs>=1.1,<2",
     "sqlalchemy>=2.0,<3",
-    "synthefy>=7.2.0,<8",
+    "synthefy>=7.4.0,<8",
     "urllib3>=2.8,<3",
 ]
 
