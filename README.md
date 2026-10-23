@@ -33,10 +33,11 @@ See [supported capabilities](docs/support.md) for platform and target limits.
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Synthefy/nori-rel/blob/main/colab/nori_rel_quickstart.ipynb)
 
 The [quickstart notebook](colab/nori_rel_quickstart.ipynb) runs Nori-Rel on
-your own Snowflake, PostgreSQL or Databricks tables. Fill in the connection and
-the query, keep credentials in Colab Secrets, and run the cells: it checks your
-tables' keys and time columns, predicts, checks the forecast on a window whose
-outcome is known, and saves a pipeline you can replay.
+your own Snowflake, PostgreSQL (including AWS RDS or Aurora) or Databricks
+tables. Fill in the connection and the query, keep credentials in Colab
+Secrets, and run the cells: it checks your tables' keys and time columns,
+predicts, checks the forecast on a window whose outcome is known, and saves a
+pipeline you can replay.
 A [worked example](colab/nori_rel_quickstart_example.ipynb) shows every output
 of the same notebook run on the public RelBench `rel-f1` Formula 1 database.
 
