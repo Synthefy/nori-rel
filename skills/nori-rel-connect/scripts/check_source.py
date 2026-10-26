@@ -23,6 +23,7 @@ from nori_rel import (
     NoriRelClient,
     SnowflakeConnection,
 )
+from nori_rel.connectors.errors import ConnectorError
 
 TIME_TYPES = ("timestamp", "date", "datetime")
 
@@ -172,14 +173,18 @@ def main() -> int:
     parser.add_argument("--entity", help="table the prediction is FOR EACH row of")
     arguments = parser.parse_args()
     source = load_json(arguments.source)
-    with NoriRelClient() as client:
-        database = connect_source(client, source)
-        status = client.test_connection(database)
-        print(f"connection: {status.status} ({status.latency_ms} ms)")
-        if status.error:
-            print(f"FAIL: {status.error}")
-            return 1
-        schema = client.discover(database)
+    try:
+        with NoriRelClient() as client:
+            database = connect_source(client, source)
+            status = client.test_connection(database)
+            print(f"connection: {status.status} ({status.latency_ms} ms)")
+            if status.error:
+                print(f"FAIL: {status.error}")
+                return 1
+            schema = client.discover(database)
+    except ConnectorError as error:
+        print(f"FAIL: {error}")
+        return 1
     print_schema(schema)
     print()
     failures = check_schema(schema, source, arguments.entity)

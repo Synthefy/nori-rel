@@ -34,6 +34,19 @@ the same context and feature hashes. The temporary pipeline file is cleaned up.
 To schedule future predictions, retain a pipeline file and the persistent data
 source, then supply a new `as_of` and verified `observed_through` watermark.
 
+## Load the fixture into PostgreSQL
+
+To keep the data and work with it by hand or through the
+[agent skills](../skills/README.md#try-the-whole-path-on-synthetic-data):
+
+```bash
+python examples/load_fixture.py --schema nori_rel_example
+```
+
+It creates the schema (dropping it first if it exists) with the same tables,
+plus a nullable `income` column on `users` that one user in six lacks, so a
+static target has rows to score. Drop the schema yourself when finished.
+
 ## Snowflake and Databricks
 
 Create the same portable data without installing any dependencies:

@@ -133,7 +133,9 @@ will see it, prints each table's key, time column, links and columns, and
 reports `PASS`, `WARN` or `FAIL` for each item above. `--entity` names the
 table the prediction is `FOR EACH` row of; the script then lists its
 creation-time candidates and the event tables linked straight to it. Exit
-code 1 means at least one `FAIL`.
+code 1 means at least one `FAIL`, or that the connection or discovery itself
+failed; the connector's message, such as `time column orders.shipped_at does
+not exist`, is printed as a `FAIL` line.
 
 Fix every `FAIL` and read every `WARN`:
 

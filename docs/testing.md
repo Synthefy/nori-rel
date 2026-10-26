@@ -19,6 +19,7 @@ test-count target. The cleanup decisions below group comparable cases.
 | `tests/test_release_validation.py` and package validation scripts | Protected main/tag/version checks, changelog entry for the tagged version, exact candidate identity, stale/fork rejection, installed artifact boundaries | Keep behavior checks and package validation |
 | `tests/test_feature_search.py`, `tests/pql/test_feature_backends.py` | Feature-backend selection, agent-search settings, saved-program replay, PostgreSQL with NoriDFS or an agent, and hosted transport, offline with fake agents | Keep |
 | RelArena, fine-tuning, Modal, and live agent end-to-end tests | Contracts of research implementations outside this distribution | Preserve with their code in the private internal repository |
+| `tests/test_skills.py`, `tests/test_skill_scripts.py` | Agent skills: frontmatter, links and plugin manifests; each skill script end to end on PostgreSQL with a stand-in regressor, and on cached Nori 1.5 weights with `-m live_nori` | Keep; see the [skills README](../skills/README.md#how-the-skills-are-tested) |
 | Old workflow-routing and saved-notebook-output assertions | Mirrored retired draft/stacked-PR routing and research notebook output | Remove from `main`; use workflow validation and execution of the synthetic example |
 
 Historical research tests remain with their implementations in the private
@@ -58,6 +59,12 @@ Populate the selected local model cache, supply the PostgreSQL URL, and run:
 uv run --no-sync pytest \
   tests/pql/test_local_postgres.py::test_offline_postgres_to_cached_local_nori \
   --require-local-model
+```
+
+The agent skills' scripts run on the same cached weights with:
+
+```bash
+uv run --no-sync pytest tests/test_skill_scripts.py -m live_nori --require-local-model
 ```
 
 For real hosted inference, set `NORI_REL_TEST_HOSTED_API_KEY` privately and use:

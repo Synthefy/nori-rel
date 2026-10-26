@@ -121,3 +121,104 @@ be replayed, and `backtest.csv` with `backtest_rows.csv` after a backtest.
   enabling either.
 - The agent reads the installed version's README and `docs/` before working
   around a missing capability, and names the version in what it reports.
+
+## Try the whole path on synthetic data
+
+The repository's synthetic fixture (48 users, 1,248 weekly orders, no real
+records) is enough to run every script. Everything below stays on your
+machine; in local mode nothing leaves it.
+
+```bash
+docker run -d --name nori-rel-pg -e POSTGRES_PASSWORD=example \
+  -e POSTGRES_DB=example -p 127.0.0.1:5432:5432 postgres:16-alpine
+export DATABASE_URL='postgresql://postgres:example@127.0.0.1:5432/example'
+python -m pip install "nori-rel[database,local]"
+python examples/load_fixture.py
+```
+
+The loader creates the `nori_rel_example` schema and prints the newest order
+time. Write the two handoff files. The source file is the one shown above
+with `"schema_name": "nori_rel_example"`; the task file is the one shown above
+with `"past_dates": 4`, `"output_type": "quantiles"` and
+`"quantiles": [0.1, 0.5, 0.9]`. March 2, 2026 is the fixture's completeness
+watermark, so `anchor_time` and `observed_through` both say `2026-03-02`.
+Then run the scripts in the quickstart's order, from the skills directory you
+installed them to:
+
+```bash
+S=skills
+python $S/nori-rel-connect/scripts/check_source.py nori_rel_source.json --entity users
+python $S/nori-rel-predict/scripts/predict.py nori_rel_source.json nori_rel_task.json
+python $S/nori-rel-backtest/scripts/backtest.py nori_rel_source.json nori_rel_task.json --folds 2
+python $S/nori-rel-schedule/scripts/refresh.py nori_rel_source.json \
+  nori_rel_output/pipeline.json --as-of 2026-03-02 --observed-through 2026-03-02 \
+  --task nori_rel_task.json
+```
+
+What to expect. The check prints `connection: ready`, a `PASS` for
+`orders` as an event table on `event_time`, a `PASS` for `orders` as the event
+table linked straight to `users`, and `0 failures`. The prediction downloads
+Nori 1.5 on first use, learns from 192 context rows (48 users at four past
+dates), scores 48 rows with a 10%, 50% and 90% quantile each, and saves
+`nori_rel_output/pipeline.json`. The backtest predicts from January 31 and
+January 1, 2026, and prints, per fold, the mean absolute error of Nori, of
+repeating each user's previous window, and of the context median, with the
+share of outcomes inside the 10%-90% band. The refresh reproduces the 48
+predictions from the saved pipeline and prints the same context SHA-256 as
+`nori_rel_output/metadata.json`. For a static target, change the task to
+`PREDICT users.income FOR EACH users.user_id` with `"anchor_time": null`:
+40 users have a stored income, 8 do not and are scored, and no pipeline is
+saved. `docker rm -f nori-rel-pg` removes the database.
+
+A database on another host must offer TLS: the PostgreSQL connector sets
+`sslmode=require` for every non-loopback address.
+
+## How the skills are tested
+
+Two test files cover the skills; both run in the repository's CI job on every
+pull request.
+
+- [`tests/test_skills.py`](../tests/test_skills.py) checks the files: each
+  `SKILL.md` has a `name` equal to its folder and a description under 1,024
+  characters, every relative link resolves, every script compiles and
+  documents its usage, every skill is in the table above, and the plugin
+  manifests agree with each other.
+- [`tests/test_skill_scripts.py`](../tests/test_skill_scripts.py) runs each
+  script's `main()` on the synthetic fixture, in a PostgreSQL schema the test
+  creates and drops, in the quickstart's order. With
+  `NORI_REL_TEST_DATABASE_URL` set and no weights, the local Nori regressor is
+  replaced by a stand-in, so the run takes seconds. It checks the `PASS` lines
+  and the `FAIL` exit for a wrong time column; 48 predictions with quantiles,
+  192 context rows, metadata, a feature table and a saved pipeline for both
+  FastDFS and NoriDFS; 8 scored rows, 40 context rows and no pipeline for the
+  static target; two backtest folds at the expected cutoffs with 96 scored
+  rows and a coverage between 0 and 1; a five-row static holdout; a replay
+  with the same predictions and context hash, a filtered replay of the 16
+  Canadian users, and exit code 2 with `PipelineModelError` when the client
+  names another model.
+
+The same flow runs on real, cached Nori 1.5 weights with
+
+```bash
+uv run --no-sync pytest tests/test_skill_scripts.py -m live_nori --require-local-model
+```
+
+which takes a few minutes. Not covered automatically: the agent feature
+search against a live model provider, Snowflake and Databricks sources (the
+scripts build the same connection objects the connectors' own tests cover),
+hosted mode, and the prose of the skills, which an agent reads and whose
+quality shows in what it does.
+
+The scripts were last run by hand on 2026-10-26 with `nori-rel` 0.4.7 from
+PyPI, `synthefy-nori` 0.20.1 and `nori-30m` on a GPU, against the same
+fixture in a TLS PostgreSQL 16 container. The backtest table came out as
+follows; a fold where repeating the previous window beats Nori is reported as
+it is, which is what `nori-rel-backtest` asks of the agent.
+
+| fold | cutoff | MAE Nori | MAE repeat previous | MAE context median | coverage |
+|---|---|---|---|---|---|
+| 1 | 2026-01-31 | 13.57 | 5.00 | 17.93 | 0.40 |
+| 2 | 2026-01-01 | 9.45 | 14.49 | 19.83 | 0.79 |
+
+The static holdout of 8 incomes gave an MAE of 82 for Nori against 7,456 for
+the context median, and the replay reproduced the 48 predictions exactly.
