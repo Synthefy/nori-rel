@@ -65,6 +65,13 @@ In Claude Code, install them as a plugin from this repository:
 /plugin install nori-rel@synthefy-nori-rel
 ```
 
+Then ask in your own words. This session asked for 30-day spend per user on
+the repository's synthetic database; the agent loaded the quickstart, wrote
+the handoff files, ran the check, the prediction and a backtest, and reported
+(three minutes, Nori 1.5 on CPU):
+
+![A Claude Code session running the nori-rel-quickstart skill: connection check, prediction, backtest and report](skills/claude-code-walkthrough.gif)
+
 Or copy the folders into `~/.claude/skills/` (Claude Code) or
 `~/.codex/skills/` (Codex). With another agent, give it a `SKILL.md` as its
 instructions. The skills' scripts read credentials from environment variables

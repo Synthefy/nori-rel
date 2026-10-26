@@ -32,6 +32,14 @@ The skills then appear as `/nori-rel:nori-rel-quickstart`,
 plain request such as "connect my Snowflake tables to Nori-Rel". To try them
 from a checkout without installing: `claude --plugin-dir .`
 
+This recording is a Claude Code session with the plugin loaded, asked for
+30-day spend per user on the synthetic database. The agent runs the quickstart
+through connect, predict and backtest on its own and ends with the report
+([`claude-code-walkthrough.cast`](claude-code-walkthrough.cast) replays it in
+a terminal):
+
+![A Claude Code session running the nori-rel-quickstart skill](claude-code-walkthrough.gif)
+
 **Claude Code, as plain skills.** Copy the folders into your personal or
 project skills directory. They are then `/nori-rel-connect` and so on:
 
