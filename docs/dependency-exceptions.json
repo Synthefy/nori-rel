@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "owner": "Synthefy/nori-rel maintainers",
-  "reviewed_on": "2026-10-14",
-  "expires_on": "2026-11-13",
+  "reviewed_on": "2026-10-26",
+  "expires_on": "2026-11-25",
   "reviewed_files": {
     ".gitattributes": {
       "sha256": "bda54ce3589c2aedfd19abcfa572638aa15c73cfcf63a706e24de5f5d67b1773"
@@ -26,7 +26,7 @@
       "sha256": "99c48f690c36a4886b33d415fff98acfc719303d2dcc4d760d838fae9dbbfa0e"
     },
     "docs/dependency-security.md": {
-      "sha256": "f95472c6e9fa97e8d630e74160e8a972441282d5fde1d0749f8ab51c8bca2c0d"
+      "sha256": "a4d636a44362efb6e81cd9dc3d146f10a543817c1a674007e25258fd731ea0bf"
     },
     "pyproject.toml": {
       "sha256": "070be5b5d8caedba4bc75d1e7d54caf83be45221c2048912c1e58ee9c29039e8"
@@ -332,7 +332,7 @@
       "sha256": "74bca3696c360d807bc0b742ad83180ca19b8ea8a34c614ec8aef35ceaaca968"
     },
     "uv.lock": {
-      "sha256": "2d4f5e0b5719af0aeeef50fb36afae407c34b4c9d19dfe7833d53728d6b5d103"
+      "sha256": "402cd98ee1f7188dfb4c3aad71d2af926adc934d9cb9d8929434c817b5731c8b"
     }
   },
   "exceptions": [
@@ -385,6 +385,20 @@
       "rationale": "Nori-Rel uses isolated uv_build and validates release contents; prediction does not build sdists. Other projects packaged in this environment remain exposed, especially on macOS; use a separate patched build environment.",
       "source_urls": [
         "https://github.com/advisories/GHSA-h35f-9h28-mq5c"
+      ]
+    },
+    {
+      "package": "setuptools",
+      "version": "80.10.2",
+      "advisory_ids": [
+        "GHSA-xmj3-9gf7-h52w"
+      ],
+      "description_sha256": [
+        "a31a71214a6806a492c5a9f38e7a0ec750d690b585165bf847c422fac42135b5"
+      ],
+      "rationale": "Windows-only path escape in setuptools' legacy wheel-to-egg installer (Wheel.install_as_egg). Nori-Rel and its locked dependencies install as wheels through uv or pip and no release, smoke-install or prediction path calls the legacy installer; synthefy-nori==0.22.0 keeps setuptools<81. Users running easy_install or setup.py install on Windows in the same environment remain exposed.",
+      "source_urls": [
+        "https://github.com/advisories/GHSA-xmj3-9gf7-h52w"
       ]
     }
   ]

@@ -1,5 +1,5 @@
 ---
-name: nori-rel-prepare-data
+name: prepare-data
 description: Turn CSV, Excel, Parquet or JSON files into a PostgreSQL database that Nori-Rel can predict from. Use when someone wants Nori-Rel predictions but has exported files, spreadsheets or a flat table instead of a relational database, or when an existing database fails Nori-Rel's checks.
 ---
 

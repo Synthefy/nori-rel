@@ -41,25 +41,44 @@ pipeline you can replay.
 A [worked example](colab/nori_rel_quickstart_example.ipynb) shows every output
 of the same notebook run on the public RelBench `rel-f1` Formula 1 database.
 
-## Start from CSV or Excel files
+## Work with an AI agent
 
-If your data is a set of exported files rather than a database, the
-[`nori-rel-prepare-data`](skills/nori-rel-prepare-data/SKILL.md) skill walks an
-AI agent through converting them. The agent profiles the files and designs
-entity and event tables with declared keys, leaving out columns that would leak
-the future, such as a customer's lifetime total. It shows you every table,
-column and relationship it plans to create and waits for your confirmation
-before it touches the database. It then writes a load script you can rerun
-when new files arrive, and proves the schema with Nori-Rel's own discovery and
-one prediction.
+The [`skills/`](skills/README.md) folder holds skills for Claude Code, Codex
+and other agents that read the Agent Skills format. They take an agent through
+a Nori-Rel project step by step and stop wherever a decision is yours:
 
-With Claude Code, copy the folder into your skills, then ask for the conversion:
+| Skill | What the agent does |
+|---|---|
+| `quickstart` | Runs the whole path below in order. |
+| `setup` | Installs the right extras, picks local or hosted Nori, verifies the environment. |
+| `prepare-data` | Turns CSV, Excel, Parquet or JSON files into a PostgreSQL schema Nori-Rel can predict from, after you confirm every table and relationship. |
+| `connect` | Connects PostgreSQL, Snowflake or Databricks with a read-only identity and checks keys, links and time columns. |
+| `predict` | Turns your question into PQL, sets the dates, runs the prediction. |
+| `backtest` | Predicts from earlier dates whose outcome is known and compares Nori with simple references. |
+| `features` | Chooses FastDFS, NoriDFS or the agent search, and explains what the features are. |
+| `schedule` | Saves the pipeline and sets up a scheduled refresh from fresh rows. |
 
-```bash
-cp -r skills/nori-rel-prepare-data ~/.claude/skills/
+In Claude Code, install them as a plugin from this repository:
+
+```text
+/plugin marketplace add Synthefy/nori-rel
+/plugin install nori-rel@synthefy-nori-rel
 ```
 
-With another agent, give it `SKILL.md` as its instructions.
+Then ask in your own words. This session opens with "I just installed the
+plugin and I have never used Nori-Rel. How do I use this?" The agent loads
+the quickstart, explains the six steps, asks what to predict, where the data
+is and through what date it is complete, proposes the query and waits for a
+yes, then runs the check, the prediction and a backtest, and ends with the
+report and a weekly refresh job (Claude Opus 5.5, Nori 1.5 on CPU; the
+waits are shortened):
+
+![A first-time user asking Claude Code how to use Nori-Rel; the agent explains the steps, asks three questions, confirms the query, then runs the check, prediction and backtest and reports](skills/claude-code-walkthrough.gif)
+
+Or copy the folders, with a `nori-rel-` prefix on each, into
+`~/.claude/skills/` (Claude Code) or `~/.codex/skills/` (Codex). With another
+agent, give it a `SKILL.md` as its instructions. The skills' scripts read credentials from environment variables
+or AWS Secrets Manager and write no secret anywhere.
 
 ## Predict customer spend
 
