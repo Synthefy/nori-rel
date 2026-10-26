@@ -177,7 +177,7 @@ def nori(request, monkeypatch) -> str:
 
 
 def test_check_source_reports_the_schema(workspace, monkeypatch, capsys):
-    check = script("nori-rel-connect", "check_source.py")
+    check = script("connect", "check_source.py")
     code, out = run(
         monkeypatch, capsys, check, "nori_rel_source.json", "--entity", "users"
     )
@@ -200,7 +200,7 @@ def test_predict_writes_every_output(workspace, nori, strategy, monkeypatch, cap
     task = read_json(workspace / "nori_rel_task.json")
     task["feature_strategy"] = strategy
     write_json(workspace / "nori_rel_task.json", task)
-    predict = script("nori-rel-predict", "predict.py")
+    predict = script("predict", "predict.py")
     code, out = run(
         monkeypatch,
         capsys,
@@ -238,7 +238,7 @@ def test_predict_writes_every_output(workspace, nori, strategy, monkeypatch, cap
 
 
 def test_predict_static_target_has_no_pipeline(workspace, nori, monkeypatch, capsys):
-    predict = script("nori-rel-predict", "predict.py")
+    predict = script("predict", "predict.py")
     code, out = run(
         monkeypatch,
         capsys,
@@ -257,7 +257,7 @@ def test_predict_static_target_has_no_pipeline(workspace, nori, monkeypatch, cap
 
 
 def test_backtest_compares_with_known_outcomes(workspace, nori, monkeypatch, capsys):
-    backtest = script("nori-rel-backtest", "backtest.py")
+    backtest = script("backtest", "backtest.py")
     code, out = run(
         monkeypatch,
         capsys,
@@ -290,7 +290,7 @@ def test_backtest_compares_with_known_outcomes(workspace, nori, monkeypatch, cap
 
 
 def test_backtest_static_holds_out_stored_values(workspace, nori, monkeypatch, capsys):
-    backtest = script("nori-rel-backtest", "backtest.py")
+    backtest = script("backtest", "backtest.py")
     code, out = run(
         monkeypatch,
         capsys,
@@ -311,8 +311,8 @@ def test_backtest_static_holds_out_stored_values(workspace, nori, monkeypatch, c
 
 
 def test_refresh_replays_the_saved_pipeline(workspace, nori, monkeypatch, capsys):
-    predict = script("nori-rel-predict", "predict.py")
-    refresh = script("nori-rel-schedule", "refresh.py")
+    predict = script("predict", "predict.py")
+    refresh = script("schedule", "refresh.py")
     assert (
         run(
             monkeypatch,

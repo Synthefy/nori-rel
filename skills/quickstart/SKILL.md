@@ -1,5 +1,5 @@
 ---
-name: nori-rel-quickstart
+name: quickstart
 description: Take a new user through Nori-Rel end to end - install it, connect their database or load their files, turn their question into a prediction, check it on windows whose outcome is known, and schedule it - calling the other nori-rel-* skills in order and stopping at each point that needs the user. Use when someone says they want to try Nori-Rel, predict something from their database, or asks where to start.
 ---
 
@@ -35,13 +35,13 @@ account. Then proceed with what you have; ask for the rest when a step needs it.
 
 | Step | Skill | Done when | Gate |
 |---|---|---|---|
-| 1 | [nori-rel-setup](../nori-rel-setup/SKILL.md) | `nori-rel` imports in a fresh environment with the right extras; mode and model reported | none |
-| 2a | [nori-rel-connect](../nori-rel-connect/SKILL.md) | `check_source.py` passes; `nori_rel_source.json` written | the user sets the credential variable |
-| 2b | [nori-rel-prepare-data](../nori-rel-prepare-data/SKILL.md) (files only) | a PostgreSQL schema loaded from the files passes the same check | the user confirms every table and relationship before any load |
-| 3 | [nori-rel-predict](../nori-rel-predict/SKILL.md) | `predictions.csv` and `pipeline.json` in `nori_rel_output/` | the user confirms the query, `anchor_time` and `observed_through` |
-| 4 | [nori-rel-backtest](../nori-rel-backtest/SKILL.md) | `backtest.csv` compares Nori with repeat-previous-window and median references | report before anyone acts on step 3's numbers |
-| 5 | [nori-rel-features](../nori-rel-features/SKILL.md) (if step 4 is weak) | a strategy chosen on earlier folds, confirmed on the last | the user approves the agent search's cost and data sharing |
-| 6 | [nori-rel-schedule](../nori-rel-schedule/SKILL.md) | `refresh.py` runs the saved pipeline at a new date; the scheduled command is written down | the user confirms how `observed_through` is set on each run |
+| 1 | [setup](../setup/SKILL.md) | `nori-rel` imports in a fresh environment with the right extras; mode and model reported | none |
+| 2a | [connect](../connect/SKILL.md) | `check_source.py` passes; `nori_rel_source.json` written | the user sets the credential variable |
+| 2b | [prepare-data](../prepare-data/SKILL.md) (files only) | a PostgreSQL schema loaded from the files passes the same check | the user confirms every table and relationship before any load |
+| 3 | [predict](../predict/SKILL.md) | `predictions.csv` and `pipeline.json` in `nori_rel_output/` | the user confirms the query, `anchor_time` and `observed_through` |
+| 4 | [backtest](../backtest/SKILL.md) | `backtest.csv` compares Nori with repeat-previous-window and median references | report before anyone acts on step 3's numbers |
+| 5 | [features](../features/SKILL.md) (if step 4 is weak) | a strategy chosen on earlier folds, confirmed on the last | the user approves the agent search's cost and data sharing |
+| 6 | [schedule](../schedule/SKILL.md) | `refresh.py` runs the saved pipeline at a new date; the scheduled command is written down | the user confirms how `observed_through` is set on each run |
 
 Run step 1 and 2 without waiting for more answers. Stop at every gate: a
 schema the user has not confirmed is not loaded, a prediction whose dates the

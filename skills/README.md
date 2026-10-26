@@ -4,19 +4,19 @@ A skill is a folder with a `SKILL.md` that an AI coding agent (Claude Code,
 Codex CLI, Cursor and others that follow the
 [Agent Skills](https://agentskills.io) format) loads when a task matches its
 description. These skills take an agent from an empty environment to a
-scheduled Nori-Rel prediction. Each one works on its own; `nori-rel-quickstart`
+scheduled Nori-Rel prediction. Each one works on its own; `quickstart`
 runs them in order.
 
 | Skill | Use it when |
 |---|---|
-| [`nori-rel-quickstart`](nori-rel-quickstart/SKILL.md) | You want the whole path: install, connect, predict, check, schedule. |
-| [`nori-rel-setup`](nori-rel-setup/SKILL.md) | Install Nori-Rel with the right extras, choose local or hosted Nori, verify the environment. |
-| [`nori-rel-prepare-data`](nori-rel-prepare-data/SKILL.md) | Your data is CSV, Excel, Parquet or JSON files rather than a relational database. |
-| [`nori-rel-connect`](nori-rel-connect/SKILL.md) | Connect PostgreSQL (including AWS RDS and Aurora), Snowflake or Databricks and check the schema. |
-| [`nori-rel-predict`](nori-rel-predict/SKILL.md) | Turn a business question into PQL, choose the dates, run the prediction. |
-| [`nori-rel-backtest`](nori-rel-backtest/SKILL.md) | Measure the prediction on windows whose outcome is known, next to simple references. |
-| [`nori-rel-features`](nori-rel-features/SKILL.md) | Choose FastDFS, NoriDFS or the agent search; read and explain the features. |
-| [`nori-rel-schedule`](nori-rel-schedule/SKILL.md) | Save the pipeline and predict again on a schedule from fresh rows. |
+| [`quickstart`](quickstart/SKILL.md) | You want the whole path: install, connect, predict, check, schedule. |
+| [`setup`](setup/SKILL.md) | Install Nori-Rel with the right extras, choose local or hosted Nori, verify the environment. |
+| [`prepare-data`](prepare-data/SKILL.md) | Your data is CSV, Excel, Parquet or JSON files rather than a relational database. |
+| [`connect`](connect/SKILL.md) | Connect PostgreSQL (including AWS RDS and Aurora), Snowflake or Databricks and check the schema. |
+| [`predict`](predict/SKILL.md) | Turn a business question into PQL, choose the dates, run the prediction. |
+| [`backtest`](backtest/SKILL.md) | Measure the prediction on windows whose outcome is known, next to simple references. |
+| [`features`](features/SKILL.md) | Choose FastDFS, NoriDFS or the agent search; read and explain the features. |
+| [`schedule`](schedule/SKILL.md) | Save the pipeline and predict again on a schedule from fresh rows. |
 
 ## Install
 
@@ -27,10 +27,10 @@ runs them in order.
 /plugin install nori-rel@synthefy-nori-rel
 ```
 
-The skills then appear as `/nori-rel:nori-rel-quickstart`,
-`/nori-rel:nori-rel-connect` and so on, and Claude also picks them up from a
-plain request such as "connect my Snowflake tables to Nori-Rel". To try them
-from a checkout without installing: `claude --plugin-dir .`
+The skills then appear as `/nori-rel:quickstart`, `/nori-rel:connect`
+and so on; typing `/nori-rel:` lists all of them. Claude also picks them up
+from a plain request such as "connect my Snowflake tables to Nori-Rel". To
+try them from a checkout without installing: `claude --plugin-dir .`
 
 This recording is a Claude Code session with the plugin loaded, asked for
 30-day spend per user on the synthetic database. The agent runs the quickstart
@@ -38,15 +38,19 @@ through connect, predict and backtest on its own and ends with the report
 ([`claude-code-walkthrough.cast`](claude-code-walkthrough.cast) replays it in
 a terminal):
 
-![A Claude Code session running the nori-rel-quickstart skill](claude-code-walkthrough.gif)
+![A Claude Code session running the quickstart skill](claude-code-walkthrough.gif)
 
 **Claude Code, as plain skills.** Copy the folders into your personal or
-project skills directory. They are then `/nori-rel-connect` and so on:
+project skills directory. Their names are short (`connect`, `predict`), so
+give each a prefix on the way in to keep them apart from other skills:
 
 ```bash
-cp -r skills/nori-rel-* ~/.claude/skills/      # every project
-cp -r skills/nori-rel-* .claude/skills/        # this project only
+for s in skills/*/; do cp -r "$s" ~/.claude/skills/nori-rel-$(basename "$s"); done   # every project
+for s in skills/*/; do cp -r "$s" .claude/skills/nori-rel-$(basename "$s"); done     # this project only
 ```
+
+Then edit the `name:` line of each copied `SKILL.md` to match its new folder
+name, and they are `/nori-rel-connect` and so on.
 
 **Codex CLI.** Copy the same folders into `~/.codex/skills/`.
 
@@ -60,7 +64,7 @@ Install only the skill folders; `README.md` is for people.
 The skills pass three files between steps. Keep them next to your project, out
 of version control if the table names are sensitive. None holds a credential.
 
-**`nori_rel_source.json`**, written by `nori-rel-connect`, describes the
+**`nori_rel_source.json`**, written by `connect`, describes the
 database. The credential is a reference, never a value:
 
 ```json
@@ -81,9 +85,9 @@ database. The credential is a reference, never a value:
 or `{"aws_secret": {"secret_id": "...", "region_name": "..."}}`. Snowflake
 and Databricks fill `connection` with the fields of `SnowflakeConnection` or
 `DatabricksConnection` and usually `primary_keys` and `foreign_keys`, as
-`nori-rel-connect` explains.
+`connect` explains.
 
-**`nori_rel_task.json`**, written by `nori-rel-predict`, describes one
+**`nori_rel_task.json`**, written by `predict`, describes one
 prediction:
 
 ```json
@@ -109,7 +113,7 @@ prediction:
 query; the past dates are placed that far apart before `anchor_time`, unless
 `anchor_spacing` (`{"value": 7, "unit": "days"}`) says otherwise. A static
 target has `"anchor_time": null` and no window. `feature_strategy` is
-`"fastdfs"`, `"noridfs"` or an agent object described in `nori-rel-features`.
+`"fastdfs"`, `"noridfs"` or an agent object described in `features`.
 `model` and `device` are `null` for the installed version's defaults.
 
 **`nori_rel_output/`**, written by the scripts: `predictions.csv`,
@@ -159,10 +163,10 @@ installed them to:
 
 ```bash
 S=skills
-python $S/nori-rel-connect/scripts/check_source.py nori_rel_source.json --entity users
-python $S/nori-rel-predict/scripts/predict.py nori_rel_source.json nori_rel_task.json
-python $S/nori-rel-backtest/scripts/backtest.py nori_rel_source.json nori_rel_task.json --folds 2
-python $S/nori-rel-schedule/scripts/refresh.py nori_rel_source.json \
+python $S/connect/scripts/check_source.py nori_rel_source.json --entity users
+python $S/predict/scripts/predict.py nori_rel_source.json nori_rel_task.json
+python $S/backtest/scripts/backtest.py nori_rel_source.json nori_rel_task.json --folds 2
+python $S/schedule/scripts/refresh.py nori_rel_source.json \
   nori_rel_output/pipeline.json --as-of 2026-03-02 --observed-through 2026-03-02 \
   --task nori_rel_task.json
 ```
@@ -225,7 +229,7 @@ The scripts were last run by hand on 2026-10-26 with `nori-rel` 0.4.7 from
 PyPI, `synthefy-nori` 0.20.1 and `nori-30m` on a GPU, against the same
 fixture in a TLS PostgreSQL 16 container. The backtest table came out as
 follows; a fold where repeating the previous window beats Nori is reported as
-it is, which is what `nori-rel-backtest` asks of the agent.
+it is, which is what `backtest` asks of the agent.
 
 | fold | cutoff | MAE Nori | MAE repeat previous | MAE context median | coverage |
 |---|---|---|---|---|---|

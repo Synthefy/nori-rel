@@ -1,5 +1,5 @@
 ---
-name: nori-rel-backtest
+name: backtest
 description: Check a Nori-Rel prediction before anyone acts on it, by predicting from earlier cutoffs whose outcomes are known and comparing with what happened, next to repeat-the-previous-window and median references and quantile coverage; static targets hold out stored values. Use when a prediction has been run (nori_rel_task.json exists) and someone asks how accurate it is, whether to trust it, or how Nori compares with a simple rule.
 ---
 
@@ -51,14 +51,14 @@ outer quantile band. `backtest_rows.csv` has every entity in every fold.
 - Nori above a reference: before concluding, check the usual causes in
   order: too few examples (raise `past_dates` or `max_context_rows`), a
   window too short for the event rate (many zero labels), features that do
-  not reach the tables that matter ([nori-rel-features](../nori-rel-features/SKILL.md)),
+  not reach the tables that matter ([features](../features/SKILL.md)),
   a date with incomplete data among the past dates.
 - Coverage of a 10-90 band should sit near 0.8. Much lower means the bands
   are too narrow to act on; much higher means they are too wide.
 - Nori far better than both references on every fold, with errors near zero:
   suspect leakage (an entity column that encodes the future) before
   celebrating. See the troubleshooting table in
-  [nori-rel-predict](../nori-rel-predict/references/troubleshooting.md).
+  [predict](../predict/references/troubleshooting.md).
 
 One fold is one window; three folds on a seasonal business can all fall in
 the same season. Run more folds when the history allows, and say how many

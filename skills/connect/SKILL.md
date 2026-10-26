@@ -1,5 +1,5 @@
 ---
-name: nori-rel-connect
+name: connect
 description: Connect a PostgreSQL (including AWS RDS or Aurora), Snowflake or Databricks database to Nori-Rel with a read-only identity, register each event table's time column, check keys, links and creation times with check_source.py, and write the nori_rel_source.json the other nori-rel-* skills read. Use when someone wants to point Nori-Rel at their database, asks why connect() or discover() fails, or needs to know whether their tables are ready for a prediction.
 ---
 
@@ -8,7 +8,7 @@ description: Connect a PostgreSQL (including AWS RDS or Aurora), Snowflake or Da
 Nori-Rel reads a bounded snapshot of linked tables through a read-only
 identity, in your process. This skill gets the connection right, checks that
 the schema can carry a prediction, and leaves a `nori_rel_source.json` for
-[nori-rel-predict](../nori-rel-predict/SKILL.md). It changes nothing in the
+[predict](../predict/SKILL.md). It changes nothing in the
 database.
 
 ## What a schema needs
@@ -24,7 +24,7 @@ database.
 5. The event table in the target links straight to the entity table.
 6. Entity columns do not change over time. A `lifetime_value` or
    `is_active` column on the entity table leaks the answer; see the leakage
-   section of [nori-rel-prepare-data](../nori-rel-prepare-data/SKILL.md).
+   section of [prepare-data](../prepare-data/SKILL.md).
 
 Snowflake needs standard tables with Time Travel history; Databricks needs
 Unity Catalog Delta tables with retained versions. Views are not supported on
@@ -152,7 +152,7 @@ Fix every `FAIL` and read every `WARN`:
 
 When the data is files, or the schema needs reshaping (history columns on the
 entity table, child tables with no key to the entity), hand over to
-[nori-rel-prepare-data](../nori-rel-prepare-data/SKILL.md): it designs and
+[prepare-data](../prepare-data/SKILL.md): it designs and
 loads a schema that passes this check.
 
 ## 4. Report
@@ -163,7 +163,7 @@ its time column, fact), the links, the check result, and the path of
 billed by the warehouse, every prediction reads the selected tables once, and
 the row limits can be raised with
 `NoriRelClient(limits=RelationalLimits(max_rows_per_table=...))` at the price
-of memory. Then continue with [nori-rel-predict](../nori-rel-predict/SKILL.md).
+of memory. Then continue with [predict](../predict/SKILL.md).
 
 ## Problems
 

@@ -1,5 +1,5 @@
 ---
-name: nori-rel-predict
+name: predict
 description: Turn a business question ("how much will each customer spend next month", "fill in the missing incomes") into a Nori-Rel PQL prediction - choose the entity, target and window, set anchor_time, observed_through, the past dates and the creation column, run predict.py, and read the result. Use when a database is connected (nori_rel_source.json exists) and someone wants a prediction, asks how to write PQL, or gets a PQL, date or context-row error from predict().
 ---
 
@@ -12,7 +12,7 @@ before it) and scores every entity that exists at `anchor_time`. Nothing is
 trained; the examples are Nori's context.
 
 You need `nori_rel_source.json` from
-[nori-rel-connect](../nori-rel-connect/SKILL.md). Read
+[connect](../connect/SKILL.md). Read
 [references/pql.md](references/pql.md) for the grammar before writing a query.
 
 ## 1. The question becomes a query
@@ -78,7 +78,7 @@ It prints each stage, then a summary. Read these lines:
   had fewer entities or incomplete data. A missing date fell after
   `observed_through` minus the window, or before the data starts.
 - `features N columns`: a handful means few tables link to the entity; see
-  [nori-rel-features](../nori-rel-features/SKILL.md).
+  [features](../features/SKILL.md).
 
 Outputs in `nori_rel_output/`: `predictions.csv` (`entity_id`,
 `anchor_time`, `prediction`, plus `quantiles` or `probability`),
@@ -94,8 +94,8 @@ range. A count or sum can come back slightly negative; say so and clip at zero
 in the report rather than in the file.
 
 Before anyone acts on the numbers, run
-[nori-rel-backtest](../nori-rel-backtest/SKILL.md). Then save the pipeline for
-[nori-rel-schedule](../nori-rel-schedule/SKILL.md).
+[backtest](../backtest/SKILL.md). Then save the pipeline for
+[schedule](../schedule/SKILL.md).
 
 Report the query, `anchor_time`, `observed_through`, the past dates and how
 many examples each gave, the cap, the model, the feature strategy and the

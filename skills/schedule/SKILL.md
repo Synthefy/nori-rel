@@ -1,11 +1,11 @@
 ---
-name: nori-rel-schedule
+name: schedule
 description: Save a Nori-Rel prediction as a pipeline and run it again on a schedule from fresh rows with no feature search, using refresh.py under cron, Airflow or any scheduler, and handle the pipeline errors that follow a schema, model or runtime change. Use when someone wants predictions refreshed every day, week or month, asks how to deploy or productionize a Nori-Rel prediction, or a saved pipeline stops running.
 ---
 
 # Schedule a Nori-Rel prediction
 
-`pipeline.json`, written by [nori-rel-predict](../nori-rel-predict/SKILL.md),
+`pipeline.json`, written by [predict](../predict/SKILL.md),
 is the complete recipe of one prediction: the query, the feature plan (and
 the agent's SQL after an agent search), the schema it expects, the context
 rule, the model and the runtime version. It holds no credentials, rows or
@@ -85,7 +85,7 @@ cannot run; the message names the error:
 | `PipelineVersionWarning` | Saved by another `nori-rel` version; the run goes on | Re-save at the next deliberate upgrade |
 
 An upgrade of `nori-rel` or the model is a deliberate step: predict again,
-backtest ([nori-rel-backtest](../nori-rel-backtest/SKILL.md)), and save the
+backtest ([backtest](../backtest/SKILL.md)), and save the
 new pipeline next to the old one with the date in its name.
 
 ## 4. Keep it honest

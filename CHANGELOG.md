@@ -3,10 +3,10 @@
 ## Unreleased
 
 - Agent skills in [`skills/`](skills/README.md) take an AI coding agent from
-  an empty environment to a scheduled prediction: `nori-rel-quickstart`,
-  `nori-rel-setup`, `nori-rel-connect`, `nori-rel-predict`,
-  `nori-rel-backtest`, `nori-rel-features` and `nori-rel-schedule`, next to the
-  existing `nori-rel-prepare-data`. They pass `nori_rel_source.json` and
+  an empty environment to a scheduled prediction: `quickstart`,
+  `setup`, `connect`, `predict`,
+  `backtest`, `features` and `schedule`, next to the
+  existing `prepare-data`. They pass `nori_rel_source.json` and
   `nori_rel_task.json` between steps, and their scripts write predictions, the
   feature table, a backtest against repeat-previous-window and median
   references, and the pipeline for scheduled refreshes. The repository is a

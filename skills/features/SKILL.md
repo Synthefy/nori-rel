@@ -1,5 +1,5 @@
 ---
-name: nori-rel-features
+name: features
 description: Choose and inspect the relational features Nori-Rel builds - FastDFS (default, one link from the entity), NoriDFS (two links, windowed), or the opt-in agent search that writes SQL features with Claude or an OpenAI-compatible model - read feature_table.csv, and explain one prediction with SHAP. Use when a backtest is weak, someone asks what Nori learned from, wants to add or exclude features, or asks whether the agent search is worth its cost and data sharing.
 ---
 
@@ -25,8 +25,8 @@ none either. A table reached only through another table (order lines under
 orders) is invisible to FastDFS; NoriDFS sees it. Give the rows a direct key
 to the entity when a table two links away matters.
 
-Switch by editing the task and rerunning [nori-rel-predict](../nori-rel-predict/SKILL.md)
-and [nori-rel-backtest](../nori-rel-backtest/SKILL.md). Decide on earlier
+Switch by editing the task and rerunning [predict](../predict/SKILL.md)
+and [backtest](../backtest/SKILL.md). Decide on earlier
 folds, report the last.
 
 ## The agent search

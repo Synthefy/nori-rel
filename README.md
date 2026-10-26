@@ -49,14 +49,14 @@ a Nori-Rel project step by step and stop wherever a decision is yours:
 
 | Skill | What the agent does |
 |---|---|
-| `nori-rel-quickstart` | Runs the whole path below in order. |
-| `nori-rel-setup` | Installs the right extras, picks local or hosted Nori, verifies the environment. |
-| `nori-rel-prepare-data` | Turns CSV, Excel, Parquet or JSON files into a PostgreSQL schema Nori-Rel can predict from, after you confirm every table and relationship. |
-| `nori-rel-connect` | Connects PostgreSQL, Snowflake or Databricks with a read-only identity and checks keys, links and time columns. |
-| `nori-rel-predict` | Turns your question into PQL, sets the dates, runs the prediction. |
-| `nori-rel-backtest` | Predicts from earlier dates whose outcome is known and compares Nori with simple references. |
-| `nori-rel-features` | Chooses FastDFS, NoriDFS or the agent search, and explains what the features are. |
-| `nori-rel-schedule` | Saves the pipeline and sets up a scheduled refresh from fresh rows. |
+| `quickstart` | Runs the whole path below in order. |
+| `setup` | Installs the right extras, picks local or hosted Nori, verifies the environment. |
+| `prepare-data` | Turns CSV, Excel, Parquet or JSON files into a PostgreSQL schema Nori-Rel can predict from, after you confirm every table and relationship. |
+| `connect` | Connects PostgreSQL, Snowflake or Databricks with a read-only identity and checks keys, links and time columns. |
+| `predict` | Turns your question into PQL, sets the dates, runs the prediction. |
+| `backtest` | Predicts from earlier dates whose outcome is known and compares Nori with simple references. |
+| `features` | Chooses FastDFS, NoriDFS or the agent search, and explains what the features are. |
+| `schedule` | Saves the pipeline and sets up a scheduled refresh from fresh rows. |
 
 In Claude Code, install them as a plugin from this repository:
 
@@ -70,11 +70,11 @@ the repository's synthetic database; the agent loaded the quickstart, wrote
 the handoff files, ran the check, the prediction and a backtest, and reported
 (three minutes, Nori 1.5 on CPU):
 
-![A Claude Code session running the nori-rel-quickstart skill: connection check, prediction, backtest and report](skills/claude-code-walkthrough.gif)
+![A Claude Code session running the quickstart skill: connection check, prediction, backtest and report](skills/claude-code-walkthrough.gif)
 
-Or copy the folders into `~/.claude/skills/` (Claude Code) or
-`~/.codex/skills/` (Codex). With another agent, give it a `SKILL.md` as its
-instructions. The skills' scripts read credentials from environment variables
+Or copy the folders, with a `nori-rel-` prefix on each, into
+`~/.claude/skills/` (Claude Code) or `~/.codex/skills/` (Codex). With another
+agent, give it a `SKILL.md` as its instructions. The skills' scripts read credentials from environment variables
 or AWS Secrets Manager and write no secret anywhere.
 
 ## Predict customer spend

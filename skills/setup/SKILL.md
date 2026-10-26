@@ -1,5 +1,5 @@
 ---
-name: nori-rel-setup
+name: setup
 description: Install Nori-Rel with the right extras for the user's database and inference mode (local Nori in the process, or hosted Nori with an API key), then verify the interpreter, the model runtime, the weights or key, and the accelerator. Use when someone starts a Nori-Rel project, asks how to install or configure nori-rel, or an import, weight-download or API-key error blocks a prediction.
 ---
 
@@ -14,7 +14,7 @@ verify, and report the versions.
 Ask only what changes the install:
 
 - **Database:** PostgreSQL (also AWS RDS and Aurora), Snowflake, Databricks,
-  or files. Files go through [nori-rel-prepare-data](../nori-rel-prepare-data/SKILL.md),
+  or files. Files go through [prepare-data](../prepare-data/SKILL.md),
   which loads them into PostgreSQL, so they need the PostgreSQL extra too.
 - **Where Nori runs:**
 
@@ -45,7 +45,7 @@ python -m pip index versions nori-rel      # the first line is the latest
 | Databricks | `pip install "nori-rel[databricks,local]"` | `pip install "nori-rel[databricks]"` |
 
 Add `agentic` to the extras only when the user wants the agent feature search
-([nori-rel-features](../nori-rel-features/SKILL.md)); it adds the Anthropic and
+([features](../features/SKILL.md)); it adds the Anthropic and
 OpenAI SDKs and DuckDB.
 
 The `local` extra pins the `synthefy-nori` runtime to the one version this
@@ -103,10 +103,10 @@ Tell the user the `nori-rel` version, the runtime version in local mode, the
 mode, the default model the client printed, the device, and the extras
 installed. Keep these in the project notes: a saved pipeline records the model
 and runtime, so a later upgrade must be a deliberate step
-([nori-rel-schedule](../nori-rel-schedule/SKILL.md)).
+([schedule](../schedule/SKILL.md)).
 
-Then continue with [nori-rel-connect](../nori-rel-connect/SKILL.md), or
-[nori-rel-prepare-data](../nori-rel-prepare-data/SKILL.md) for files.
+Then continue with [connect](../connect/SKILL.md), or
+[prepare-data](../prepare-data/SKILL.md) for files.
 
 ## Problems
 
