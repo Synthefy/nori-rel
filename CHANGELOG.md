@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Agent skills in [`skills/`](skills/README.md) take an AI coding agent from
+  an empty environment to a scheduled prediction: `nori-rel-quickstart`,
+  `nori-rel-setup`, `nori-rel-connect`, `nori-rel-predict`,
+  `nori-rel-backtest`, `nori-rel-features` and `nori-rel-schedule`, next to the
+  existing `nori-rel-prepare-data`. They pass `nori_rel_source.json` and
+  `nori_rel_task.json` between steps, and their scripts write predictions, the
+  feature table, a backtest against repeat-previous-window and median
+  references, and the pipeline for scheduled refreshes. The repository is a
+  Claude Code plugin marketplace (`/plugin marketplace add Synthefy/nori-rel`).
+  The skills live outside the wheel.
 - Nori 1.5 is the default model. `NoriRelClient()` runs `model="nori-1-5"`
   ([`Synthefy/Nori-1-5`](https://huggingface.co/Synthefy/Nori-1-5)) locally,
   and hosted mode sends it as `synthefy/nori-1-5`. Pass `model="nori-30m"` for

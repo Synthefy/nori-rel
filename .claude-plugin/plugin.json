@@ -1,0 +1,10 @@
+{
+  "name": "nori-rel",
+  "version": "0.1.0",
+  "description": "Skills that take an AI agent from an empty environment to a scheduled Nori-Rel prediction: install, connect a database, write PQL, backtest, schedule.",
+  "author": { "name": "Synthefy", "url": "https://github.com/Synthefy" },
+  "homepage": "https://github.com/Synthefy/nori-rel",
+  "repository": "https://github.com/Synthefy/nori-rel",
+  "license": "MIT",
+  "keywords": ["nori", "relational", "prediction", "postgresql", "snowflake", "databricks"]
+}

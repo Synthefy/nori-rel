@@ -1,0 +1,14 @@
+{
+  "name": "synthefy-nori-rel",
+  "description": "Nori-Rel: predict from relational databases with Nori",
+  "owner": { "name": "Synthefy", "url": "https://github.com/Synthefy" },
+  "plugins": [
+    {
+      "name": "nori-rel",
+      "source": "./",
+      "description": "Install, connect, predict, backtest and schedule Nori-Rel predictions with an AI agent.",
+      "category": "data",
+      "tags": ["nori", "relational", "prediction"]
+    }
+  ]
+}
