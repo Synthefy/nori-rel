@@ -65,12 +65,15 @@ In Claude Code, install them as a plugin from this repository:
 /plugin install nori-rel@synthefy-nori-rel
 ```
 
-Then ask in your own words. This session asked for 30-day spend per user on
-the repository's synthetic database; the agent loaded the quickstart, wrote
-the handoff files, ran the check, the prediction and a backtest, and reported
-(three minutes, Nori 1.5 on CPU):
+Then ask in your own words. This session opens with "I just installed the
+plugin and I have never used Nori-Rel. How do I use this?" The agent loads
+the quickstart, explains the six steps, asks what to predict, where the data
+is and through what date it is complete, proposes the query and waits for a
+yes, then runs the check, the prediction and a backtest, and ends with the
+report and a weekly refresh job (Claude Opus 5.5, Nori 1.5 on CPU; the
+waits are shortened):
 
-![A Claude Code session running the quickstart skill: connection check, prediction, backtest and report](skills/claude-code-walkthrough.gif)
+![A first-time user asking Claude Code how to use Nori-Rel; the agent explains the steps, asks three questions, confirms the query, then runs the check, prediction and backtest and reports](skills/claude-code-walkthrough.gif)
 
 Or copy the folders, with a `nori-rel-` prefix on each, into
 `~/.claude/skills/` (Claude Code) or `~/.codex/skills/` (Codex). With another

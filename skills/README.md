@@ -32,13 +32,15 @@ and so on; typing `/nori-rel:` lists all of them. Claude also picks them up
 from a plain request such as "connect my Snowflake tables to Nori-Rel". To
 try them from a checkout without installing: `claude --plugin-dir .`
 
-This recording is a Claude Code session with the plugin loaded, asked for
-30-day spend per user on the synthetic database. The agent runs the quickstart
-through connect, predict and backtest on its own and ends with the report
+This recording is a Claude Code session (Claude Opus 5.5) with the plugin
+loaded, started by a first-time user asking how to use it. The agent runs
+the quickstart: it explains the steps, asks its three questions, proposes
+the query and stops for a yes, runs connect, predict and backtest, and
+answers "how do I run this again next week?" with the schedule skill
 ([`claude-code-walkthrough.cast`](claude-code-walkthrough.cast) replays it in
-a terminal):
+a terminal; waits for the CPU model are shortened):
 
-![A Claude Code session running the quickstart skill](claude-code-walkthrough.gif)
+![A first-time user asking Claude Code how to use Nori-Rel, guided step by step by the quickstart skill](claude-code-walkthrough.gif)
 
 **Claude Code, as plain skills.** Copy the folders into your personal or
 project skills directory. Their names are short (`connect`, `predict`), so
