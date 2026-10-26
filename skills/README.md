@@ -126,7 +126,11 @@ be replayed, and `backtest.csv` with `backtest_rows.csv` after a backtest.
 
 The repository's synthetic fixture (48 users, 1,248 weekly orders, no real
 records) is enough to run every script. Everything below stays on your
-machine; in local mode nothing leaves it.
+machine; in local mode nothing leaves it. This recording runs the steps
+below on Nori 1.5 (86 seconds; [`walkthrough.cast`](walkthrough.cast)
+replays in a terminal with `asciinema play`):
+
+![The skill scripts run on the synthetic fixture: schema check, prediction, backtest and pipeline replay](walkthrough.gif)
 
 ```bash
 docker run -d --name nori-rel-pg -e POSTGRES_PASSWORD=example \
