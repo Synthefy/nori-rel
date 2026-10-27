@@ -5,16 +5,15 @@ and a current applicability review. It does not claim that every installed
 package is free of advisories. This review covers Nori-Rel's supported client
 and release paths.
 
-## Reviewed findings, 2026-10-26
+## Reviewed findings, 2026-10-27
 
-The locked candidate reports four advisory IDs across three dependencies.
+The locked candidate reports three advisory IDs across two dependencies.
 Repeated PyArrow and Setuptools findings remain in the raw scanner output.
 Compatible upstream bounds still exclude the reported fixes:
 
 | Locked dependency | Reported fix | Upstream constraint |
 | --- | --- | --- |
 | PyArrow 20.0.0 | 23.0.1 | FastDFS 1.1 and 1.2 require `pyarrow<21`. |
-| OAuthlib 3.3.1 | 4.0.0 | Databricks SQL Connector 4.6.0 requires `oauthlib<4`. |
 | Setuptools 80.10.2 | 83.0.0 and 84.1.0 | `synthefy-nori==0.22.0` requires `setuptools<81`. |
 
 Filelock 3.32.4 (CVE-2026-112907, CVE-2026-112913, CVE-2026-112940; fix
@@ -23,8 +22,17 @@ Snowflake connector's 4.8.1 release lifted its `filelock<4` bound, so the lock
 now holds `snowflake-connector-python` 4.8.1 and `filelock` 4.2.4. No other
 locked version changed.
 
+OAuthlib 3.3.1 (GHSA-3jp2-3mrg-2vxc / CVE-2026-49272; fix 4.0.0) was reported
+on 2026-10-27 and is upgraded rather than excepted: Databricks SQL Connector
+4.8.0 allows `oauthlib<5`, so the lock now holds `databricks-sql-connector`
+4.8.0 and `oauthlib` 4.0.0. The upgrade also fixes GHSA-xpv3-w29h-x7cv
+(CVE-2026-49265), whose exception is removed. OAuthlib 4.0.0's breaking
+changes are in its OAuth server classes; the connector's browser login uses
+`WebApplicationClient`, and Nori-Rel accepts only Databricks PAT or M2M
+authentication. No other locked version changed.
+
 No resolver overrides, runtime changes, or model changes bypass these bounds.
-The stable `synthefy` SDK was checked against PyPI on 2026-10-26 and is 7.4.0,
+The stable `synthefy` SDK was checked against PyPI on 2026-10-27 and is 7.4.0,
 the locked version.
 
 The isolated build backend is pinned to `uv_build==0.12.24` and included in the
@@ -38,33 +46,12 @@ dependency versions aligned with the applicability assessment.
 affects Arrow C++ IPC **file** reading with explicit metadata pre-buffering.
 The advisory excludes Python bindings and IPC streams. The reviewed PyArrow
 20.0.0 Python API exposes no affected pre-buffering method. Nori-Rel passes
-in-memory data to FastDFS; Databricks SQL Connector 4.6.0 uses
+in-memory data to FastDFS; Databricks SQL Connector 4.8.0 uses
 `pyarrow.ipc.open_stream`.
 
 The exception covers this finding on the reviewed Python client paths. It does
 not cover applications linking Arrow C++ directly and enabling
 `RecordBatchFileReader::PreBufferMetadata`.
-
-### OAuthlib: supported authentication uses client flows
-
-[GHSA-xpv3-w29h-x7cv / CVE-2026-49265](https://github.com/advisories/GHSA-xpv3-w29h-x7cv)
-affects server-side authorization-code PKCE verification. Nori-Rel accepts only
-Databricks PAT or service-principal M2M authentication. Reviewed SQL connector
-4.6.0 and SDK 0.151.0 paths select token authentication or the SDK's
-`client_credentials` flow. Source inspection and offline provider/header probes
-did not invoke the affected server grant implementation. These probes do not
-replace live authentication certification.
-
-The [upstream advisory](https://github.com/oauthlib/oauthlib/security/advisories/GHSA-xpv3-w29h-x7cv)
-names 3.3.2 as patched; the newer global record names 4.0.0. PyPI's release
-catalog and version endpoint contain no 3.3.2 release as of this review, so no
-published patched upgrade currently satisfies the connector's `<4` bound.
-
-The separate [revocation-callback advisory](https://github.com/oauthlib/oauthlib/security/advisories/GHSA-hj66-6f7g-4r5v)
-also concerns an OAuth server endpoint. It is absent from the current scanner
-report and is **not** preemptively exempted. A new reported finding requires
-review. The exception does not cover applications hosting an OAuth server in
-the same environment.
 
 ### Setuptools: release builds use a different backend
 
@@ -108,8 +95,8 @@ there.
 
 The optional `agentic` extra adds `anthropic` 1.13.0, `openai` 2.54.0, and
 `duckdb` 1.5.5, with their locked transitive packages (including `httpx2` 2.13.1
-and `jiter` 0.17.0). The audit of the lock that contains them on 2026-10-26
-reports the same four advisory IDs as above and nothing new, so no exception
+and `jiter` 0.17.0). The audit of the lock that contains them on 2026-10-27
+reports the same three advisory IDs as above and nothing new, so no exception
 covers these packages. They install only with the extra and are not imported by
 the base package. The agent sends data to a model provider you configure; that is
 a data-handling decision, described in the [support scope](support.md), and not
@@ -120,7 +107,7 @@ on these packages blocks a release like any other.
 
 [`dependency-exceptions.json`](dependency-exceptions.json) records the owner,
 review date, expiry, exact versions, advisory identities, scanner description
-fingerprints, and rationale. The review expires on **2026-11-25 (UTC)**. SHA-256
+fingerprints, and rationale. The review expires on **2026-11-26 (UTC)**. SHA-256
 hashes bind the complete package source inventory, dependency lockfile, project
 configuration, audit checker, artifact validator, and release workflows. A
 relevant edit requires another review.
