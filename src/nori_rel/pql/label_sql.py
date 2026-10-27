@@ -376,15 +376,17 @@ def compile_label_sql(
     label = emit(expression)
     if tree.target().REL_OP() is not None:
         label = comparison_sql(tree.target(), label, "number", params)
+    # Every CTE is built from the same context relation and the same context
+    # filter, and a leaf's inline predicate lives in its LEFT JOIN ON clause,
+    # so all CTEs emit exactly the same rows and this is equivalent to an inner
+    # join. FULL JOIN is defensive: if a leaf ever narrows its own row set at
+    # the context level, the row surfaces with a NULL label and is counted in
+    # dropped_unknown_labels, rather than vanishing from the output. MySQL has
+    # no FULL JOIN; a LEFT JOIN from the first leaf keeps that guarantee for
+    # every row the first leaf emits, which is every context row.
+    join = "FULL JOIN" if dialect.supports_full_join else "LEFT JOIN"
     joins = "\n".join(
-        # Every CTE is built from the same context relation and the same
-        # context filter, and a leaf's inline predicate lives in its LEFT JOIN
-        # ON clause, so all CTEs emit exactly the same rows and this is
-        # equivalent to an inner join. FULL JOIN is defensive: if a leaf ever
-        # narrows its own row set at the context level, the row surfaces with
-        # a NULL label and is counted in dropped_unknown_labels, rather than
-        # vanishing from the output.
-        f"FULL JOIN __nori_agg_{i} AS a{i} USING (context_row_id)"
+        f"{join} __nori_agg_{i} AS a{i} USING (context_row_id)"
         for i in range(1, len(aggregates))
     )
     sql = (

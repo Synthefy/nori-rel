@@ -31,6 +31,7 @@ class DatabaseEngine(StrEnum):
     POSTGRESQL = "postgresql"
     SNOWFLAKE = "snowflake"
     DATABRICKS = "databricks"
+    MYSQL = "mysql"
 
 
 class DatabaseStatus(StrEnum):
@@ -220,12 +221,20 @@ class DatabaseCreateRequest(StrictModel):
             unknown = configured.difference(self.tables)
             if unknown:
                 raise ValueError("table configuration contains a table outside tables")
-        if self.engine is DatabaseEngine.POSTGRESQL:
+        if self.engine in {DatabaseEngine.POSTGRESQL, DatabaseEngine.MYSQL}:
             if self.connection is not None:
                 raise ValueError("connection settings require a warehouse engine")
             if self.primary_keys or self.foreign_keys:
                 raise ValueError(
                     "explicit relationship mappings require a warehouse engine"
+                )
+            if (
+                self.engine is DatabaseEngine.MYSQL
+                and "schema_name" not in self.model_fields_set
+            ):
+                raise ValueError(
+                    "MySQL connections require an explicit schema_name, "
+                    "the MySQL database to read"
                 )
         else:
             expected = (
