@@ -1,7 +1,8 @@
 # Public API inventory
 
 This inventory defines the public API boundary. Installation extras are
-`database` (PostgreSQL), `snowflake`, `databricks`, `local`, and `agentic`. The
+`database` (PostgreSQL), `mysql`, `snowflake`, `databricks`, `local`, and
+`agentic`. The
 package has no command-line entry point. See [support and versioning](support.md).
 
 ## Root imports

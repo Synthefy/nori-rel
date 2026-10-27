@@ -4,9 +4,9 @@ Predict from relational databases with [Nori](https://docs.synthefy.com/nori).
 Nori-Rel reads a bounded database snapshot, constructs historical targets and
 FastDFS features, and runs local or hosted inference through one Python client.
 
-The supported package covers PostgreSQL, Snowflake standard tables, and
-Databricks Unity Catalog Delta tables. Releases come from reviewed commits on
-`main`.
+The supported package covers PostgreSQL, MySQL 8, Snowflake standard tables,
+and Databricks Unity Catalog Delta tables. Releases come from reviewed commits
+on `main`.
 
 Review the [support contract](docs/support.md) and
 [dependency security assessment](docs/dependency-security.md) before deployment.
@@ -20,6 +20,7 @@ local inference mode, the model runtime:
 ```bash
 python -m pip install "nori-rel[database,local]"
 # Other connectors:
+python -m pip install "nori-rel[mysql,local]"
 python -m pip install "nori-rel[snowflake,local]"
 python -m pip install "nori-rel[databricks,local]"
 ```
@@ -52,7 +53,7 @@ a Nori-Rel project step by step and stop wherever a decision is yours:
 | `quickstart` | Runs the whole path below in order. |
 | `setup` | Installs the right extras, picks local or hosted Nori, verifies the environment. |
 | `prepare-data` | Turns CSV, Excel, Parquet or JSON files into a PostgreSQL schema Nori-Rel can predict from, after you confirm every table and relationship. |
-| `connect` | Connects PostgreSQL, Snowflake or Databricks with a read-only identity and checks keys, links and time columns. |
+| `connect` | Connects PostgreSQL, MySQL, Snowflake or Databricks with a read-only identity and checks keys, links and time columns. |
 | `predict` | Turns your question into PQL, sets the dates, runs the prediction. |
 | `backtest` | Predicts from earlier dates whose outcome is known and compares Nori with simple references. |
 | `features` | Chooses FastDFS, NoriDFS or the agent search, and explains what the features are. |
@@ -323,10 +324,12 @@ and the runnable [save/reload example](examples/pipeline_reload.py).
 
 ## Operations and safety boundaries
 
-Use the client as a context manager to close connection pools. PostgreSQL uses
-TLS and read-only transactions; warehouse connectors use pinned reads and require
-a dedicated identity without write privileges. Warehouse capabilities and
-snapshot guarantees are documented in the [connector guide](docs/warehouse-connectors.md).
+Use the client as a context manager to close connection pools. PostgreSQL and
+MySQL use TLS for remote hosts and read-only transactions; warehouse connectors
+use pinned reads and require a dedicated identity without write privileges.
+Warehouse capabilities and snapshot guarantees are documented in the
+[connector guide](docs/warehouse-connectors.md). The [MySQL guide](docs/mysql.md)
+covers RDS and Aurora MySQL, TLS modes, SSH tunnels and type mapping.
 
 `RelationalLimits` bounds tables, rows, snapshot memory, feature size, and SQL
 statement time. Exceeding an extraction limit raises an error. These limits do

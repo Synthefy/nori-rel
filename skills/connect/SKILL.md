@@ -1,6 +1,6 @@
 ---
 name: connect
-description: Connect a PostgreSQL (including AWS RDS or Aurora), Snowflake or Databricks database to Nori-Rel with a read-only identity, register each event table's time column, check keys, links and creation times with check_source.py, and write the nori_rel_source.json the other nori-rel-* skills read. Use when someone wants to point Nori-Rel at their database, asks why connect() or discover() fails, or needs to know whether their tables are ready for a prediction.
+description: Connect a PostgreSQL or MySQL (including AWS RDS or Aurora), Snowflake or Databricks database to Nori-Rel with a read-only identity, register each event table's time column, check keys, links and creation times with check_source.py, and write the nori_rel_source.json the other nori-rel-* skills read. Use when someone wants to point Nori-Rel at their database, asks why connect() or discover() fails, or needs to know whether their tables are ready for a prediction.
 ---
 
 # Connect a database to Nori-Rel
@@ -45,8 +45,9 @@ Ask in one message:
 Have the user set the variable in the shell that will run Python. Never ask
 for a password in chat, and never write one into a file. PostgreSQL requires
 TLS: `sslmode=require` at least, `sslmode=verify-full` with `sslrootcert=` to
-verify the server. The identity should be able to read the tables and nothing
-more.
+verify the server. MySQL requires TLS for a remote host: `ssl_mode=REQUIRED` at
+least, `ssl_mode=VERIFY_IDENTITY` with `ssl_ca=` to verify the server. The
+identity should be able to read the tables and nothing more.
 
 ```bash
 export DATABASE_URL='postgresql://reader:...@db.example.com:5432/shop?sslmode=require'
@@ -81,6 +82,40 @@ that one secret:
   "time_columns": {"orders": "event_time"}
 }
 ```
+
+MySQL 8, including AWS RDS for MySQL and Aurora MySQL 3. `schema_name` is the
+MySQL database and is required. RDS and Aurora MySQL secrets work as for
+PostgreSQL, with `engine` `mysql`. Relationships come from declared `FOREIGN
+KEY` constraints:
+
+```json
+{
+  "engine": "mysql",
+  "credential": {"environment": "MYSQL_URL"},
+  "schema_name": "shop",
+  "tables": ["users", "orders"],
+  "time_columns": {"orders": "event_time"}
+}
+```
+
+```bash
+export MYSQL_URL='mysql://reader:...@shop.abc123.us-east-1.rds.amazonaws.com:3306/shop?ssl_mode=REQUIRED'
+```
+
+If the database is reachable only through a bastion host, the user opens an
+SSH tunnel in another shell and keeps it running; Nori-Rel connects to its
+local end. TLS then defaults to `PREFERRED`, which RDS accepts even with
+`require_secure_transport=ON`; `ssl_mode=VERIFY_CA` with `ssl_ca=` checks the
+certificate, and `VERIFY_IDENTITY` fails because the certificate names the RDS
+endpoint, not 127.0.0.1:
+
+```bash
+ssh -N -L 127.0.0.1:3307:shop.abc123.us-east-1.rds.amazonaws.com:3306 you@bastion.example.com
+export MYSQL_URL='mysql://reader:...@127.0.0.1:3307/shop'
+```
+
+See the [MySQL guide](https://github.com/Synthefy/nori-rel/blob/main/docs/mysql.md)
+for types, time zones and limits.
 
 Snowflake. The variable holds a JSON object with one authentication shape:
 key pair (`user`, `private_key` as PEM text or `private_key_file`,

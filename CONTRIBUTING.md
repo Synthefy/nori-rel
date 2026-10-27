@@ -17,8 +17,8 @@ internal branches or import their full history or collaboration records.
 Install Python 3.11 or 3.12 and [uv](https://docs.astral.sh/uv/), then:
 
 ```bash
-uv sync --group dev --extra database --extra snowflake --extra databricks \
-  --extra agentic
+uv sync --group dev --extra database --extra mysql --extra snowflake \
+  --extra databricks --extra agentic
 uv run --no-sync ruff format --check .
 uv run --no-sync ruff check .
 uv run --no-sync pytest -m "not warehouse and not live_nori"
@@ -29,7 +29,9 @@ See the [test-to-contract inventory](docs/testing.md) for what the retained
 suite covers, research-test preservation, and commands matching release CI.
 
 PostgreSQL tests need `NORI_REL_TEST_DATABASE_URL` pointing at a disposable,
-TLS-enabled database where the test user can create schemas. Test fixtures
+TLS-enabled database where the test user can create schemas. MySQL tests need
+`NORI_REL_TEST_MYSQL_URL` pointing at a disposable MySQL 8 server where the
+test user can create databases; see [testing](docs/testing.md#mysql). Test fixtures
 create and remove owned schemas. An unconfigured PostgreSQL run skips those
 checks; it does not establish database correctness. See
 [warehouse integration](docs/warehouse-connectors.md) for the separate live

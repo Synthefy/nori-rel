@@ -13,7 +13,7 @@ import zipfile
 from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
 
-REQUIRED_EXTRAS = {"database", "snowflake", "databricks", "local", "agentic"}
+REQUIRED_EXTRAS = {"database", "mysql", "snowflake", "databricks", "local", "agentic"}
 FORBIDDEN_COMPONENTS = {
     "relarena",
     "finetune",

@@ -91,9 +91,9 @@ def distribution_case(tmp_path):
     metadata = (
         b"Metadata-Version: 2.4\nName: nori-rel\nVersion: 0.3.0\n"
         b"License-Expression: MIT AND Apache-2.0\n"
-        b"Provides-Extra: database\nProvides-Extra: snowflake\n"
-        b"Provides-Extra: databricks\nProvides-Extra: local\n"
-        b"Provides-Extra: agentic\n"
+        b"Provides-Extra: database\nProvides-Extra: mysql\n"
+        b"Provides-Extra: snowflake\nProvides-Extra: databricks\n"
+        b"Provides-Extra: local\nProvides-Extra: agentic\n"
         b"License-File: LICENSE\nLicense-File: NOTICE\n"
         b"License-File: ATTRIBUTION.md\n\nPublic client fixture.\n"
     )
