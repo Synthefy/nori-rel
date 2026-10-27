@@ -55,7 +55,8 @@ tests against PostgreSQL 16 as well.
 
 `tests/connectors/test_mysql_live.py` runs the shared label fixture, MySQL
 types and time zones, static targets, sessions, limits, quoted names, TLS
-modes and a PostgreSQL parity check against a disposable MySQL 8 server. Set
+modes, RDS IAM token logins and a PostgreSQL parity check against a disposable
+MySQL 8 server. Set
 `NORI_REL_TEST_MYSQL_URL` to a user that can create databases; each test
 creates and drops its own. `NORI_REL_TEST_MYSQL_CA`, the server's CA
 certificate, enables the certificate-verification tests. For example:
@@ -72,6 +73,11 @@ uv run --no-sync pytest tests/connectors/test_mysql_live.py
 Pointing the URL at the local end of an SSH tunnel runs the same suite through
 the tunnel. CI runs it against a MySQL 8.4 service in `release-readiness` and
 in the release matrix.
+
+MySQL cannot run the plugin RDS uses for IAM database authentication, so the
+RDS IAM test logs a TLS-only user in with a stand-in for the token.
+`tests/test_relational_credentials.py` signs real tokens offline, with fake
+AWS keys.
 
 ## Required release certification
 

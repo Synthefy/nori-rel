@@ -83,8 +83,10 @@ database. The credential is a reference, never a value:
 ```
 
 `engine` is `postgresql`, `mysql`, `snowflake` or `databricks`. `credential` is
-`{"environment": "VAR"}` (a PostgreSQL or MySQL URL, or warehouse authentication JSON)
-or `{"aws_secret": {"secret_id": "...", "region_name": "..."}}`. Snowflake
+`{"environment": "VAR"}` (a PostgreSQL or MySQL URL, or warehouse authentication JSON),
+`{"aws_secret": {"secret_id": "...", "region_name": "..."}}`, or, for RDS or
+Aurora MySQL with IAM database authentication,
+`{"rds_iam": {"url": "mysql://reader@host/db", "endpoint": "..."}}`. Snowflake
 and Databricks fill `connection` with the fields of `SnowflakeConnection` or
 `DatabricksConnection` and usually `primary_keys` and `foreign_keys`, as
 `connect` explains.

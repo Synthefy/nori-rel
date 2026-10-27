@@ -14,7 +14,7 @@ import math
 import re
 import ssl
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -22,7 +22,7 @@ from threading import Lock
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import URL, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -39,6 +39,7 @@ from nori_rel.contracts import (
     ConnectorCapabilities,
     DatabaseCreateRequest,
     DatabaseEngine,
+    RdsIamToken,
     SchemaGraph,
     TableSchema,
 )
@@ -56,6 +57,7 @@ from nori_rel.pql.tree_access import node_ids, query_parts
 SSL_MODES = ("DISABLED", "PREFERRED", "REQUIRED", "VERIFY_CA", "VERIFY_IDENTITY")
 _TLS_SSL_MODES = frozenset({"REQUIRED", "VERIFY_CA", "VERIFY_IDENTITY"})
 _URL_OPTIONS = frozenset({"ssl_mode", "ssl_ca"})
+_DEFAULT_PORT = 3306
 _INTEGER_TYPES = frozenset({"TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"})
 _SIZED_TYPES = frozenset({"DECIMAL", "CHAR", "VARCHAR", "BINARY", "VARBINARY"})
 #: Socket timeouts exceed the server's statement timeout by this much, so the
@@ -103,21 +105,25 @@ def get_mysql_type_name(base_type: str, column_type: str) -> str:
     return name
 
 
-def get_mysql_connect_arguments(url: URL) -> tuple[URL, dict[str, Any]]:
+def get_mysql_connect_arguments(
+    url: URL, *, require_tls: bool = False
+) -> tuple[URL, dict[str, Any]]:
     """Apply the TLS policy; return the URL without options and driver arguments.
 
     ``ssl_mode`` takes the MySQL client's names (SSL_MODES). A remote host
     needs REQUIRED, the default, VERIFY_CA or VERIFY_IDENTITY. A local host,
     such as the local end of an SSH tunnel, defaults to PREFERRED, which uses
-    TLS when the server offers it, and may use DISABLED. ``ssl_ca`` is a PEM
-    bundle for the VERIFY modes, e.g. the Amazon RDS global bundle; without it
-    they trust the system certificates. Other URL options are refused rather
-    than passed to the driver, so none can enable LOAD DATA LOCAL or run SQL
-    at connect time.
+    TLS when the server offers it, and may use DISABLED. ``require_tls``
+    holds a local host to the remote rule, for RDS IAM tokens, which travel
+    as clear-text passwords. ``ssl_ca`` is a PEM bundle for the VERIFY modes,
+    e.g. the Amazon RDS global bundle; without it they trust the system
+    certificates. Other URL options are refused rather than passed to the
+    driver, so none can enable LOAD DATA LOCAL or run SQL at connect time.
 
     Raises:
         ConnectorError: An unknown or repeated option, an invalid mode, a
-            remote host without TLS, or an unreadable ``ssl_ca`` file.
+            remote host or required TLS without TLS, or an unreadable
+            ``ssl_ca`` file.
     """
     options = dict(url.query)
     unknown = sorted(set(options).difference(_URL_OPTIONS))
@@ -128,14 +134,19 @@ def get_mysql_connect_arguments(url: URL) -> tuple[URL, dict[str, Any]]:
         )
     if any(not isinstance(value, str) for value in options.values()):
         raise ConnectorError("MySQL URL options must not repeat")
-    local = is_local_host(url.host)
-    mode = options.get("ssl_mode", "PREFERRED" if local else "REQUIRED").upper()
+    tls_optional = is_local_host(url.host) and not require_tls
+    mode = options.get("ssl_mode", "PREFERRED" if tls_optional else "REQUIRED")
+    mode = mode.upper()
     if mode not in SSL_MODES:
         raise ConnectorError(f"ssl_mode must be one of {', '.join(SSL_MODES)}")
-    if not local and mode not in _TLS_SSL_MODES:
+    if not tls_optional and mode not in _TLS_SSL_MODES:
+        subject = (
+            "RDS IAM authentication requires"
+            if require_tls
+            else "remote MySQL connections require"
+        )
         raise ConnectorError(
-            "remote MySQL connections require TLS: "
-            "ssl_mode=REQUIRED, VERIFY_CA or VERIFY_IDENTITY"
+            f"{subject} TLS: ssl_mode=REQUIRED, VERIFY_CA or VERIFY_IDENTITY"
         )
     authority = options.get("ssl_ca")
     if authority is not None and mode not in {"VERIFY_CA", "VERIFY_IDENTITY"}:
@@ -156,6 +167,18 @@ def get_mysql_connect_arguments(url: URL) -> tuple[URL, dict[str, Any]]:
             context.verify_mode = ssl.CERT_NONE
         arguments["ssl"] = context
     return url.set(query={}), arguments
+
+
+def _add_password_signer(engine: Engine, sign: Callable[[], str]) -> None:
+    """Give each new connection of ``engine`` a password from ``sign``.
+
+    An RDS IAM token expires 15 minutes after signing, but only a login checks
+    it, so a pooled connection outlives its token and a new one signs again.
+    """
+
+    @event.listens_for(engine, "do_connect")
+    def set_password(dialect, connection_record, cargs, cparams) -> None:
+        cparams["password"] = sign()
 
 
 def _get_error_code(error: SQLAlchemyError) -> int | None:
@@ -217,9 +240,22 @@ class MySQLConnector:
             if self._closed:
                 raise ConnectorError("MySQL connector is closed")
             if self._pool is None:
+                credential = self.config.credential
+                iam = isinstance(credential, RdsIamToken)
                 url, tls_arguments = get_mysql_connect_arguments(
-                    self.resolver.resolve_mysql(self.config.credential)
+                    self.resolver.resolve_mysql(credential), require_tls=iam
                 )
+                sign = None
+                if isinstance(credential, RdsIamToken):
+                    if credential.endpoint is None and is_local_host(url.host):
+                        raise ConnectorError(
+                            "an RDS IAM token cannot be signed for a tunnel's "
+                            "local address; set endpoint to the RDS or Aurora "
+                            "endpoint"
+                        )
+                    sign = self.resolver.get_rds_token_signer(
+                        credential, url, default_port=_DEFAULT_PORT
+                    )
                 timeout = (
                     math.ceil(self.settings.statement_timeout_ms / 1000)
                     + _DRIVER_TIMEOUT_MARGIN_SECONDS
@@ -241,6 +277,8 @@ class MySQLConnector:
                         **tls_arguments,
                     },
                 )
+                if sign is not None:
+                    _add_password_signer(self._pool, sign)
             return self._pool
 
     def _get_session_settings(self) -> str:

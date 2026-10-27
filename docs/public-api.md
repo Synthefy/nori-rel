@@ -12,7 +12,7 @@ These names are exported from `nori_rel`:
 | Contract | Exports |
 | --- | --- |
 | Prediction client | `NoriRelClient` |
-| Credentials | `AwsSecret`, `EnvironmentCredential`, `DatabaseUrl`, `CredentialReference` |
+| Credentials | `AwsSecret`, `EnvironmentCredential`, `DatabaseUrl`, `RdsIamToken`, `CredentialReference` |
 | Connection configuration | `DatabaseCreateRequest`, `DatabaseEngine`, `SnowflakeConnection`, `DatabricksConnection` |
 | Connection/schema results | `Database`, `DatabaseStatus`, `ConnectionStatus`, `ConnectorCapabilities`, `SchemaGraph`, `TableSchema`, `ForeignKeySchema` |
 | Prediction settings | `RelationalLimits`, `RelationalOutputType`, `PredictionTask` |

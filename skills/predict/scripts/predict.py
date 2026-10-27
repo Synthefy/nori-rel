@@ -6,8 +6,8 @@ Usage:
 Writes predictions.csv, context.csv (the labelled rows Nori learned from),
 features.csv, feature_table.csv, metadata.json and, when the prediction can be
 saved, pipeline.json into the output directory (default: nori_rel_output).
-Credentials come from the environment or AWS Secrets Manager, as the source file
-says, and never enter the output.
+Credentials come from the environment or AWS Secrets Manager, or are signed as
+RDS IAM tokens, as the source file says, and never enter the output.
 """
 
 from __future__ import annotations
@@ -51,7 +51,12 @@ def make_credential(source: dict):
         return EnvironmentCredential(variable=credential["environment"])
     if "aws_secret" in credential:
         return AwsSecret(**credential["aws_secret"])
-    raise ValueError('credential needs "environment" or "aws_secret"')
+    if "rds_iam" in credential:
+        # Imported here so the other credentials work with releases before it.
+        from nori_rel import RdsIamToken
+
+        return RdsIamToken(**credential["rds_iam"])
+    raise ValueError('credential needs "environment", "aws_secret" or "rds_iam"')
 
 
 def connect_source(client: NoriRelClient, source: dict):

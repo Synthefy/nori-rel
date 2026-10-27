@@ -13,7 +13,8 @@ import pandas as pd
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from nori_rel import NoriRelClient, RelationalLimits
+from nori_rel import NoriRelClient, RdsIamToken, RelationalLimits
+from nori_rel._credentials import CredentialResolver
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 
 from .conftest import (
@@ -506,3 +507,89 @@ def test_mysql_certificate_checks_through_a_local_port(monkeypatch, mode, succee
         else:
             with pytest.raises(ConnectorError, match="code=2003"):
                 source.connector.test()
+
+
+IAM_USER = "nori_rel_iam_reader"
+IAM_TOKEN = "stand-in-for-a-signed-token"
+IAM_ENDPOINT = "shop.abc123.us-east-1.rds.amazonaws.com:3306"
+
+
+@pytest.fixture
+def iam_stand_in_reader():
+    """Create a TLS-only user whose password stands in for an RDS IAM token.
+
+    MySQL itself cannot run RDS's AWSAuthenticationPlugin, so this checks how
+    the connector sends a token; tests/test_relational_credentials.py checks
+    how it is signed.
+    """
+    writer = connect_mysql_writer(os.environ["NORI_REL_TEST_MYSQL_URL"])
+    try:
+        with writer.cursor() as cursor:
+            cursor.execute(f"DROP USER IF EXISTS '{IAM_USER}'@'%'")
+            cursor.execute(
+                f"CREATE USER '{IAM_USER}'@'%' IDENTIFIED BY '{IAM_TOKEN}' REQUIRE SSL"
+            )
+            cursor.execute(f"GRANT SELECT ON *.* TO '{IAM_USER}'@'%'")
+        yield
+    finally:
+        with writer.cursor() as cursor:
+            cursor.execute(f"DROP USER IF EXISTS '{IAM_USER}'@'%'")
+        writer.close()
+
+
+@pytest.mark.parametrize("mode", ["REQUIRED", "VERIFY_CA"])
+def test_mysql_rds_iam_tokens_log_in_over_tls_through_a_local_port(
+    iam_stand_in_reader, monkeypatch, mode
+):
+    """Each new pooled connection logs in with a token signed for the endpoint."""
+    from sqlalchemy.engine import URL, make_url
+
+    options = {"ssl_mode": mode}
+    if mode == "VERIFY_CA":
+        if not os.environ.get("NORI_REL_TEST_MYSQL_CA"):
+            pytest.skip("NORI_REL_TEST_MYSQL_CA names the test server's CA certificate")
+        options["ssl_ca"] = os.environ["NORI_REL_TEST_MYSQL_CA"]
+    signed = []
+
+    def get_signer(self, reference, url, *, default_port):
+        signed_for = (reference.endpoint, url.username, default_port)
+        assert signed_for == (IAM_ENDPOINT, IAM_USER, 3306)
+
+        def sign():
+            signed.append(signed_for)
+            return IAM_TOKEN
+
+        return sign
+
+    monkeypatch.setattr(CredentialResolver, "get_rds_token_signer", get_signer)
+    server = make_url(os.environ["NORI_REL_TEST_MYSQL_URL"])
+    url = URL.create(
+        "mysql",
+        username=IAM_USER,
+        host=server.host,
+        port=server.port,
+        database=server.database,
+        query=options,
+    )
+    credential = RdsIamToken(
+        url=url.render_as_string(hide_password=False), endpoint=IAM_ENDPOINT
+    )
+    with create_mysql_source(credential=credential) as source:
+        assert source.connector.test() >= 0
+        assert len(signed) == 1
+        schema = source.connector.discover("db")
+        assert {table.name for table in schema.tables} == {"users", "orders"}
+        _, context, counts = _prepare(source, CASES[0][1])
+        assert counts["candidate_rows"] == 6
+        assert context["label"].tolist() == pytest.approx(
+            list(_expected_labels(CASES[0][0]).values())
+        )
+        engine = source.connector._engine()
+        with engine.connect() as first, engine.connect() as second:
+            for connection in (first, second):
+                cipher = connection.exec_driver_sql(
+                    "SHOW SESSION STATUS LIKE 'Ssl_cipher'", {}
+                ).one()[1]
+                assert cipher
+    # The pool holds two connections, and the second one signed its own token.
+    assert len(signed) == 2

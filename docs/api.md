@@ -40,6 +40,10 @@ numerical nondeterminism.
 - `AwsSecret(secret_id="your-secret-name", region_name="us-west-2")` for AWS
   Secrets Manager. PostgreSQL and MySQL accept a URL or standard RDS JSON fields.
 - `DatabaseUrl(value=...)`, primarily for direct PostgreSQL or MySQL URL use.
+- `RdsIamToken(url="mysql://reader@host/db", endpoint=None, region_name=None)`
+  for RDS or Aurora MySQL with IAM database authentication. The URL holds no
+  password; each new connection logs in with a token signed by the caller's
+  AWS identity. See [RDS IAM authentication](mysql.md#rds-iam-authentication).
 
 Each connector extra includes AWS credential support. An RDS or Aurora endpoint
 uses the engine of its database: `engine="postgresql"` or `engine="mysql"`. See

@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal, get_args
+from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -17,6 +18,7 @@ from pydantic import (
 )
 
 _ENVIRONMENT_VARIABLE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_ENDPOINT = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::(?P<port>\d+))?")
 
 
 class StrictModel(BaseModel):
@@ -102,7 +104,58 @@ class DatabaseUrl(BaseModel):
     value: SecretStr
 
 
-CredentialReference = AwsSecret | EnvironmentCredential | DatabaseUrl
+class RdsIamToken(BaseModel):
+    """Log in to RDS or Aurora MySQL with IAM database authentication.
+
+    ``url`` is a MySQL URL without a password, e.g.
+    ``mysql://nori_reader@shop.abc123.us-east-1.rds.amazonaws.com/shop``,
+    with the usual ``ssl_mode`` and ``ssl_ca`` options. Each new connection
+    logs in with a token that the caller's AWS identity signs for
+    ``endpoint``, the instance or cluster endpoint as ``host`` or
+    ``host:port`` (default port 3306). The endpoint defaults to the URL's host
+    and port, and is required when the URL names an SSH tunnel's local end.
+    ``region_name`` defaults to the Region in the endpoint's name, else to
+    boto3's default Region.
+    """
+
+    # A rejected URL may hold the password it was refused for.
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    provider: Literal["aws_rds_iam"] = "aws_rds_iam"
+    url: str = Field(min_length=1)
+    endpoint: str | None = None
+    region_name: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        """Require a user and a host, and refuse the password a token replaces."""
+        try:
+            parts = urlsplit(value)
+            # Reading the port raises ValueError for one that is not 1..65535.
+            if parts.port == 0:
+                raise ValueError("port 0")
+        except ValueError:
+            raise ValueError("url must be a database URL") from None
+        if parts.password is not None:
+            raise ValueError("url must not hold a password; IAM tokens replace it")
+        if not parts.scheme or not parts.username or not parts.hostname:
+            raise ValueError("url must name a database user and host")
+        return value
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, value: str | None) -> str | None:
+        """Require a host name, optionally followed by a port in 1..65535."""
+        if value is None:
+            return value
+        match = _ENDPOINT.fullmatch(value)
+        if match is None or (match["port"] and not 0 < int(match["port"]) < 65536):
+            raise ValueError("endpoint must be a host name or host:port")
+        return value
+
+
+CredentialReference = AwsSecret | EnvironmentCredential | DatabaseUrl | RdsIamToken
 
 
 class SnowflakeConnection(StrictModel):
@@ -221,6 +274,11 @@ class DatabaseCreateRequest(StrictModel):
             unknown = configured.difference(self.tables)
             if unknown:
                 raise ValueError("table configuration contains a table outside tables")
+        if (
+            isinstance(self.credential, RdsIamToken)
+            and self.engine is not DatabaseEngine.MYSQL
+        ):
+            raise ValueError("RdsIamToken is supported for MySQL sources only")
         if self.engine in {DatabaseEngine.POSTGRESQL, DatabaseEngine.MYSQL}:
             if self.connection is not None:
                 raise ValueError("connection settings require a warehouse engine")

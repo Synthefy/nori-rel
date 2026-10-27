@@ -329,7 +329,8 @@ MySQL use TLS for remote hosts and read-only transactions; warehouse connectors
 use pinned reads and require a dedicated identity without write privileges.
 Warehouse capabilities and snapshot guarantees are documented in the
 [connector guide](docs/warehouse-connectors.md). The [MySQL guide](docs/mysql.md)
-covers RDS and Aurora MySQL, TLS modes, SSH tunnels and type mapping.
+covers RDS and Aurora MySQL, TLS modes, SSH tunnels, IAM database
+authentication and type mapping.
 
 `RelationalLimits` bounds tables, rows, snapshot memory, feature size, and SQL
 statement time. Exceeding an extraction limit raises an error. These limits do

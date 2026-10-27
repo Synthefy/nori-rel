@@ -13,7 +13,8 @@ import pytest
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
-from nori_rel import NoriRelClient
+from nori_rel import NoriRelClient, RdsIamToken
+from nori_rel._credentials import CredentialResolver
 from nori_rel.connectors import create_connector
 from nori_rel.connectors.errors import ConnectorError
 from nori_rel.connectors.mysql import (
@@ -108,6 +109,112 @@ def test_verify_identity_checks_the_host_name_against_the_given_bundle(tmp_path)
 def test_tls_policy_refuses_unsafe_or_unknown_options(url, message):
     with pytest.raises(ConnectorError, match=message):
         get_mysql_connect_arguments(make_url(url))
+
+
+@pytest.mark.parametrize(
+    "url,mode",
+    [
+        ("mysql+pymysql://u@127.0.0.1:3307/shop", "REQUIRED"),
+        ("mysql+pymysql://u@127.0.0.1:3307/shop?ssl_mode=VERIFY_CA", "VERIFY_CA"),
+        ("mysql+pymysql://u@127.0.0.1:3307/shop?ssl_mode=PREFERRED", None),
+        ("mysql+pymysql://u@localhost/shop?ssl_mode=DISABLED", None),
+        ("mysql+pymysql://u@db.example.com/shop?ssl_mode=DISABLED", None),
+    ],
+)
+def test_rds_iam_tokens_need_tls_even_through_a_local_port(url, mode):
+    """A token travels as a clear-text password, so only TLS may carry it."""
+    if mode is None:
+        with pytest.raises(ConnectorError, match="RDS IAM authentication requires"):
+            get_mysql_connect_arguments(make_url(url), require_tls=True)
+        return
+    _, arguments = get_mysql_connect_arguments(make_url(url), require_tls=True)
+    assert arguments["ssl"].verify_mode == (
+        ssl.CERT_NONE if mode == "REQUIRED" else ssl.CERT_REQUIRED
+    )
+
+
+class TokenResolver(CredentialResolver):
+    """Sign numbered stand-in tokens and record what they were signed for."""
+
+    def __init__(self) -> None:
+        self.signed_for: list[tuple] = []
+
+    def get_rds_token_signer(self, reference, url, *, default_port):
+        self.signed_for.append((reference.endpoint, url.host, url.port, default_port))
+        tokens = iter(f"token-{number}" for number in range(1, 100))
+        return lambda: next(tokens)
+
+
+def _iam_connector(resolver, **token):
+    return MySQLConnector(
+        DatabaseCreateRequest(
+            engine="mysql", credential=RdsIamToken(**token), schema_name="shop"
+        ),
+        RelationalLimits(),
+        resolver=resolver,
+    )
+
+
+def test_each_new_connection_logs_in_with_a_newly_signed_token(monkeypatch):
+    logins = []
+
+    def refuse(**arguments):
+        logins.append((arguments["user"], arguments["password"], "ssl" in arguments))
+        raise pymysql.err.OperationalError(2003, "no server in unit tests")
+
+    monkeypatch.setattr(pymysql, "connect", refuse)
+    resolver = TokenResolver()
+    reader = _iam_connector(resolver, url="mysql://nori_reader@db.example.com/shop")
+    for _ in range(2):
+        with pytest.raises(ConnectorError, match=r"code=2003"):
+            reader.test()
+    assert logins == [
+        ("nori_reader", "token-1", True),
+        ("nori_reader", "token-2", True),
+    ]
+    # One signer per pool; without an endpoint it signs for the URL's host.
+    assert resolver.signed_for == [(None, "db.example.com", None, 3306)]
+
+
+def test_rds_iam_behind_a_tunnel_needs_the_endpoint_to_sign_for():
+    resolver = TokenResolver()
+    reader = _iam_connector(resolver, url="mysql://nori_reader@127.0.0.1:3307/shop")
+    with pytest.raises(ConnectorError, match="set endpoint"):
+        reader.test()
+    assert resolver.signed_for == []
+    tunneled = _iam_connector(
+        resolver,
+        url="mysql://nori_reader@127.0.0.1:3307/shop",
+        endpoint="shop.abc123.us-east-1.rds.amazonaws.com:3306",
+    )
+    tunneled._engine()
+    assert resolver.signed_for == [
+        ("shop.abc123.us-east-1.rds.amazonaws.com:3306", "127.0.0.1", 3307, 3306)
+    ]
+
+
+@pytest.mark.parametrize(
+    "engine,options",
+    [
+        ("postgresql", {}),
+        (
+            "snowflake",
+            {
+                "connection": SnowflakeConnection(
+                    account="a", warehouse="w", database="d"
+                ),
+                "schema_name": "PUBLIC",
+            },
+        ),
+    ],
+)
+def test_rds_iam_tokens_are_for_mysql_sources_only(engine, options):
+    with pytest.raises(ValueError, match="MySQL sources only"):
+        DatabaseCreateRequest(
+            engine=engine,
+            credential=RdsIamToken(url="mysql://nori_reader@db.example.com/shop"),
+            **options,
+        )
 
 
 @pytest.mark.parametrize(

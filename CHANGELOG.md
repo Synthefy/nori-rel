@@ -10,8 +10,11 @@
   (`ssl_mode=REQUIRED`, `VERIFY_CA` or `VERIFY_IDENTITY`, with `ssl_ca=`); a
   local host, such as the end of an SSH tunnel, defaults to `PREFERRED`. RDS
   and Aurora MySQL secrets in Secrets Manager resolve like PostgreSQL ones.
-  MariaDB, MySQL 5.7, views, explicit relationship mappings and IAM database
-  authentication are not supported. See [MySQL sources](docs/mysql.md).
+  `RdsIamToken` logs in to RDS or Aurora MySQL with IAM database
+  authentication: each new connection uses a token that the caller's AWS
+  identity signs for the instance or cluster endpoint, also through an SSH
+  tunnel, and TLS is required. MariaDB, MySQL 5.7, views and explicit
+  relationship mappings are not supported. See [MySQL sources](docs/mysql.md).
 - A PostgreSQL source given another engine's URL now raises "a PostgreSQL
   source needs a postgresql:// URL" instead of "only PostgreSQL is supported in
   version 1".

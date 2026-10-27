@@ -34,6 +34,9 @@ Aurora MySQL secret: `engine` (`mysql` or `aurora-mysql`), `host`, `port`
 optional `ssl_mode` and `ssl_ca` options below. A secret that RDS manages for
 the master user holds only the user name and password; store a complete one.
 
+A user without a password can log in to RDS or Aurora MySQL with
+[IAM database authentication](#rds-iam-authentication).
+
 ## Connect and predict
 
 ```python
@@ -106,8 +109,79 @@ export MYSQL_URL='mysql://nori_reader:...@127.0.0.1:3307/shop'
 - To check the server certificate through the tunnel, use
   `ssl_mode=VERIFY_CA&ssl_ca=...`. `VERIFY_IDENTITY` fails, because the
   certificate names the RDS endpoint, not 127.0.0.1.
-- The tunnel carries the connection; the database user still logs in with
-  its MySQL password. RDS IAM database authentication is not supported.
+- The tunnel carries the connection; the database user still logs in, with
+  its MySQL password or with an [RDS IAM token](#rds-iam-authentication).
+
+## RDS IAM authentication
+
+With
+[IAM database authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html),
+the MySQL user has no password. Each new connection logs in with a token
+that your AWS identity signs, valid for 15 minutes; Nori-Rel signs one for
+every connection it opens, so long predictions keep working.
+
+1. Turn on IAM database authentication for the instance or cluster.
+2. Create the user for AWS's plugin and let it read the tables:
+
+   ```sql
+   CREATE USER 'nori_reader'@'%' IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS';
+   GRANT SELECT ON shop.* TO 'nori_reader'@'%';
+   ```
+
+3. Allow your AWS identity to connect as that user. The resource names the
+   instance's resource ID (`db-...`) or the cluster's (`cluster-...`):
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": "rds-db:connect",
+         "Resource": "arn:aws:rds-db:us-east-1:123456789012:dbuser:db-ABCDEFGHIJKL01234/nori_reader"
+       }
+     ]
+   }
+   ```
+
+Connect with `RdsIamToken` and a URL without a password:
+
+```python
+from nori_rel import RdsIamToken
+
+credential = RdsIamToken(
+    url="mysql://nori_reader@shop.abc123.us-east-1.rds.amazonaws.com:3306/shop"
+    "?ssl_mode=VERIFY_IDENTITY&ssl_ca=/etc/ssl/rds/global-bundle.pem",
+)
+shop = client.connect(engine="mysql", credential=credential, schema_name="shop")
+```
+
+Through an SSH tunnel, the URL names the tunnel's local end and `endpoint`
+names the endpoint the token is signed for:
+
+```python
+credential = RdsIamToken(
+    url="mysql://nori_reader@127.0.0.1:3307/shop"
+    "?ssl_mode=VERIFY_CA&ssl_ca=/etc/ssl/rds/global-bundle.pem",
+    endpoint="shop.abc123.us-east-1.rds.amazonaws.com:3306",
+)
+```
+
+- The token is signed for an instance, cluster or proxy endpoint and its
+  port, by default the URL's host and port. AWS refuses a token signed for a
+  custom DNS name, such as a Route 53 record, so name the RDS endpoint.
+  A local URL without `endpoint` is refused.
+- The token travels as a clear-text password, so TLS is required even
+  through a tunnel: `ssl_mode` defaults to `REQUIRED`, and `PREFERRED` and
+  `DISABLED` are refused. Check the certificate with `VERIFY_IDENTITY` on a
+  direct connection and `VERIFY_CA` through a tunnel.
+- Signing happens in your process with boto3's default credentials, such as
+  `AWS_PROFILE` or an instance role, and calls no AWS API. Temporary
+  credentials must still be valid whenever a new connection opens.
+- `region_name` defaults to the Region in the endpoint name, `us-east-1`
+  above, and otherwise to boto3's default Region.
+- AWS refusing a token, for example for a policy that does not name the user,
+  reports `MySQL connection failed (code=1045)`.
 
 ## Snapshot and time behavior
 

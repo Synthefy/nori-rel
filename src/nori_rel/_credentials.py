@@ -5,17 +5,43 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Callable
 from typing import Any
 
 import boto3
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import BotoCoreError, ClientError, NoRegionError
 from sqlalchemy.engine import URL, make_url
 
-from nori_rel.contracts import AwsSecret, CredentialReference, DatabaseUrl
+from nori_rel.contracts import (
+    AwsSecret,
+    CredentialReference,
+    DatabaseUrl,
+    RdsIamToken,
+)
+
+# The Region label of an RDS or Aurora endpoint, e.g. us-east-1 in
+# shop.abc123.us-east-1.rds.amazonaws.com or cn-north-1 in
+# shop.abc123.rds.cn-north-1.amazonaws.com.cn. Only that label is read,
+# because an instance named my-db-1 looks like a Region too.
+_RDS_REGION = re.compile(
+    r"\.(?P<region>[a-z]{2}(?:-[a-z]+)+-\d+)\.rds\.amazonaws\.com$"
+    r"|\.rds\.(?P<china>cn-[a-z]+-\d+)\.amazonaws\.com\.cn$"
+)
 
 
 class CredentialResolutionError(RuntimeError):
     pass
+
+
+def get_rds_region(host: str) -> str | None:
+    """Return the AWS Region in an RDS or Aurora endpoint name, or None.
+
+    Instance, cluster, reader and proxy endpoints carry it, e.g.
+    "shop.cluster-ro-abc123.us-west-2.rds.amazonaws.com" -> "us-west-2". A
+    custom DNS name, such as one in Route 53, has none.
+    """
+    match = _RDS_REGION.search(host.lower().rstrip("."))
+    return None if match is None else match["region"] or match["china"]
 
 
 class CredentialResolver:
@@ -26,8 +52,69 @@ class CredentialResolver:
         return self._get_postgresql_url(self._get_secret_text(reference))
 
     def resolve_mysql(self, reference: CredentialReference) -> URL:
-        """Resolve a MySQL URL, or RDS or Aurora MySQL credential JSON."""
+        """Resolve a MySQL URL, or RDS or Aurora MySQL credential JSON.
+
+        An RdsIamToken's URL has no password; each connection adds a token
+        from get_rds_token_signer.
+        """
+        if isinstance(reference, RdsIamToken):
+            url = self._get_mysql_url(reference.url)
+            if url.password is not None or not url.username or not url.host:
+                raise CredentialResolutionError(
+                    "an RDS IAM URL needs a user and host and no password"
+                )
+            return url
         return self._get_mysql_url(self._get_secret_text(reference))
+
+    @staticmethod
+    def get_rds_token_signer(
+        reference: RdsIamToken, url: URL, *, default_port: int
+    ) -> Callable[[], str]:
+        """Return a callable that signs a new RDS IAM token on each call.
+
+        The token is signed for ``reference.endpoint``, or else the URL's host
+        and port, and the URL's user. Signing happens in this process with
+        boto3's default credentials; it makes no AWS request. Each token is
+        valid for 15 minutes and is checked only when a connection logs in.
+
+        Raises:
+            CredentialResolutionError: No Region is known, or, from the
+                callable, the AWS credentials cannot sign.
+        """
+        if reference.endpoint is None:
+            host, port = url.host, url.port or default_port
+        else:
+            host, _, port_text = reference.endpoint.partition(":")
+            port = int(port_text or default_port)
+        region = reference.region_name or get_rds_region(host)
+        try:
+            client = boto3.client("rds", region_name=region)
+        except NoRegionError:
+            raise CredentialResolutionError(
+                "set region_name: the endpoint name does not include its AWS "
+                "Region and boto3 has no default Region"
+            ) from None
+        except BotoCoreError:
+            raise CredentialResolutionError(
+                "the RDS IAM token signer could not be configured"
+            ) from None
+        parameters = {
+            "DBHostname": host,
+            "Port": port,
+            "DBUsername": url.username,
+            "Region": client.meta.region_name,
+        }
+
+        def sign() -> str:
+            try:
+                return client.generate_db_auth_token(**parameters)
+            except (BotoCoreError, ClientError):
+                raise CredentialResolutionError(
+                    "an RDS IAM token could not be signed with this process's "
+                    "AWS credentials"
+                ) from None
+
+        return sign
 
     def resolve_parameters(self, reference: CredentialReference) -> dict[str, str]:
         """Resolve warehouse auth JSON locally without caching or logging values."""
@@ -53,6 +140,10 @@ class CredentialResolver:
     @staticmethod
     def _get_secret_text(reference: CredentialReference) -> str:
         """Read a secret in the caller's process, without caching it."""
+        if isinstance(reference, RdsIamToken):
+            raise CredentialResolutionError(
+                "RdsIamToken is supported for MySQL sources only"
+            )
         if isinstance(reference, DatabaseUrl):
             raw = reference.value.get_secret_value()
         elif isinstance(reference, AwsSecret):

@@ -383,17 +383,18 @@ def create_mysql_source(variable: str = "NORI_REL_TEST_MYSQL_URL", **options):
 
     The connector reads with the URL in ``variable``; the fixture is written
     with NORI_REL_TEST_MYSQL_URL. Options override the source configuration,
-    e.g. tables=[...], or set limits=RelationalLimits(). Tables beyond users
-    and orders are the caller's to create.
+    e.g. tables=[...] or credential=RdsIamToken(...), or set
+    limits=RelationalLimits(). Tables beyond users and orders are the caller's
+    to create.
     """
     from nori_rel.connectors.mysql import MySQLConnector
 
     limits = options.pop("limits", RelationalLimits(min_training_rows=2))
     config = DatabaseCreateRequest(
         engine="mysql",
-        credential=EnvironmentCredential(variable=variable),
         schema_name="nori_rel_test_" + uuid4().hex,
         **{
+            "credential": EnvironmentCredential(variable=variable),
             "tables": ["users", "orders"],
             "time_columns": {"orders": "event_time"},
             **options,

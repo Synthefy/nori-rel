@@ -44,7 +44,7 @@
       "sha256": "531ae23cae5b44769e02ec7db0b2defa86cb40e39ce81dba05b74dda298d2050"
     },
     "src/nori_rel/__init__.py": {
-      "sha256": "de714017e10daf19d225132676a8945f998ce42ed4462436aee6ca9106a830ba"
+      "sha256": "154a158bf39aecedb41f00ae3c9989ad705fdf9c0c0c2b5c4f3fee7ef67f5eb5"
     },
     "src/nori_rel/_checkpoint.py": {
       "sha256": "50e12af9b95662033a7a00141bb3aedec85fce04a7c7a87b10bbc373a1b6b9a8"
@@ -56,7 +56,7 @@
       "sha256": "20ffe33a332abfa3297af9e2da1dad914d06769010942b197e833795397cd38f"
     },
     "src/nori_rel/_credentials.py": {
-      "sha256": "0517347b6a9b1846fd94e87e3c4d66922891e7df0aff7a71b8d7e5ca8ed03356"
+      "sha256": "205c8c30a26acf3e66fda163f69f3b37f757b68b4519d4e5e57fb361b50da612"
     },
     "src/nori_rel/_feature_program.py": {
       "sha256": "feaed26b361226225f513a6551bba0d8e69df2ce15b519fb182cd6fb59abc825"
@@ -98,7 +98,7 @@
       "sha256": "b94959788800d6d8eeb7c577cd8bbda9a7e1fd5203117375032bf4d802fa1861"
     },
     "src/nori_rel/connectors/mysql.py": {
-      "sha256": "91ad2c65ac03d7f651e864455ff9e161286b7e90c5e4baa2a54a4dc0273ccbf2"
+      "sha256": "87bc23e3e7d174aa9f402b6af8986312e46db55df39003f59241d87b3e097e63"
     },
     "src/nori_rel/connectors/postgres.py": {
       "sha256": "50c8ff3f568684335daf087519aa75c37c178749d4f12b572372942828a05803"
@@ -113,7 +113,7 @@
       "sha256": "541af1d54c0724961e0b6f781b1be09c775631a15bb588fdbaef121b897718de"
     },
     "src/nori_rel/contracts.py": {
-      "sha256": "8afa49183657a1cdcb13a9d75dbd53b037200cc4a09036b3d3cc655926aa87a9"
+      "sha256": "b9d0c2dca2b98176217ff905533fe4cf18823e25551ea81eef3e0537b0b809ca"
     },
     "src/nori_rel/feature/__init__.py": {
       "sha256": "9ea8ef98d0c71eafecc8f281d6dcf7ce866e40bbc491c73f71f5d86f1d2d691a"
