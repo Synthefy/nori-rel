@@ -8,6 +8,7 @@ from nori_rel.limits import RelationalLimits
 
 if TYPE_CHECKING:
     from nori_rel.connectors.databricks import DatabricksConnector
+    from nori_rel.connectors.mysql import MySQLConnector
     from nori_rel.connectors.postgres import PostgreSQLConnector
     from nori_rel.connectors.snowflake import SnowflakeConnector
 
@@ -20,6 +21,7 @@ def create_connector(
         DatabaseEngine.POSTGRESQL: "PostgreSQLConnector",
         DatabaseEngine.SNOWFLAKE: "SnowflakeConnector",
         DatabaseEngine.DATABRICKS: "DatabricksConnector",
+        DatabaseEngine.MYSQL: "MySQLConnector",
     }[config.engine]
     return __getattr__(connector_name)(config, settings)
 
@@ -38,11 +40,16 @@ def __getattr__(name: str):
         from nori_rel.connectors.databricks import DatabricksConnector
 
         return DatabricksConnector
+    if name == "MySQLConnector":
+        from nori_rel.connectors.mysql import MySQLConnector
+
+        return MySQLConnector
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
     "DatabricksConnector",
+    "MySQLConnector",
     "PostgreSQLConnector",
     "RelationalConnector",
     "Snapshot",

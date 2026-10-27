@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -22,6 +21,7 @@ from nori_rel.connectors.base import (
     Snapshot,
     get_context_read_row_cap,
     get_loaded_foreign_keys,
+    is_local_host,
 )
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.contracts import (
@@ -39,15 +39,6 @@ from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS
 from nori_rel.pql.scoring_sql import compile_scoring_filter_sql
 from nori_rel.pql.sql_expressions import identifier
 from nori_rel.pql.tree_access import query_parts
-
-
-def _is_local_host(host: str | None) -> bool:
-    if not host or host.lower() == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
 
 
 class PostgreSQLConnector:
@@ -111,7 +102,7 @@ class PostgreSQLConnector:
             for key, value in url.query.items()
             if key not in {"options", "application_name", "connect_timeout"}
         }
-        if not _is_local_host(url.host):
+        if not is_local_host(url.host):
             sslmode = query.get("sslmode", "require")
             if sslmode not in {"require", "verify-ca", "verify-full"}:
                 raise ConnectorError("remote PostgreSQL connections require TLS")

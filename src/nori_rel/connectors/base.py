@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,6 +15,20 @@ from nori_rel.connectors.errors import SnapshotLimitError
 from nori_rel.contracts import DatabaseEngine, SchemaGraph
 from nori_rel.limits import RelationalLimits
 from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS
+
+
+def is_local_host(host: str | None) -> bool:
+    """Return whether a database host is this machine, e.g. an SSH tunnel's end.
+
+    No host, "localhost" and loopback addresses such as 127.0.0.1 and ::1 are
+    local; every other name or address is remote and needs TLS.
+    """
+    if not host or host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def get_context_read_row_cap(

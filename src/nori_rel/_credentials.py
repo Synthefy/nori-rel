@@ -25,6 +25,10 @@ class CredentialResolver:
         """Resolve a PostgreSQL URL using the existing credential contract."""
         return self._get_postgresql_url(self._get_secret_text(reference))
 
+    def resolve_mysql(self, reference: CredentialReference) -> URL:
+        """Resolve a MySQL URL, or RDS or Aurora MySQL credential JSON."""
+        return self._get_mysql_url(self._get_secret_text(reference))
+
     def resolve_parameters(self, reference: CredentialReference) -> dict[str, str]:
         """Resolve warehouse auth JSON locally without caching or logging values."""
         if isinstance(reference, DatabaseUrl):
@@ -114,7 +118,58 @@ class CredentialResolver:
             except Exception:
                 raise CredentialResolutionError("database URL is invalid") from None
         if not url.drivername.startswith("postgresql"):
-            raise CredentialResolutionError("only PostgreSQL is supported in version 1")
+            raise CredentialResolutionError(
+                "a PostgreSQL source needs a postgresql:// URL"
+            )
         if url.drivername != "postgresql+psycopg":
             url = url.set(drivername="postgresql+psycopg")
+        return url
+
+    @staticmethod
+    def _get_mysql_url(raw: str) -> URL:
+        """Parse a MySQL URL or RDS JSON without retaining raw secret text.
+
+        RDS and Aurora MySQL secrets use the same fields as PostgreSQL ones:
+        ``engine`` ("mysql" or "aurora-mysql"), ``host``, ``port`` (default
+        3306), ``username``, ``password`` and an optional ``dbname``, plus
+        optional ``ssl_mode`` and ``ssl_ca``, the MySQL connector's URL options.
+        Every driver name is read with PyMySQL; MariaDB is refused.
+        """
+        if raw.lstrip().startswith("{"):
+            try:
+                data: dict[str, Any] = json.loads(raw)
+                engine = data.get("engine")
+                if engine is not None and str(engine).lower() not in {
+                    "mysql",
+                    "aurora-mysql",
+                }:
+                    raise ValueError("secret engine is not MySQL")
+                url = URL.create(
+                    drivername="mysql+pymysql",
+                    username=data["username"],
+                    password=data["password"],
+                    host=data["host"],
+                    port=int(data.get("port", 3306)),
+                    database=data.get("dbname") or data.get("database") or None,
+                    query={
+                        option: str(data[option])
+                        for option in ("ssl_mode", "ssl_ca")
+                        if data.get(option)
+                    },
+                )
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                raise CredentialResolutionError(
+                    "database secret must be a MySQL URL or RDS credential JSON"
+                ) from None
+        else:
+            try:
+                url = make_url(raw)
+            except Exception:
+                raise CredentialResolutionError("database URL is invalid") from None
+        if url.drivername.partition("+")[0] != "mysql":
+            raise CredentialResolutionError(
+                "a MySQL source needs a mysql:// URL; MariaDB is not supported"
+            )
+        if url.drivername != "mysql+pymysql":
+            url = url.set(drivername="mysql+pymysql")
         return url
