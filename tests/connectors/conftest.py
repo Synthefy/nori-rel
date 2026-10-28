@@ -82,11 +82,11 @@ class WarehouseSource:
     writer: Any
 
     def identifier(self, value: str) -> str:
-        quote = "`" if self.engine == "databricks" else '"'
+        quote = "`" if self.engine in {"databricks", "mysql"} else '"'
         return quote + value.replace(quote, quote * 2) + quote
 
     def reference(self, table: str | None = None) -> str:
-        if self.engine == "postgresql":
+        if self.engine in {"postgresql", "mysql"}:
             parts = [self.config.schema_name]
             if table is not None:
                 parts.append(table)
@@ -106,7 +106,7 @@ class WarehouseSource:
                 cursor.execute(statement, parameters)
 
     def insert_rows(self, table: str, rows: list[tuple]) -> None:
-        parameter = "%s" if self.engine == "postgresql" else "?"
+        parameter = "%s" if self.engine in {"postgresql", "mysql"} else "?"
         placeholders = ",".join([parameter] * len(rows[0]))
         if self.engine == "snowflake":
             rows = [
@@ -151,11 +151,17 @@ def _populate_fixture(source: WarehouseSource) -> None:
         "snowflake": "TIMESTAMP_TZ",
         "databricks": "TIMESTAMP",
         "postgresql": "TIMESTAMPTZ",
+        # MySQL has no time zone type; the fixture writer's session is UTC.
+        "mysql": "DATETIME(6)",
     }[source.engine]
-    key_constraint = "PRIMARY KEY" if source.engine == "postgresql" else "NOT NULL"
-    foreign_key = (
-        f"REFERENCES {source.reference('users')}({source.identifier('user_id')})"
-        if source.engine == "postgresql"
+    enforces_keys = source.engine in {"postgresql", "mysql"}
+    key_constraint = "PRIMARY KEY" if enforces_keys else "NOT NULL"
+    parent = f"{source.reference('users')}({source.identifier('user_id')})"
+    foreign_key = f"REFERENCES {parent}" if source.engine == "postgresql" else ""
+    # MySQL ignores a column's inline REFERENCES; only a table constraint works.
+    table_foreign_key = (
+        f", FOREIGN KEY ({source.identifier('user_id')}) REFERENCES {parent}"
+        if source.engine == "mysql"
         else ""
     )
     amount_type = "DOUBLE PRECISION" if source.engine == "postgresql" else "DOUBLE"
@@ -171,7 +177,7 @@ def _populate_fixture(source: WarehouseSource) -> None:
         f"{source.identifier('user_id')} BIGINT {foreign_key}, "
         f"{source.identifier('event_time')} {timestamp_type}, "
         f"{source.identifier('amount')} {amount_type}, "
-        f"{source.identifier('channel')} VARCHAR(16))"
+        f"{source.identifier('channel')} VARCHAR(16){table_foreign_key})"
     )
     created_at = datetime(2025, 1, 1, tzinfo=UTC)
     users = [(entity, created_at, "US") for entity in range(1, 7)]
@@ -353,3 +359,66 @@ def postgres_parity_source():
         finally:
             connector.close()
             source.execute_write(f"DROP SCHEMA {source.reference()} CASCADE")
+
+
+def connect_mysql_writer(database_url: str):
+    """Open an autocommit PyMySQL session in UTC for fixture provisioning."""
+    import pymysql
+    from sqlalchemy.engine import make_url
+
+    url = make_url(database_url)
+    return pymysql.connect(
+        host=url.host,
+        port=url.port or 3306,
+        user=url.username,
+        password=url.password or "",
+        autocommit=True,
+        init_command="SET time_zone = '+00:00'",
+    )
+
+
+@contextmanager
+def create_mysql_source(variable: str = "NORI_REL_TEST_MYSQL_URL", **options):
+    """Yield the shared fixture in a new MySQL database, dropped afterward.
+
+    The connector reads with the URL in ``variable``; the fixture is written
+    with NORI_REL_TEST_MYSQL_URL. Options override the source configuration,
+    e.g. tables=[...] or credential=RdsIamToken(...), or set
+    limits=RelationalLimits(). Tables beyond users and orders are the caller's
+    to create.
+    """
+    from nori_rel.connectors.mysql import MySQLConnector
+
+    limits = options.pop("limits", RelationalLimits(min_training_rows=2))
+    config = DatabaseCreateRequest(
+        engine="mysql",
+        schema_name="nori_rel_test_" + uuid4().hex,
+        **{
+            "credential": EnvironmentCredential(variable=variable),
+            "tables": ["users", "orders"],
+            "time_columns": {"orders": "event_time"},
+            **options,
+        },
+    )
+    connector = MySQLConnector(config, limits)
+    writer = connect_mysql_writer(os.environ["NORI_REL_TEST_MYSQL_URL"])
+    source = WarehouseSource("mysql", {}, config, connector, writer)
+    try:
+        source.execute_write(f"CREATE DATABASE {source.reference()}")
+        _populate_fixture(source)
+        yield source
+    finally:
+        connector.close()
+        try:
+            source.execute_write(f"DROP DATABASE IF EXISTS {source.reference()}")
+        finally:
+            writer.close()
+
+
+@pytest.fixture
+def mysql_parity_source():
+    """Populate the exact same independently expected fixture in MySQL."""
+    if not os.environ.get("NORI_REL_TEST_MYSQL_URL"):
+        pytest.skip("MySQL integration database is supplied by CI")
+    with create_mysql_source() as source:
+        yield source

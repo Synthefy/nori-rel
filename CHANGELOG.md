@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- MySQL 8 sources, including Amazon RDS for MySQL and Aurora MySQL 3:
+  `client.connect(engine="mysql", ...)` with the new `mysql` extra (PyMySQL).
+  `schema_name` names the MySQL database and is required. Each operation reads
+  one InnoDB consistent snapshot in a read-only UTC session, and
+  `statement_timeout_ms` becomes `max_execution_time`. A remote host needs TLS
+  (`ssl_mode=REQUIRED`, `VERIFY_CA` or `VERIFY_IDENTITY`, with `ssl_ca=`); a
+  local host, such as the end of an SSH tunnel, defaults to `PREFERRED`. RDS
+  and Aurora MySQL secrets in Secrets Manager resolve like PostgreSQL ones.
+  `RdsIamToken` logs in to RDS or Aurora MySQL with IAM database
+  authentication: each new connection uses a token that the caller's AWS
+  identity signs for the instance or cluster endpoint, also through an SSH
+  tunnel, and TLS is required. MariaDB, MySQL 5.7, views and explicit
+  relationship mappings are not supported. See [MySQL sources](docs/mysql.md).
+- A PostgreSQL source given another engine's URL now raises "a PostgreSQL
+  source needs a postgresql:// URL" instead of "only PostgreSQL is supported in
+  version 1".
 - Agent skills in [`skills/`](skills/README.md) take an AI coding agent from
   an empty environment to a scheduled prediction: `quickstart`,
   `setup`, `connect`, `predict`,

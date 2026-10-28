@@ -13,8 +13,8 @@ verify, and report the versions.
 
 Ask only what changes the install:
 
-- **Database:** PostgreSQL (also AWS RDS and Aurora), Snowflake, Databricks,
-  or files. Files go through [prepare-data](../prepare-data/SKILL.md),
+- **Database:** PostgreSQL (also AWS RDS and Aurora), MySQL 8 (also AWS RDS
+  and Aurora MySQL), Snowflake, Databricks, or files. Files go through [prepare-data](../prepare-data/SKILL.md),
   which loads them into PostgreSQL, so they need the PostgreSQL extra too.
 - **Where Nori runs:**
 
@@ -41,6 +41,7 @@ python -m pip index versions nori-rel      # the first line is the latest
 | Database | Local Nori | Hosted Nori |
 |---|---|---|
 | PostgreSQL, RDS, Aurora, files | `pip install "nori-rel[database,local]"` | `pip install "nori-rel[database]"` |
+| MySQL, RDS or Aurora MySQL | `pip install "nori-rel[mysql,local]"` | `pip install "nori-rel[mysql]"` |
 | Snowflake | `pip install "nori-rel[snowflake,local]"` | `pip install "nori-rel[snowflake]"` |
 | Databricks | `pip install "nori-rel[databricks,local]"` | `pip install "nori-rel[databricks]"` |
 
@@ -112,7 +113,7 @@ Then continue with [connect](../connect/SKILL.md), or
 
 | Message | Cause and fix |
 |---|---|
-| `ImportError: Install a connector extra` | No connector installed. Install `nori-rel[database]`, `[snowflake]` or `[databricks]`. |
+| `ImportError: Install a connector extra` | No connector installed. Install `nori-rel[database]`, `[mysql]`, `[snowflake]` or `[databricks]`. |
 | `RuntimeError` naming the runtime version and the models it has | The installed `synthefy-nori` is older than the model the client asks for. Reinstall with the `local` extra of the current `nori-rel`; do not pin `synthefy-nori` yourself. |
 | `ValueError: mode='hosted' requires api_key or SYNTHEFY_NORI_API_KEY` | Export the key in the shell that runs Python. |
 | `ValueError: mode='local' does not use an API key` | Drop `api_key=` or pass `mode="hosted"`. |

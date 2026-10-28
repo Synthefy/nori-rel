@@ -56,7 +56,12 @@ def make_credential(source: dict):
         return EnvironmentCredential(variable=credential["environment"])
     if "aws_secret" in credential:
         return AwsSecret(**credential["aws_secret"])
-    raise ValueError('credential needs "environment" or "aws_secret"')
+    if "rds_iam" in credential:
+        # Imported here so the other credentials work with releases before it.
+        from nori_rel import RdsIamToken
+
+        return RdsIamToken(**credential["rds_iam"])
+    raise ValueError('credential needs "environment", "aws_secret" or "rds_iam"')
 
 
 def connect_source(client: NoriRelClient, source: dict):

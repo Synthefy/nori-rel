@@ -17,6 +17,7 @@ nori_rel/connectors/__init__.py
 nori_rel/connectors/base.py
 nori_rel/connectors/databricks.py
 nori_rel/connectors/errors.py
+nori_rel/connectors/mysql.py
 nori_rel/connectors/postgres.py
 nori_rel/connectors/snowflake.py
 nori_rel/connectors/warehouse.py

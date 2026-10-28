@@ -1,7 +1,8 @@
 # Public API inventory
 
 This inventory defines the public API boundary. Installation extras are
-`database` (PostgreSQL), `snowflake`, `databricks`, `local`, and `agentic`. The
+`database` (PostgreSQL), `mysql`, `snowflake`, `databricks`, `local`, and
+`agentic`. The
 package has no command-line entry point. See [support and versioning](support.md).
 
 ## Root imports
@@ -11,7 +12,7 @@ These names are exported from `nori_rel`:
 | Contract | Exports |
 | --- | --- |
 | Prediction client | `NoriRelClient` |
-| Credentials | `AwsSecret`, `EnvironmentCredential`, `DatabaseUrl`, `CredentialReference` |
+| Credentials | `AwsSecret`, `EnvironmentCredential`, `DatabaseUrl`, `RdsIamToken`, `CredentialReference` |
 | Connection configuration | `DatabaseCreateRequest`, `DatabaseEngine`, `SnowflakeConnection`, `DatabricksConnection` |
 | Connection/schema results | `Database`, `DatabaseStatus`, `ConnectionStatus`, `ConnectorCapabilities`, `SchemaGraph`, `TableSchema`, `ForeignKeySchema` |
 | Prediction settings | `RelationalLimits`, `RelationalOutputType`, `PredictionTask` |

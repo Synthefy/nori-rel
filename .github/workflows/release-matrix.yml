@@ -1,10 +1,10 @@
 name: Release matrix
 
 # The full cross-platform matrix: both supported Python versions, both
-# PostgreSQL versions, every extra installed alone from the built wheel, the
-# sdist, macOS and Windows. Pull requests and main pushes run one consolidated
-# CI job instead; publish.yml runs this before building a candidate, and a
-# maintainer can dispatch it to check a commit early.
+# PostgreSQL versions, MySQL 8.4, every extra installed alone from the built
+# wheel, the sdist, macOS and Windows. Pull requests and main pushes run one
+# consolidated CI job instead; publish.yml runs this before building a
+# candidate, and a maintainer can dispatch it to check a commit early.
 
 on:
   workflow_call:
@@ -18,7 +18,7 @@ env:
 
 jobs:
   postgres:
-    name: postgres (Python ${{ matrix.python }}, PostgreSQL ${{ matrix.postgres }})
+    name: postgres (Python ${{ matrix.python }}, PostgreSQL ${{ matrix.postgres }}, MySQL 8.4)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -42,8 +42,21 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres -d nori_rel_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: nori_rel_test
+          MYSQL_ROOT_PASSWORD: integration
+        ports:
+          - 3306:3306
+        # The image's first start runs a temporary server without TCP, so a
+        # TCP ping passes only once the real server is listening.
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pintegration --silent"
+          --health-interval 5s --health-timeout 5s --health-retries 30
     env:
       NORI_REL_TEST_DATABASE_URL: postgresql://postgres:integration@127.0.0.1:5432/nori_rel_test
+      NORI_REL_TEST_MYSQL_URL: mysql://root:integration@127.0.0.1:3306/nori_rel_test
       NORI_REL_TEST_MANAGED: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -56,9 +69,15 @@ jobs:
           enable-cache: true
       - run: >-
           uv sync --locked --group dev --group cpu
-          --extra database --extra snowflake --extra databricks --extra local
-          --extra agentic
-      - name: Test public client and real PostgreSQL
+          --extra database --extra mysql --extra snowflake --extra databricks
+          --extra local --extra agentic
+      - name: Trust the MySQL service's own CA for the certificate tests
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+        run: |
+          docker cp "$MYSQL_CONTAINER:/var/lib/mysql/ca.pem" "$RUNNER_TEMP/mysql-ca.pem"
+          echo "NORI_REL_TEST_MYSQL_CA=$RUNNER_TEMP/mysql-ca.pem" >> "$GITHUB_ENV"
+      - name: Test public client, real PostgreSQL and real MySQL
         run: >-
           uv run --no-sync pytest -m "not warehouse and not live_nori"
           --junitxml=reports/tests.xml
@@ -127,6 +146,9 @@ jobs:
           - {os: ubuntu-24.04, python: "3.13", extras: "", format: whl}
           - {os: ubuntu-24.04, python: "3.11", extras: database, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: database, format: whl}
+          - {os: ubuntu-24.04, python: "3.11", extras: mysql, format: whl}
+          - {os: ubuntu-24.04, python: "3.12", extras: mysql, format: whl}
+          - {os: ubuntu-24.04, python: "3.13", extras: mysql, format: whl}
           - {os: ubuntu-24.04, python: "3.11", extras: snowflake, format: whl}
           - {os: ubuntu-24.04, python: "3.12", extras: snowflake, format: whl}
           - {os: ubuntu-24.04, python: "3.13", extras: snowflake, format: whl}

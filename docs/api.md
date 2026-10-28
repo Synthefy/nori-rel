@@ -35,17 +35,23 @@ numerical nondeterminism.
 `connect()` returns a `Database` handle. Provide `engine` and exactly one of
 `database_url` or `credential`. Credential references are:
 
-- `EnvironmentCredential(variable="DATABASE_URL")` for a PostgreSQL URL, or
-  a variable holding warehouse authentication JSON.
+- `EnvironmentCredential(variable="DATABASE_URL")` for a PostgreSQL or MySQL
+  URL, or a variable holding warehouse authentication JSON.
 - `AwsSecret(secret_id="your-secret-name", region_name="us-west-2")` for AWS
-  Secrets Manager. PostgreSQL accepts a URL or standard RDS JSON fields.
-- `DatabaseUrl(value=...)`, primarily for direct PostgreSQL URL use.
+  Secrets Manager. PostgreSQL and MySQL accept a URL or standard RDS JSON fields.
+- `DatabaseUrl(value=...)`, primarily for direct PostgreSQL or MySQL URL use.
+- `RdsIamToken(url="mysql://reader@host/db", endpoint=None, region_name=None)`
+  for RDS or Aurora MySQL with IAM database authentication. The URL holds no
+  password; each new connection logs in with a token signed by the caller's
+  AWS identity. See [RDS IAM authentication](mysql.md#rds-iam-authentication).
 
-Each connector extra includes AWS credential support. An RDS or Aurora PostgreSQL
-endpoint still uses `engine="postgresql"`; MySQL is unsupported.
+Each connector extra includes AWS credential support. An RDS or Aurora endpoint
+uses the engine of its database: `engine="postgresql"` or `engine="mysql"`. See
+[MySQL sources](mysql.md) for MySQL URLs, TLS modes and SSH tunnels.
 
-Use `schema_name`, a `tables` allowlist, and `time_columns` mappings. Warehouses
-require a typed `connection` object and an explicit schema. `primary_keys` and
+Use `schema_name`, a `tables` allowlist, and `time_columns` mappings. MySQL
+requires an explicit `schema_name`, the database to read. Warehouses require a
+typed `connection` object and an explicit schema. `primary_keys` and
 `foreign_keys` supply relationships when warehouse metadata lacks them.
 `client.test_connection(source)` checks connectivity, and `client.discover(source)`
 returns the schema and connector capabilities. See [warehouse setup](warehouse-connectors.md).

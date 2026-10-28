@@ -1,6 +1,6 @@
 ---
 name: connect
-description: Connect a PostgreSQL (including AWS RDS or Aurora), Snowflake or Databricks database to Nori-Rel with a read-only identity, register each event table's time column, check keys, links and creation times with check_source.py, and write the nori_rel_source.json the other nori-rel-* skills read. Use when someone wants to point Nori-Rel at their database, asks why connect() or discover() fails, or needs to know whether their tables are ready for a prediction.
+description: Connect a PostgreSQL or MySQL (including AWS RDS or Aurora), Snowflake or Databricks database to Nori-Rel with a read-only identity, register each event table's time column, check keys, links and creation times with check_source.py, and write the nori_rel_source.json the other nori-rel-* skills read. Use when someone wants to point Nori-Rel at their database, asks why connect() or discover() fails, or needs to know whether their tables are ready for a prediction.
 ---
 
 # Connect a database to Nori-Rel
@@ -39,14 +39,16 @@ Ask in one message:
   under the limits: 32 tables, 1,000,000 rows per table, 3,000,000 in all);
 - which of them are event tables, and their time column;
 - the entity table and its creation column, if known;
-- how the credential is held: the name of an environment variable, or an AWS
-  Secrets Manager secret id and region.
+- how the credential is held: the name of an environment variable, an AWS
+  Secrets Manager secret id and region, or, for RDS or Aurora MySQL, IAM
+  database authentication.
 
 Have the user set the variable in the shell that will run Python. Never ask
 for a password in chat, and never write one into a file. PostgreSQL requires
 TLS: `sslmode=require` at least, `sslmode=verify-full` with `sslrootcert=` to
-verify the server. The identity should be able to read the tables and nothing
-more.
+verify the server. MySQL requires TLS for a remote host: `ssl_mode=REQUIRED` at
+least, `ssl_mode=VERIFY_IDENTITY` with `ssl_ca=` to verify the server. The
+identity should be able to read the tables and nothing more.
 
 ```bash
 export DATABASE_URL='postgresql://reader:...@db.example.com:5432/shop?sslmode=require'
@@ -81,6 +83,58 @@ that one secret:
   "time_columns": {"orders": "event_time"}
 }
 ```
+
+MySQL 8, including AWS RDS for MySQL and Aurora MySQL 3. `schema_name` is the
+MySQL database and is required. RDS and Aurora MySQL secrets work as for
+PostgreSQL, with `engine` `mysql`. Relationships come from declared `FOREIGN
+KEY` constraints:
+
+```json
+{
+  "engine": "mysql",
+  "credential": {"environment": "MYSQL_URL"},
+  "schema_name": "shop",
+  "tables": ["users", "orders"],
+  "time_columns": {"orders": "event_time"}
+}
+```
+
+```bash
+export MYSQL_URL='mysql://reader:...@shop.abc123.us-east-1.rds.amazonaws.com:3306/shop?ssl_mode=REQUIRED'
+```
+
+If the database is reachable only through a bastion host, the user opens an
+SSH tunnel in another shell and keeps it running; Nori-Rel connects to its
+local end. TLS then defaults to `PREFERRED`, which RDS accepts even with
+`require_secure_transport=ON`; `ssl_mode=VERIFY_CA` with `ssl_ca=` checks the
+certificate, and `VERIFY_IDENTITY` fails because the certificate names the RDS
+endpoint, not 127.0.0.1:
+
+```bash
+ssh -N -L 127.0.0.1:3307:shop.abc123.us-east-1.rds.amazonaws.com:3306 you@bastion.example.com
+export MYSQL_URL='mysql://reader:...@127.0.0.1:3307/shop'
+```
+
+If the MySQL user logs in with RDS IAM database authentication instead of a
+password, the credential is `rds_iam`: a URL without a password, plus
+`endpoint`, the RDS or Aurora endpoint the token is signed for, when the URL
+names a tunnel's local end. Nothing in it is secret. The AWS identity in the
+shell needs `rds-db:connect` for that user, and TLS is required:
+`ssl_mode=VERIFY_CA` with `ssl_ca=` through a tunnel, `VERIFY_IDENTITY` on a
+direct connection:
+
+```json
+{
+  "engine": "mysql",
+  "credential": {"rds_iam": {"url": "mysql://reader@127.0.0.1:3307/shop?ssl_mode=VERIFY_CA&ssl_ca=/path/to/global-bundle.pem", "endpoint": "shop.abc123.us-east-1.rds.amazonaws.com:3306"}},
+  "schema_name": "shop",
+  "tables": ["users", "orders"],
+  "time_columns": {"orders": "event_time"}
+}
+```
+
+See the [MySQL guide](https://github.com/Synthefy/nori-rel/blob/main/docs/mysql.md)
+for types, time zones and limits.
 
 Snowflake. The variable holds a JSON object with one authentication shape:
 key pair (`user`, `private_key` as PEM text or `private_key_file`,
@@ -173,6 +227,9 @@ of memory. Then continue with [predict](../predict/SKILL.md).
 | `warehouse connections require an explicit schema_name` | Add `schema_name` for Snowflake or Databricks. |
 | `database environment variable 'DATABASE_URL' is not set` | Export it in the shell that runs Python. |
 | TLS or `sslmode` rejected | PostgreSQL URLs need `sslmode=require` or stricter; non-TLS servers are refused. |
+| `RDS IAM authentication requires TLS` | The `rds_iam` URL needs `ssl_mode=REQUIRED` or stricter, also through a tunnel. |
+| `set endpoint to the RDS or Aurora endpoint` | The `rds_iam` URL names a tunnel's local end; add `endpoint`. |
+| `MySQL connection failed (code=1045)` with `rds_iam` | AWS refused the token. Check that the policy allows `rds-db:connect` for this user, that `endpoint` is the instance or cluster endpoint rather than a custom DNS name, and that the user was created `IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`. |
 | Ambiguous name on Snowflake | Two names differ only by case; write the exact one in backticks in PQL and exactly in the file. |
 | `ConnectorError` naming a key check | A declared key is not unique or a foreign key points to missing parents; fix the data or the declaration. |
 | `SnapshotLimitError` | A table exceeds the row or byte limit. Narrow `tables`, or raise `RelationalLimits`. |

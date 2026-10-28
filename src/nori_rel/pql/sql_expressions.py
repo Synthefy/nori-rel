@@ -28,8 +28,11 @@ def column_kind(column: ColumnSchema) -> str:
     Input: ColumnSchema(name="amount", data_type="NUMERIC(12, 2)", nullable=True).
     Output: "number". Other families are text, bool, date and timestamp.
     Unsupported types raise ValueError; no implicit text-to-number conversion.
+    MySQL names such as "BIGINT UNSIGNED", "MEDIUMTEXT" and "DATETIME" map to
+    the same families; the MySQL connector reports TINYINT(1) as "BOOLEAN".
     """
     name = re.sub(r"\([^)]*\)", "", column.data_type.upper()).strip()
+    name = name.removesuffix(" UNSIGNED")
     if name in {
         "SMALLINT",
         "INTEGER",
@@ -43,6 +46,7 @@ def column_kind(column: ColumnSchema) -> str:
         "NUMBER",
         "BYTE",
         "TINYINT",
+        "MEDIUMINT",
         "SHORT",
         "LONG",
         "REAL",
@@ -65,6 +69,10 @@ def column_kind(column: ColumnSchema) -> str:
         "CHARACTER",
         "CHARACTER VARYING",
         "STRING",
+        "TINYTEXT",
+        "MEDIUMTEXT",
+        "LONGTEXT",
+        "ENUM",
     }:
         return "text"
     if name == "DATE":
@@ -77,6 +85,7 @@ def column_kind(column: ColumnSchema) -> str:
         "TIMESTAMP_NTZ",
         "TIMESTAMP_LTZ",
         "TIMESTAMP_TZ",
+        "DATETIME",
     }:
         return "timestamp"
     raise ValueError(f"Unsupported SQL scalar type: {column.data_type}")

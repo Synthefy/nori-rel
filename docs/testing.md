@@ -35,8 +35,8 @@ suite uses deterministic predictors and does not download model weights:
 
 ```bash
 uv sync --group dev --group cpu \
-  --extra database --extra snowflake --extra databricks --extra local \
-  --extra agentic
+  --extra database --extra mysql --extra snowflake --extra databricks \
+  --extra local --extra agentic
 uv run --no-sync ruff format --check .
 uv run --no-sync ruff check .
 uv run --no-sync pytest -m "not warehouse and not live_nori"
@@ -45,11 +45,39 @@ uv run --no-sync pytest -m "not warehouse and not live_nori"
 Without PostgreSQL configuration, database tests skip and that run does not
 certify database behavior. CI on pull requests and main is one job,
 `release-readiness`: it runs these commands on Python 3.12 against a
-disposable PostgreSQL 18, builds the distributions, installs the wheel with
+disposable PostgreSQL 18 and MySQL 8.4, builds the distributions, installs the wheel with
 every extra outside the source checkout, and audits dependencies. The release
 matrix (`release-matrix.yml`, run by `publish.yml` and on demand) installs each
 extra alone on both supported Python versions, the sdist, macOS and Windows, and
 tests against PostgreSQL 16 as well.
+
+### MySQL
+
+`tests/connectors/test_mysql_live.py` runs the shared label fixture, MySQL
+types and time zones, static targets, sessions, limits, quoted names, TLS
+modes, RDS IAM token logins and a PostgreSQL parity check against a disposable
+MySQL 8 server. Set
+`NORI_REL_TEST_MYSQL_URL` to a user that can create databases; each test
+creates and drops its own. `NORI_REL_TEST_MYSQL_CA`, the server's CA
+certificate, enables the certificate-verification tests. For example:
+
+```bash
+docker run -d --name nori-rel-mysql -e MYSQL_ROOT_PASSWORD=integration \
+  -p 127.0.0.1:3306:3306 mysql:8.4
+export NORI_REL_TEST_MYSQL_URL=mysql://root:integration@127.0.0.1:3306/mysql
+docker cp nori-rel-mysql:/var/lib/mysql/ca.pem ./mysql-ca.pem
+export NORI_REL_TEST_MYSQL_CA=$PWD/mysql-ca.pem
+uv run --no-sync pytest tests/connectors/test_mysql_live.py
+```
+
+Pointing the URL at the local end of an SSH tunnel runs the same suite through
+the tunnel. CI runs it against a MySQL 8.4 service in `release-readiness` and
+in the release matrix.
+
+MySQL cannot run the plugin RDS uses for IAM database authentication, so the
+RDS IAM test logs a TLS-only user in with a stand-in for the token.
+`tests/test_relational_credentials.py` signs real tokens offline, with fake
+AWS keys.
 
 ## Required release certification
 

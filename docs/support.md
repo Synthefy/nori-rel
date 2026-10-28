@@ -7,6 +7,7 @@ Version 0.3.0 defines the initial public database-client contract.
 | Python | 3.11, 3.12 and 3.13. |
 | Primary CI platform | Linux. CI also installs the wheel with the `database` extra on macOS and Windows and runs import checks only. Other operating systems require their own dependency/runtime validation. |
 | PostgreSQL | TLS-enabled PostgreSQL; read-only transactions and bounded extraction. CI and release-matrix server versions are specified in `.github/workflows/ci.yml` and `.github/workflows/release-matrix.yml`. |
+| MySQL | MySQL 8.0 or later, including Amazon RDS for MySQL and Aurora MySQL 3; InnoDB base tables, read-only consistent-snapshot transactions, TLS for remote hosts, password or RDS IAM authentication, and bounded extraction. CI tests MySQL 8.4. MariaDB and MySQL 5.7 are refused. See [MySQL sources](mysql.md). |
 | Snowflake | Standard tables with available Time Travel history. |
 | Databricks | Unity Catalog Delta tables on a SQL warehouse, with retained versions. |
 | Features | FastDFS (default) and NoriDFS. |
@@ -20,7 +21,7 @@ Version 0.3.0 defines the initial public database-client contract.
 | Pipelines | FastDFS and NoriDFS recipes, and saved agent SQL programs; schema/model checks, relative context anchors, fresh data on replay. |
 | Operations | Synchronous/background runs, progress, cooperative cancellation, agent-search stop and steer, pool cleanup. |
 
-Database views, arbitrary SQL queries as sources, MySQL, NEXT prediction, RelArena adapters, and fine-tuning are outside this release's support
+Database views, arbitrary SQL queries as sources, MariaDB, NEXT prediction, RelArena adapters, and fine-tuning are outside this release's support
 scope. Nori Thinking is not a local model option. Connector support does not imply
 that every vendor server/runtime version has been tested; release certification
 records the actual server and service versions exercised.

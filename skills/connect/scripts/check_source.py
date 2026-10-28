@@ -6,7 +6,8 @@ Usage:
 Prints every selected table with its key, time column, links and columns, then
 checks the schema against what a Nori-Rel prediction needs. Exit code 1 means a
 check failed. Credentials are read from the environment or AWS Secrets Manager,
-as the source file says; nothing is written anywhere.
+or signed as RDS IAM tokens, as the source file says; nothing is written
+anywhere.
 """
 
 from __future__ import annotations
@@ -43,7 +44,12 @@ def make_credential(source: dict):
         return EnvironmentCredential(variable=credential["environment"])
     if "aws_secret" in credential:
         return AwsSecret(**credential["aws_secret"])
-    raise ValueError('credential needs "environment" or "aws_secret"')
+    if "rds_iam" in credential:
+        # Imported here so the other credentials work with releases before it.
+        from nori_rel import RdsIamToken
+
+        return RdsIamToken(**credential["rds_iam"])
+    raise ValueError('credential needs "environment", "aws_secret" or "rds_iam"')
 
 
 def connect_source(client: NoriRelClient, source: dict):

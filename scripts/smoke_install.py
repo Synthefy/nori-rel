@@ -76,6 +76,7 @@ def main() -> None:
             "torch",
             "fastdfs",
             "psycopg",
+            "pymysql",
             "synthefy_nori",
             "duckdb",
             "anthropic",
@@ -85,6 +86,7 @@ def main() -> None:
         raise RuntimeError("base import eagerly loaded an optional dependency")
     connector_modules = {
         "database": "postgres",
+        "mysql": "mysql",
         "snowflake": "snowflake",
         "databricks": "databricks",
     }

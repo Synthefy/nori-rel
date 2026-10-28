@@ -176,7 +176,8 @@ class NoriRelClient:
             except ImportError as exc:
                 raise ImportError(
                     'Install a connector extra: "nori-rel[database]", '
-                    '"nori-rel[snowflake]", or "nori-rel[databricks]"'
+                    '"nori-rel[mysql]", "nori-rel[snowflake]", or '
+                    '"nori-rel[databricks]"'
                 ) from exc
             predictor = None
             if mode == "local":
@@ -258,6 +259,11 @@ class NoriRelClient:
         credential = cast(CredentialReference, credential)
         engine = DatabaseEngine(engine)
         if schema_name is None:
+            if engine is DatabaseEngine.MYSQL:
+                raise ValueError(
+                    "MySQL connections require an explicit schema_name, "
+                    "the MySQL database to read"
+                )
             if engine is not DatabaseEngine.POSTGRESQL:
                 raise ValueError(
                     "warehouse connections require an explicit schema_name"

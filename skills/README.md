@@ -12,7 +12,7 @@ runs them in order.
 | [`quickstart`](quickstart/SKILL.md) | You want the whole path: install, connect, predict, check, schedule. |
 | [`setup`](setup/SKILL.md) | Install Nori-Rel with the right extras, choose local or hosted Nori, verify the environment. |
 | [`prepare-data`](prepare-data/SKILL.md) | Your data is CSV, Excel, Parquet or JSON files rather than a relational database. |
-| [`connect`](connect/SKILL.md) | Connect PostgreSQL (including AWS RDS and Aurora), Snowflake or Databricks and check the schema. |
+| [`connect`](connect/SKILL.md) | Connect PostgreSQL or MySQL (including AWS RDS and Aurora), Snowflake or Databricks and check the schema. |
 | [`predict`](predict/SKILL.md) | Turn a business question into PQL, choose the dates, run the prediction. |
 | [`backtest`](backtest/SKILL.md) | Measure the prediction on windows whose outcome is known, next to simple references. |
 | [`features`](features/SKILL.md) | Choose FastDFS, NoriDFS or the agent search; read and explain the features. |
@@ -82,9 +82,11 @@ database. The credential is a reference, never a value:
 }
 ```
 
-`engine` is `postgresql`, `snowflake` or `databricks`. `credential` is
-`{"environment": "VAR"}` (a PostgreSQL URL, or warehouse authentication JSON)
-or `{"aws_secret": {"secret_id": "...", "region_name": "..."}}`. Snowflake
+`engine` is `postgresql`, `mysql`, `snowflake` or `databricks`. `credential` is
+`{"environment": "VAR"}` (a PostgreSQL or MySQL URL, or warehouse authentication JSON),
+`{"aws_secret": {"secret_id": "...", "region_name": "..."}}`, or, for RDS or
+Aurora MySQL with IAM database authentication,
+`{"rds_iam": {"url": "mysql://reader@host/db", "endpoint": "..."}}`. Snowflake
 and Databricks fill `connection` with the fields of `SnowflakeConnection` or
 `DatabricksConnection` and usually `primary_keys` and `foreign_keys`, as
 `connect` explains.
@@ -222,8 +224,8 @@ uv run --no-sync pytest tests/test_skill_scripts.py -m live_nori --require-local
 ```
 
 which takes a few minutes. Not covered automatically: the agent feature
-search against a live model provider, Snowflake and Databricks sources (the
-scripts build the same connection objects the connectors' own tests cover),
+search against a live model provider, MySQL, Snowflake and Databricks sources
+(the scripts build the same connection objects the connectors' own tests cover),
 hosted mode, and the prose of the skills, which an agent reads and whose
 quality shows in what it does.
 

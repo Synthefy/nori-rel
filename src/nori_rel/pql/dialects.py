@@ -1,8 +1,9 @@
-"""SQL syntax shared by PostgreSQL and warehouse PQL compilation.
+"""SQL syntax shared by PostgreSQL, MySQL and warehouse PQL compilation.
 
 Statements retain pyformat placeholders and escaped percent signs. Warehouse
 executors must translate those placeholders to native parameters, including
-unescaping ``%%`` in identifiers, before passing SQL to their drivers.
+unescaping ``%%`` in identifiers, before passing SQL to their drivers. The
+PostgreSQL and MySQL drivers bind pyformat parameters natively.
 """
 
 import re
@@ -29,6 +30,27 @@ _DECIMAL_PRECISION_BY_SQL_INTEGER_TYPE = {
     "BIGSERIAL": 19,
 }
 
+#: MySQL integer types, signed and UNSIGNED, by the decimal digits they hold.
+_DECIMAL_PRECISION_BY_MYSQL_INTEGER_TYPE = {
+    "TINYINT": 3,
+    "SMALLINT": 5,
+    "MEDIUMINT": 7,
+    "INT": 10,
+    "INTEGER": 10,
+    "BIGINT": 19,
+    "TINYINT UNSIGNED": 3,
+    "SMALLINT UNSIGNED": 5,
+    "MEDIUMINT UNSIGNED": 8,
+    "INT UNSIGNED": 10,
+    "INTEGER UNSIGNED": 10,
+    "BIGINT UNSIGNED": 20,
+}
+
+#: Digits reserved for a MySQL SUM of integers. MySQL sums integers exactly as
+#: DECIMAL, and a CAST to a narrower DECIMAL clamps the value with a warning
+#: instead of failing, so the cast must hold any sum the row limits allow.
+_MYSQL_INTEGER_SUM_PRECISION = 38
+
 
 @dataclass(frozen=True)
 class SQLDialect:
@@ -53,11 +75,25 @@ class SQLDialect:
         """Whether PostgreSQL's existing casts and aggregates are supported."""
         return self.engine == DatabaseEngine.POSTGRESQL
 
+    @property
+    def is_mysql(self) -> bool:
+        """Whether MySQL 8 syntax applies, e.g. DATETIME casts and no FULL JOIN."""
+        return self.engine == DatabaseEngine.MYSQL
+
+    @property
+    def supports_full_join(self) -> bool:
+        """Whether the engine has FULL OUTER JOIN; MySQL does not."""
+        return not self.is_mysql
+
     def identifier(self, name: str) -> str:
         """Quote a literal identifier without splitting dots in its name."""
         if not name or "\x00" in name:
             raise ValueError("Invalid SQL identifier")
-        quote = "`" if self.engine == DatabaseEngine.DATABRICKS else '"'
+        quote = (
+            "`"
+            if self.engine in {DatabaseEngine.DATABRICKS, DatabaseEngine.MYSQL}
+            else '"'
+        )
         return quote + name.replace(quote, quote * 2).replace("%", "%%") + quote
 
     def qualified_name(self, *parts: str) -> str:
@@ -76,9 +112,15 @@ class SQLDialect:
         return self.qualified_name(schema_name, table_name)
 
     def timestamp_cast(self, expression: str) -> str:
-        """Cast an aware bound value to the engine's UTC timestamp type."""
+        """Cast an aware bound value to the engine's UTC timestamp type.
+
+        MySQL has no time zone type; its sessions run in UTC and bind
+        datetimes as naive UTC, so DATETIME(6) keeps the instant exactly.
+        """
         if self.is_postgresql:
             return f"{expression}::timestamptz"
+        if self.is_mysql:
+            return f"CAST({expression} AS DATETIME(6))"
         kind = (
             "TIMESTAMP_TZ" if self.engine == DatabaseEngine.SNOWFLAKE else "TIMESTAMP"
         )
@@ -90,14 +132,20 @@ class SQLDialect:
         PostgreSQL, Snowflake and Databricks all treat NaN as equal to NaN, so
         comparing the value, cast to double, with a NaN double is false for
         NaN and true for every other non-NULL number, including infinities.
+        MySQL cannot store NaN, and casts the text 'NaN' to 0, so its
+        predicate is always true rather than one that drops zeros.
         """
+        if self.is_mysql:
+            return "TRUE"
         kind = "DOUBLE PRECISION" if self.is_postgresql else "DOUBLE"
         return f"CAST({expression} AS {kind}) <> CAST('NaN' AS {kind})"
 
     def anchor_relation(self, placeholders: Sequence[str]) -> str:
         """Create a typed one-column relation, including the empty-anchor case."""
         if not placeholders:
-            return f"SELECT {self.timestamp_cast('NULL')} WHERE FALSE"
+            # FROM DUAL is MySQL's documented form of a table-less SELECT.
+            source = " FROM DUAL" if self.is_mysql else ""
+            return f"SELECT {self.timestamp_cast('NULL')}{source} WHERE FALSE"
         if self.is_postgresql:
             return "VALUES " + ", ".join(
                 f"({self.timestamp_cast(value)})" for value in placeholders
@@ -139,7 +187,9 @@ class SQLDialect:
         native decimal/float aggregate types and cast integer operands to decimal.
         Decimal literals are cast at their own scale, rejecting over-38-digit
         values. Native engines can still round arithmetic results or raise on
-        overflow according to their documented precision rules.
+        overflow according to their documented precision rules. MySQL integer
+        operands, including UNSIGNED ones, keep every digit their type holds,
+        and an integer SUM keeps 38.
         """
         if self.is_postgresql:
             return f"{expression}::numeric"
@@ -154,6 +204,13 @@ class SQLDialect:
             return f"CAST({expression} AS DECIMAL({precision}, {scale}))"
         if column is not None:
             kind = re.sub(r"\([^)]*\)", "", column.data_type.upper()).strip()
+            if self.is_mysql and kind in _DECIMAL_PRECISION_BY_MYSQL_INTEGER_TYPE:
+                precision = (
+                    _MYSQL_INTEGER_SUM_PRECISION
+                    if operation == "SUM"
+                    else _DECIMAL_PRECISION_BY_MYSQL_INTEGER_TYPE[kind]
+                )
+                return f"CAST({expression} AS DECIMAL({precision}, 0))"
             if kind in {
                 "NUMERIC",
                 "DECIMAL",

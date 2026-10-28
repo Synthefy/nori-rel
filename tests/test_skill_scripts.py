@@ -195,6 +195,28 @@ def test_check_source_reports_the_schema(workspace, monkeypatch, capsys):
     assert "FAIL: time column orders.shipped_at does not exist" in out
 
 
+@pytest.mark.parametrize(
+    "skill,name",
+    [
+        ("connect", "check_source.py"),
+        ("predict", "predict.py"),
+        ("backtest", "backtest.py"),
+        ("schedule", "refresh.py"),
+    ],
+)
+def test_scripts_read_an_rds_iam_credential(skill, name):
+    from nori_rel import RdsIamToken
+
+    settings = {
+        "url": "mysql://nori_reader@127.0.0.1:3307/shop?ssl_mode=VERIFY_CA",
+        "endpoint": "shop.abc123.us-east-1.rds.amazonaws.com:3306",
+    }
+    credential = script(skill, name).make_credential(
+        {"credential": {"rds_iam": settings}}
+    )
+    assert credential == RdsIamToken(**settings)
+
+
 @pytest.mark.parametrize("strategy", ["fastdfs", "noridfs"])
 def test_predict_writes_every_output(workspace, nori, strategy, monkeypatch, capsys):
     task = read_json(workspace / "nori_rel_task.json")
