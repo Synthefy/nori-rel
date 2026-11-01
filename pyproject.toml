@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build==0.12.24"]
+requires = ["uv_build==0.13.6"]
 build-backend = "uv_build"
 
 [project]
@@ -30,9 +30,9 @@ dependencies = [
 [project.optional-dependencies]
 local = ["synthefy-nori==0.22.0", "fsspec>=2026.6.0"]
 agentic = [
-    "anthropic>=1,<2",
-    "duckdb>=1.1,<2",
-    "openai>=1.60,<3",
+    "anthropic>=1,<3",
+    "duckdb>=1.1,<3",
+    "openai>=1.60,<4",
 ]
 database = [
     "boto3>=1.34,<2",
@@ -45,7 +45,7 @@ database = [
 snowflake = [
     "boto3>=1.34,<2",
     "fastdfs>=1.1,<2",
-    "snowflake-connector-python>=4.8,<5",
+    "snowflake-connector-python>=4.8,<6",
     "sqlalchemy>=2.0,<3",
     "synthefy>=7.4.0,<8",
     "urllib3>=2.8,<3",
@@ -77,9 +77,9 @@ Changelog = "https://github.com/Synthefy/nori-rel/blob/main/CHANGELOG.md"
 dev = [
     "pytest>=9.1,<10",
     "pytest-timeout>=2.3,<3",
-    "ruff==0.15.13",
+    "ruff==0.17.3",
 ]
-build = ["twine>=6,<7", "packaging>=24", "uv_build==0.12.24"]
+build = ["twine>=6,<8", "packaging>=24", "uv_build==0.13.6"]
 cpu = ["torch"]
 
 [tool.uv.sources]
