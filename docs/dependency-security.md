@@ -31,6 +31,15 @@ changes are in its OAuth server classes; the connector's browser login uses
 `WebApplicationClient`, and Nori-Rel accepts only Databricks PAT or M2M
 authentication. No other locked version changed.
 
+PyASN1 0.6.4 (CVE-2026-119194, CVE-2026-119195, CVE-2026-119196 and
+CVE-2026-119197; fix 0.6.5) and OAuthlib 4.0.0 (GHSA-3jp2-3mrg-2vxc /
+CVE-2026-49272, whose affected range now includes 4.0.0; fix 4.0.1) are
+upgraded rather than excepted: the lock now holds `pyasn1` 0.6.5 and `oauthlib`
+4.0.1, and no other locked version changed. PyASN1 reaches the lock only
+through `google-auth`, which `databricks-sdk` uses for Databricks OAuth, and
+OAuthlib only through `databricks-sql-connector`; both are in the `databricks`
+extra and are patch releases.
+
 No resolver overrides, runtime changes, or model changes bypass these bounds.
 The stable `synthefy` SDK was checked against PyPI on 2026-10-27 and is 7.4.0,
 the locked version.
