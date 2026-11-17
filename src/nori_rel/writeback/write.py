@@ -59,7 +59,13 @@ def write_predictions(
     )
     writer = open_table_writer(destination, limits)
     try:
-        rows = _get_rows_in_table_order(writer, rows, create=create_table)
+        if rows.rows or writer.get_column_names(table) is not None:
+            rows = _get_rows_in_table_order(writer, rows, create=create_table)
+            writes = [rows]
+        else:
+            # A run that scored nobody writes no rows, so a missing table is
+            # left missing: its entity_id type is unknown.
+            writes = []
         written = record.model_copy(
             update={
                 "output_table": writer.get_qualified_name(table),
@@ -69,7 +75,7 @@ def write_predictions(
         runs = _get_rows_in_table_order(
             writer, get_run_record_rows(written, written_at=written_at), create=True
         )
-        writer.replace_run_rows([rows, runs])
+        writer.replace_run_rows([*writes, runs])
     finally:
         writer.close()
     return written
@@ -139,11 +145,14 @@ def _get_rows_in_table_order(
 ) -> TableRows:
     """Return ``rows`` in the column order of their table, creating it if asked.
 
+    Names are compared as the destination stores them (uppercase on
+    Snowflake), so a column only a quoted name reaches does not pass.
+
     Raises:
         ValueError: The table is missing and ``create`` is false, or its
             columns are not the written ones.
     """
-    expected = [column.name for column in rows.columns]
+    expected = [writer.get_column_name(column.name) for column in rows.columns]
     existing = writer.get_column_names(rows.table)
     name = writer.get_qualified_name(rows.table)
     if existing is None:

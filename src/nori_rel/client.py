@@ -56,6 +56,20 @@ if TYPE_CHECKING:
 
 PredictionOperation = Literal["average", "total", "minimum", "maximum", "count"]
 
+
+def _get_namespace(connection: WarehouseConnection | None) -> tuple[str, ...]:
+    """Return the warehouse a connection reaches, or ``()`` for PostgreSQL.
+
+    Snowflake is named by account and database, Databricks by host and
+    catalog.
+    """
+    if connection is None:
+        return ()
+    if hasattr(connection, "account"):
+        return (connection.account, connection.database)
+    return (connection.server_hostname, connection.catalog)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -554,9 +568,12 @@ class NoriRelClient:
         Each row keeps ``entity_id``, ``as_of`` (the scoring time), the
         ``prediction`` (``probability`` too for a binary target, and
         ``quantiles`` as JSON when asked for), ``run_id``, ``pipeline_id`` and
-        ``written_at``. Writing the same run again replaces its rows, so a
-        retried job leaves one copy. The destination connects with its own
-        writer credential; source connections only read.
+        ``written_at``. Writing the same run again replaces its rows, so
+        retrying a failed write of these predictions leaves one copy; a retry
+        that predicts again is a new run. The destination connects with its
+        own writer credential; source connections only read. A source of this
+        client that reads every table of the destination schema gets a
+        warning: it would read the predictions table too.
 
         ``table`` must exist with those columns unless ``create_table`` is
         true. The run's record, with ``output_table`` and ``rows_written``, is
@@ -572,6 +589,7 @@ class NoriRelClient:
         """
         from nori_rel.writeback import write_predictions
 
+        self._warn_if_a_source_reads_every_table_of(destination, table)
         record = write_predictions(
             predictions,
             destination=destination,
@@ -583,6 +601,41 @@ class NoriRelClient:
         if self.run_records is not None:
             self.run_records.write(record)
         return record
+
+    def _warn_if_a_source_reads_every_table_of(
+        self, destination: PredictionDestination, table: str
+    ) -> None:
+        """Warn when a source of this client may read the table being written.
+
+        A source connected without ``tables=`` reads every table of its
+        schema, so a predictions table written into that schema joins its
+        reads, and a pipeline replay refuses it as a schema change. Run
+        records and staging tables are skipped by every source. Sources are
+        matched by engine and schema name, and on a warehouse by database or
+        catalog too; PostgreSQL databases cannot be told apart without
+        resolving their credentials, so the warning says "if".
+        """
+        for connector in getattr(self._runtime, "_connectors", {}).values():
+            config = getattr(connector, "config", None)
+            if (
+                config is None
+                or config.tables is not None
+                or config.engine != destination.engine
+                or config.schema_name != destination.schema_name
+                or _get_namespace(config.connection)
+                != _get_namespace(destination.connection)
+            ):
+                continue
+            warnings.warn(
+                f"a source of this client reads every table of schema "
+                f"{destination.schema_name!r}; if it is the same database, it "
+                f"will read {table!r} too, and replaying a pipeline saved "
+                "before will refuse the new table. Pass tables=[...] when "
+                "connecting that source, or write to another schema",
+                UserWarning,
+                stacklevel=3,
+            )
+            return
 
     def start_predict(
         self,

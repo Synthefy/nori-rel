@@ -141,9 +141,10 @@ def test_snowflake_replaces_a_runs_rows_in_one_transaction(connection) -> None:
     assert statements[2] == (
         'INSERT INTO "ANALYTICS"."FORECASTS"."spend" ("ENTITY_ID", "AS_OF", '
         '"PREDICTION", "RUN_ID", "PIPELINE_ID", "WRITTEN_AT") SELECT '
-        "value[0]::VARCHAR::NUMBER(38,0), TO_TIMESTAMP_TZ(value[1]::VARCHAR), "
-        "value[2]::VARCHAR::FLOAT, value[3]::VARCHAR, value[4]::VARCHAR, "
-        "TO_TIMESTAMP_TZ(value[5]::VARCHAR) "
+        "value[0]::VARCHAR::NUMBER(38,0), TO_TIMESTAMP_TZ(value[1]::VARCHAR, "
+        "'YYYY-MM-DD HH24:MI:SS.FF6TZH:TZM'), value[2]::VARCHAR::FLOAT, "
+        "value[3]::VARCHAR, value[4]::VARCHAR, TO_TIMESTAMP_TZ(value[5]::VARCHAR, "
+        "'YYYY-MM-DD HH24:MI:SS.FF6TZH:TZM') "
         "FROM TABLE(FLATTEN(INPUT => PARSE_JSON(?)))"
     )
     assert statements[3].startswith(
@@ -203,7 +204,7 @@ def test_snowflake_creates_and_reads_tables_by_their_given_names(connection) -> 
     )
     writer = writers.open_table_writer(_destination("snowflake"))
 
-    assert writer.get_column_names("spend") == ["entity_id", "as_of"]
+    assert writer.get_column_names("spend") == ["ENTITY_ID", "AS_OF"]
     writer.create_table("spend", [Column("entity_id", "integer")])
     assert writer.get_qualified_name("nori_rel_runs") == (
         "ANALYTICS.FORECASTS.NORI_REL_RUNS"
@@ -226,7 +227,8 @@ def test_databricks_replaces_a_runs_rows_with_one_statement(connection) -> None:
         f"`run_id` = '{RUN_ID}' SELECT CAST(r[0] AS BIGINT), "
         "CAST(r[1] AS TIMESTAMP), CAST(r[2] AS DOUBLE), CAST(r[3] AS STRING), "
         "CAST(r[4] AS STRING), CAST(r[5] AS TIMESTAMP) FROM "
-        "(SELECT explode(from_json(?, 'ARRAY<ARRAY<STRING>>')) AS r)"
+        "(SELECT explode(from_json(?, 'ARRAY<ARRAY<STRING>>', "
+        "map('mode', 'FAILFAST'))) AS r)"
     )
     assert [row[0] for row in json.loads(params[0])] == ["7", "42"]
 
@@ -257,7 +259,10 @@ def test_databricks_stages_a_write_bigger_than_one_parameter(
 def test_databricks_drops_its_staging_table_when_a_write_fails(monkeypatch) -> None:
     def respond(sql, params):
         if "REPLACE WHERE" in sql:
-            raise RuntimeError("DELTA_CONCURRENT_APPEND")
+            raise RuntimeError(
+                "[DELTA_CONCURRENT_APPEND] rows 7, 42 of run_x conflict. "
+                "SQLSTATE: 2D521"
+            )
         return []
 
     failing = FakeConnection(respond)
@@ -268,8 +273,12 @@ def test_databricks_drops_its_staging_table_when_a_write_fails(monkeypatch) -> N
     monkeypatch.setattr(writers, "MAX_PAYLOAD_BYTES", 150)
     writer = writers.open_table_writer(_destination("databricks"))
 
-    with pytest.raises(PredictionWriteError, match=r"^Databricks write failed$"):
+    with pytest.raises(PredictionWriteError) as raised:
         writer.replace_run_rows([_prediction_rows()])
+    # The class and state name the failure; the quoted rows stay out.
+    assert str(raised.value) == (
+        "Databricks write failed (error=DELTA_CONCURRENT_APPEND, sqlstate=2D521)"
+    )
     assert failing.calls[-1][0].startswith("DROP TABLE IF EXISTS `main`")
 
 
@@ -362,6 +371,9 @@ class FakeWriter:
     def get_column_names(self, table):
         return self.columns.get(table)
 
+    def get_column_name(self, column):
+        return column
+
     def create_table(self, table, columns):
         self.created.append(table)
         self.columns[table] = [column.name for column in columns]
@@ -398,3 +410,61 @@ def test_a_frame_without_a_completed_run_record_is_refused() -> None:
     del frame.attrs["run_record"]
     with pytest.raises(ValueError, match="no completed run record"):
         write_predictions(frame, destination=_destination("databricks"), table="spend")
+
+
+def test_a_run_with_no_predictions_creates_no_table(monkeypatch) -> None:
+    fake = FakeWriter({})
+    monkeypatch.setattr(
+        "nori_rel.writeback.write.open_table_writer", lambda destination, limits: fake
+    )
+    empty = _frame().iloc[0:0]
+    empty.attrs = _frame().attrs
+
+    record = write_predictions(
+        empty, destination=_destination("databricks"), table="spend", create_table=True
+    )
+
+    assert fake.created == ["nori_rel_runs"]
+    assert [write.table for write in fake.writes] == ["nori_rel_runs"]
+    assert (record.output_table, record.rows_written) == ("forecasts.spend", 0)
+
+
+def test_snowflake_refuses_a_table_its_uppercase_insert_cannot_reach(
+    connection,
+) -> None:
+    connection.respond = lambda sql, params: (
+        [(name,) for name in ("entity_id", "as_of", "prediction")]
+        + [(name,) for name in ("run_id", "pipeline_id", "written_at")]
+        if "INFORMATION_SCHEMA" in sql
+        else []
+    )
+
+    with pytest.raises(
+        ValueError, match=r"missing \['ENTITY_ID'.*unexpected \['entity_id'"
+    ):
+        write_predictions(
+            _frame(), destination=_destination("snowflake"), table="spend"
+        )
+    assert not any(sql.startswith("INSERT") for sql, _ in connection.calls)
+
+
+def test_a_missing_writer_credential_is_named_without_a_secret(monkeypatch) -> None:
+    monkeypatch.delenv("NORI_REL_WRITER", raising=False)
+
+    with pytest.raises(PredictionWriteError) as raised:
+        writers.open_table_writer(_destination("snowflake"))
+
+    assert str(raised.value) == (
+        "Snowflake write failed: database environment variable "
+        "'NORI_REL_WRITER' is not set"
+    )
+
+
+def test_ids_wider_than_38_digits_are_written_as_text() -> None:
+    wide = _frame()
+    wide["entity_id"] = [10**40, 7]
+
+    rows = _prediction_rows(wide)
+
+    assert rows.columns[0] == Column("entity_id", "text")
+    assert rows.rows[0][0] == str(10**40)

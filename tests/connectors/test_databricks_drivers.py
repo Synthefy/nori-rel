@@ -541,3 +541,39 @@ def test_databricks_cancellation_hook_uses_query_api_only(monkeypatch):
     callback()
     assert cancelled == [True]
     assert not fake.closed
+
+
+def test_databricks_discovery_skips_write_back_tables(monkeypatch):
+    """A source reading the whole schema never reads run records or staging."""
+    source = databricks_connector(monkeypatch)
+    names = ("users", "nori_rel_runs", "nori_rel_write_0a1b2c")
+
+    def respond(sql, params):
+        if "data_source_format" in sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "table_name": name,
+                        "table_type": "MANAGED",
+                        "data_source_format": "DELTA",
+                    }
+                    for name in names
+                ]
+            )
+        if "constraint" in sql:
+            return pd.DataFrame()
+        return pd.DataFrame(
+            [
+                {
+                    "table_name": name,
+                    "column_name": "id",
+                    "data_type": "BIGINT",
+                    "is_nullable": "NO",
+                    "ordinal_position": 1,
+                }
+                for name in names
+            ]
+        )
+
+    schema = source._discover_schema(FakeConnection(respond), "test")
+    assert [table.name for table in schema.tables] == ["users"]

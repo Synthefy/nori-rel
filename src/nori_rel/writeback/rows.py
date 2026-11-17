@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 import pandas as pd
 
+from nori_rel.connectors.base import RUN_RECORDS_TABLE
 from nori_rel.run.records import RunRecord
 
 #: The SQL type family of a written column, mapped per engine by the writers.
@@ -22,9 +23,9 @@ ColumnKind = Literal[
     "integer", "decimal", "text", "timestamp", "double", "boolean", "json"
 ]
 
-#: The table in the destination schema that holds one row per run record.
-RUN_RECORDS_TABLE = "nori_rel_runs"
 _INT64_RANGE = range(-(2**63), 2**63)
+#: Digits a ``decimal`` column holds; wider whole ids are stored as text.
+_DECIMAL_DIGITS = 38
 
 
 @dataclass(frozen=True)
@@ -155,7 +156,12 @@ def get_written_at() -> datetime:
 
 
 def _get_entity_id_kind(entity_ids: pd.Series) -> ColumnKind:
-    """Return ``integer`` for 64-bit ids, ``decimal`` for wider whole ids, else text."""
+    """Return the column kind of entity ids: ``integer``, ``decimal`` or ``text``.
+
+    64-bit whole ids are ``integer``, whole ids up to 38 digits ``decimal``,
+    anything else ``text``. A run with no rows has no ids to tell; its table
+    is never created from it (see ``write_predictions``).
+    """
     values = entity_ids.dropna().tolist()
     if len(values) != len(entity_ids):
         raise ValueError("predictions have a missing entity_id")
@@ -168,7 +174,9 @@ def _get_entity_id_kind(entity_ids: pd.Series) -> ColumnKind:
         )
         for value in values
     )
-    if not whole:
+    if not whole or any(
+        len(str(abs(int(value)))) > _DECIMAL_DIGITS for value in values
+    ):
         return "text"
     return (
         "integer" if all(int(value) in _INT64_RANGE for value in values) else "decimal"

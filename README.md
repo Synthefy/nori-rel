@@ -354,8 +354,9 @@ client.write_predictions(
 ```
 
 The destination connects with its own writer credential, so sources stay
-read-only. Writing the same run again replaces its rows, so a retried job
-leaves one copy. See [writing predictions back](docs/warehouse-connectors.md#write-predictions-back).
+read-only. Writing the same run again replaces its rows, so retrying a failed
+write leaves one copy. Write to a schema no source reads, or give those sources
+`tables=[...]`. See [writing predictions back](docs/warehouse-connectors.md#write-predictions-back).
 
 ## Operations and safety boundaries
 

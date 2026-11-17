@@ -20,7 +20,9 @@ PostgreSQL message is kept, redacted.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import re
 import uuid
 from collections.abc import Iterator, Sequence
@@ -29,6 +31,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, ClassVar, Protocol
 
+from nori_rel.connectors.base import RUN_RECORDS_TABLE, STAGING_TABLE_PREFIX
 from nori_rel.connectors.errors import ConnectorError
 from nori_rel.contracts import (
     DatabaseCreateRequest,
@@ -41,11 +44,12 @@ from nori_rel.limits import RelationalLimits
 from nori_rel.run.redact import redact
 from nori_rel.writeback.rows import (
     RUN_RECORD_COLUMNS,
-    RUN_RECORDS_TABLE,
     Column,
     ColumnKind,
     TableRows,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Bytes of JSON one Snowflake or Databricks insert carries. Databricks caps
 #: all parameter values of one statement at 1 MB.
@@ -53,6 +57,10 @@ MAX_PAYLOAD_BYTES = 900_000
 #: Run ids are generated (``run_<hex>``); this is checked before one enters
 #: a Databricks ``REPLACE WHERE`` clause as a literal.
 _RUN_ID = re.compile(r"[A-Za-z0-9_-]+")
+#: Databricks starts an error message with its error class and ends it with
+#: its SQL state; the text between can quote values, so only these are kept.
+_ERROR_CLASS = re.compile(r"^\[([A-Z][A-Z0-9_.]*)\]")
+_SQL_STATE = re.compile(r"SQLSTATE: ([0-9A-Z]{5})")
 
 
 class PredictionWriteError(RuntimeError):
@@ -67,7 +75,11 @@ class TableWriter(Protocol):
         ...
 
     def get_column_names(self, table: str) -> list[str] | None:
-        """Return ``table``'s column names in order, lowercase; None if missing."""
+        """Return ``table``'s physical column names in order; None if missing."""
+        ...
+
+    def get_column_name(self, column: str) -> str:
+        """Return the physical name a written column has in this destination."""
         ...
 
     def create_table(self, table: str, columns: Sequence[Column]) -> None:
@@ -112,24 +124,44 @@ def _reporting_errors(
         yield
     except (PredictionWriteError, ValueError):
         raise
-    except ConnectorError as error:
-        raise PredictionWriteError(f"{engine_name} write failed: {error}") from None
     except Exception as error:
+        from nori_rel._credentials import CredentialResolutionError
+
+        if isinstance(error, ConnectorError | CredentialResolutionError):
+            # Both are written without secrets, so their text is kept.
+            raise PredictionWriteError(f"{engine_name} write failed: {error}") from None
         if keep_message:
             detail = redact(str(error).split("\n[SQL:")[0]) or "no detail"
             raise PredictionWriteError(
                 f"{engine_name} write failed: {detail}"
             ) from None
-        codes = [
-            f"{name}={value}"
-            for name, value in (
-                ("code", getattr(error, "errno", None)),
-                ("sqlstate", getattr(error, "sqlstate", None)),
-            )
-            if isinstance(value, int | str) and re.fullmatch(r"\w{1,8}", str(value))
-        ]
-        detail = f" ({', '.join(codes)})" if codes else ""
-        raise PredictionWriteError(f"{engine_name} write failed{detail}") from None
+        raise PredictionWriteError(
+            f"{engine_name} write failed{_get_error_codes(error)}"
+        ) from None
+
+
+def _get_error_codes(error: Exception) -> str:
+    """Return a driver error's codes, such as `` (code=2003, sqlstate=02000)``.
+
+    Snowflake errors carry ``errno`` and ``sqlstate``; a Databricks message
+    starts with its error class and names its SQL state. Nothing else of the
+    message is kept, since it can quote statements and values.
+    """
+    message = str(error)
+    error_class = _ERROR_CLASS.search(message)
+    sql_state = _SQL_STATE.search(message)
+    codes = [
+        f"{name}={value}"
+        for name, value in (
+            ("error", error_class and error_class.group(1)),
+            ("code", getattr(error, "errno", None)),
+            ("sqlstate", getattr(error, "sqlstate", None)),
+            ("sqlstate", sql_state and sql_state.group(1)),
+        )
+        if isinstance(value, int | str) and re.fullmatch(r"[\w.]{1,64}", str(value))
+    ]
+    codes = list(dict.fromkeys(codes))
+    return f" ({', '.join(codes)})" if codes else ""
 
 
 class PostgreSQLTableWriter:
@@ -147,21 +179,27 @@ class PostgreSQLTableWriter:
         from nori_rel._credentials import CredentialResolver
         from nori_rel.connectors.postgres import PostgreSQLConnector
 
-        url = PostgreSQLConnector._secure_url(
-            CredentialResolver().resolve(destination.credential)
-        )
         self.schema_name = destination.schema_name
-        self._engine = create_engine(
-            url,
-            hide_parameters=True,
-            pool_size=1,
-            max_overflow=0,
-            connect_args={
-                "connect_timeout": 10,
-                "application_name": "nori-rel-writer",
-                "options": f"-c statement_timeout={limits.statement_timeout_ms}",
-            },
-        )
+        with _reporting_errors("PostgreSQL", keep_message=True):
+            url = PostgreSQLConnector._secure_url(
+                CredentialResolver().resolve(destination.credential)
+            )
+            # UTC, so a table the caller made with timestamp-without-time-zone
+            # columns stores UTC wall times, not the server's local ones.
+            self._engine = create_engine(
+                url,
+                hide_parameters=True,
+                pool_size=1,
+                max_overflow=0,
+                connect_args={
+                    "connect_timeout": 10,
+                    "application_name": "nori-rel-writer",
+                    "options": (
+                        f"-c statement_timeout={limits.statement_timeout_ms} "
+                        "-c timezone=UTC"
+                    ),
+                },
+            )
 
     def get_qualified_name(self, table: str) -> str:
         """Return ``schema.table``."""
@@ -176,28 +214,52 @@ class PostgreSQLTableWriter:
             if not inspector.has_table(table, schema=self.schema_name):
                 return None
             columns = inspector.get_columns(table, schema=self.schema_name)
-        return [str(column["name"]).lower() for column in columns]
+        return [str(column["name"]) for column in columns]
+
+    def get_column_name(self, column: str) -> str:
+        """Return ``column``; PostgreSQL keeps the lowercase names as written."""
+        return column
 
     def create_table(self, table: str, columns: Sequence[Column]) -> None:
-        """Create the table with ``CREATE TABLE IF NOT EXISTS``."""
-        from sqlalchemy.schema import CreateTable
+        """Create the table and an index on ``run_id``, unless they exist.
 
+        Each write deletes by ``run_id``, so the index keeps that from
+        scanning every earlier run's rows.
+        """
+        from sqlalchemy import Index
+        from sqlalchemy.schema import CreateIndex, CreateTable
+
+        created = self._get_table(table, columns)
+        index_name = (
+            f"{table[:40]}_run_id_{hashlib.sha256(table.encode()).hexdigest()[:8]}"
+        )
         with (
             _reporting_errors("PostgreSQL", keep_message=True),
             self._engine.begin() as connection,
         ):
+            connection.execute(CreateTable(created, if_not_exists=True))
             connection.execute(
-                CreateTable(self._get_table(table, columns), if_not_exists=True)
+                CreateIndex(Index(index_name, created.c.run_id), if_not_exists=True)
             )
 
     def replace_run_rows(self, writes: Sequence[TableRows]) -> None:
-        """Delete and insert every write's rows in one transaction."""
-        from sqlalchemy import delete, insert
+        """Delete and insert every write's rows in one transaction.
+
+        A transaction lock per run makes two writes of the same run take
+        turns; otherwise neither delete sees the other's uncommitted rows and
+        both copies stay.
+        """
+        from sqlalchemy import delete, insert, text
 
         with (
             _reporting_errors("PostgreSQL", keep_message=True),
             self._engine.begin() as connection,
         ):
+            for run_id in sorted({write.run_id for write in writes}):
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:run_id, 0))"),
+                    {"run_id": run_id},
+                )
             for write in writes:
                 table = self._get_table(write.table, write.columns)
                 connection.execute(delete(table).where(table.c.run_id == write.run_id))
@@ -290,7 +352,7 @@ class _WarehouseTableWriter:
         return table
 
     def get_column_name(self, column: str) -> str:
-        """Return the physical name of ``column``."""
+        """Return the physical name of written ``column``."""
         return column
 
     def create_table(self, table: str, columns: Sequence[Column]) -> None:
@@ -386,7 +448,7 @@ class SnowflakeTableWriter(_WarehouseTableWriter):
         "integer": "{value}::NUMBER(38,0)",
         "decimal": "{value}::NUMBER(38,0)",
         "text": "{value}",
-        "timestamp": "TO_TIMESTAMP_TZ({value})",
+        "timestamp": "TO_TIMESTAMP_TZ({value}, 'YYYY-MM-DD HH24:MI:SS.FF6TZH:TZM')",
         "double": "{value}::FLOAT",
         "boolean": "{value}::BOOLEAN",
         "json": "PARSE_JSON({value})",
@@ -408,14 +470,18 @@ class SnowflakeTableWriter(_WarehouseTableWriter):
         return column.upper()
 
     def get_column_names(self, table: str) -> list[str] | None:
-        """Return the table's column names in order, lowercase; None if missing."""
+        """Return the table's exact column names in order; None if missing.
+
+        Names are compared exactly, so a table with quoted lowercase columns,
+        which an uppercase insert cannot reach, is refused.
+        """
         rows = self.fetch_all(
             f"SELECT COLUMN_NAME FROM {self.quote(self.namespace)}"
             ".INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND "
             "TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
             [self.destination.schema_name, self.get_table_name(table)],
         )
-        return [str(row[0]).lower() for row in rows] or None
+        return [str(row[0]) for row in rows] or None
 
     def replace_run_rows(self, writes: Sequence[TableRows]) -> None:
         """Delete and insert every write's rows in one transaction."""
@@ -504,13 +570,13 @@ class DatabricksTableWriter(_WarehouseTableWriter):
                     replace + self._get_payload_select(write.columns), payloads
                 )
                 continue
-            staging = self.get_reference(f"nori_rel_write_{uuid.uuid4().hex}")
+            staging = self.get_reference(f"{STAGING_TABLE_PREFIX}{uuid.uuid4().hex}")
             definitions = ", ".join(
                 f"{self.quote(column.name)} {self.types[column.kind]}"
                 for column in write.columns
             )
-            self.execute(f"CREATE TABLE {staging} ({definitions})")
             try:
+                self.execute(f"CREATE TABLE {staging} ({definitions})")
                 for payload in payloads:
                     self.execute(
                         f"INSERT INTO {staging} "
@@ -522,8 +588,10 @@ class DatabricksTableWriter(_WarehouseTableWriter):
                     + f"SELECT {self.get_column_list(write.columns)} FROM {staging}"
                 )
             finally:
-                with suppress(Exception):
+                try:
                     self.execute(f"DROP TABLE IF EXISTS {staging}")
+                except PredictionWriteError:
+                    logger.warning("could not drop the staging table %s", staging)
 
     def quote(self, name: str) -> str:
         """Return a backquoted identifier."""
@@ -535,9 +603,11 @@ class DatabricksTableWriter(_WarehouseTableWriter):
             f"CAST(r[{index}] AS {self.types[column.kind]})"
             for index, column in enumerate(columns)
         )
+        # FAILFAST: a payload that does not parse fails the statement instead
+        # of becoming NULL, which would replace the run's rows with none.
         return (
-            f"SELECT {casts} FROM "
-            "(SELECT explode(from_json(?, 'ARRAY<ARRAY<STRING>>')) AS r)"
+            f"SELECT {casts} FROM (SELECT explode(from_json(?, "
+            "'ARRAY<ARRAY<STRING>>', map('mode', 'FAILFAST'))) AS r)"
         )
 
 

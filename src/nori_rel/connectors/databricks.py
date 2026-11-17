@@ -17,6 +17,7 @@ from pydantic import (
     ValidationError,
 )
 
+from nori_rel.connectors.base import is_write_back_table
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.connectors.warehouse import (
     WarehouseConnector,
@@ -222,7 +223,9 @@ class DatabricksConnector(WarehouseConnector):
             if str(row["data_source_format"]).upper() == "DELTA"
             and row["table_type"] in {"MANAGED", "EXTERNAL"}
         }
-        selected = self.config.tables or sorted(supported)
+        selected = self.config.tables or sorted(
+            name for name in supported if not is_write_back_table(name)
+        )
         missing = set(selected).difference(supported)
         if missing:
             raise ConnectorError(

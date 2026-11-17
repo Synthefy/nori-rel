@@ -198,14 +198,28 @@ record = client.write_predictions(
 | `run_id`, `pipeline_id` | The run and the pipeline that produced the rows |
 | `written_at` | When the rows were written |
 
-- Writing a run again replaces that run's rows, so a retried job leaves one
-  copy. PostgreSQL and Snowflake replace them and the run's record in one
-  transaction. Databricks replaces each table with one atomic
-  `INSERT INTO … REPLACE WHERE run_id = …`; rows that do not fit one 900 KB
-  parameter are loaded into a staging table first, which is dropped after.
-- `create_table=True` creates a missing table. An existing table must have
-  exactly these columns, in any order; otherwise a `ValueError` names the
-  missing and unexpected ones.
+- Writing a run again replaces that run's rows, so retrying the write of the
+  same predictions leaves one copy. A retry that predicts again is a new run
+  with its own rows; readers that want one batch per prediction time pick the
+  latest `written_at` for each `as_of`. PostgreSQL and Snowflake replace the
+  rows and the run's record in one transaction, and PostgreSQL makes two
+  writes of the same run take turns. Databricks replaces each table with one
+  atomic `INSERT INTO … REPLACE WHERE run_id = …`; rows that do not fit one
+  900 KB parameter are loaded into a staging table first, which is dropped
+  after, so such a write also needs `CREATE TABLE`.
+- `create_table=True` creates a missing table (on PostgreSQL with an index on
+  `run_id`). An existing table must have exactly these columns, in any order,
+  as the destination names them (uppercase on Snowflake); otherwise a
+  `ValueError` names the missing and unexpected ones. The first write sets
+  the `entity_id` type, so a run that scored nobody creates no table.
+- Write to a schema no source reads, or connect the sources that read it with
+  `tables=[...]`. A source without that list reads every table of its schema:
+  it skips `nori_rel_runs` and the staging tables, but it reads the
+  predictions table, and replaying a pipeline saved before refuses the new
+  table as a schema change. `write_predictions` warns when a source of the
+  same client reads every table of the destination schema.
+- Times are written in UTC, also into `timestamp without time zone` columns of
+  a table you created.
 - The run's record, with `output_table` and `rows_written`, goes to
   `nori_rel_runs` in the same schema (`NORI_REL_RUNS` on Snowflake), which is
   created when missing. It is also put back on

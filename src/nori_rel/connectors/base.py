@@ -16,6 +16,19 @@ from nori_rel.contracts import DatabaseEngine, SchemaGraph
 from nori_rel.limits import RelationalLimits
 from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS
 
+#: Tables write-back keeps in an output schema: one row per run record, and
+#: the staging tables of a large Databricks write. A source that reads every
+#: table of its schema skips them, so writing back into it changes nothing
+#: it reads.
+RUN_RECORDS_TABLE = "nori_rel_runs"
+STAGING_TABLE_PREFIX = "nori_rel_write_"
+
+
+def is_write_back_table(name: str) -> bool:
+    """Return whether ``name`` is a table write-back keeps, in any letter case."""
+    lowered = name.lower()
+    return lowered == RUN_RECORDS_TABLE or lowered.startswith(STAGING_TABLE_PREFIX)
+
 
 def is_local_host(host: str | None) -> bool:
     """Return whether a database host is this machine, e.g. an SSH tunnel's end.

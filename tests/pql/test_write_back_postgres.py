@@ -2,11 +2,13 @@
 
 import json
 import os
+import threading
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import psycopg
 import pytest
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import InternalError
 
 from nori_rel import (
@@ -242,3 +244,101 @@ def test_a_table_store_keeps_every_run_record(runtime_source, output_schema):
     assert "integration" not in repr(store)
     assert isinstance(client.run_records, TableRunRecordStore)
     assert not isinstance(client.run_records, JsonRunRecordStore)
+
+
+def test_writes_of_one_run_at_the_same_time_leave_one_copy(client, output_schema):
+    client, database = client
+    schema, db = output_schema
+    frame = client.predict(source=database, query=QUERY, **OPTIONS)
+    destination = _destination(schema)
+    client.write_predictions(
+        frame, destination=destination, table="spend_forecast", create_table=True
+    )
+    start = threading.Barrier(4)
+    errors = []
+
+    def write():
+        start.wait()
+        try:
+            client.write_predictions(
+                frame, destination=destination, table="spend_forecast"
+            )
+        except Exception as error:  # pragma: no cover - reported below
+            errors.append(error)
+
+    threads = [threading.Thread(target=write) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(60)
+
+    assert errors == []
+    assert len(_rows(db, schema, "spend_forecast")) == len(frame)
+    assert len(_rows(db, schema, "nori_rel_runs", order="run_id")) == 1
+    indexes = db.execute(
+        "SELECT indexdef FROM pg_indexes WHERE schemaname = %s AND tablename = %s",
+        (schema, "spend_forecast"),
+    ).fetchall()
+    assert any("(run_id)" in definition for (definition,) in indexes)
+
+
+def test_times_are_written_in_utc_whatever_the_writers_time_zone(
+    client, output_schema, monkeypatch
+):
+    client, database = client
+    schema, db = output_schema
+    frame = client.predict(source=database, query=QUERY, **OPTIONS)
+    role = "writer_" + uuid4().hex[:12]
+    db.execute(f"CREATE ROLE \"{role}\" LOGIN PASSWORD 'writer-test'")
+    try:
+        db.execute(f"ALTER ROLE \"{role}\" SET timezone = 'America/New_York'")
+        db.execute(f'GRANT USAGE, CREATE ON SCHEMA "{schema}" TO "{role}"')
+        db.execute(
+            f'CREATE TABLE "{schema}".local_times (entity_id bigint, '
+            "as_of timestamp, prediction double precision, run_id text, "
+            "pipeline_id text, written_at timestamp)"
+        )
+        db.execute(f'ALTER TABLE "{schema}".local_times OWNER TO "{role}"')
+        url = make_url(os.environ[WRITER_ENV]).set(
+            username=role, password="writer-test"
+        )
+        monkeypatch.setenv(
+            "NORI_REL_TEST_NEW_YORK_WRITER", url.render_as_string(hide_password=False)
+        )
+
+        client.write_predictions(
+            frame,
+            destination=_destination(schema, "NORI_REL_TEST_NEW_YORK_WRITER"),
+            table="local_times",
+        )
+
+        stored = {row[1] for row in _rows(db, schema, "local_times")}
+        assert stored == {OPTIONS["anchor_time"].replace(tzinfo=None)}
+    finally:
+        db.execute(f'DROP OWNED BY "{role}"')
+        db.execute(f'DROP ROLE "{role}"')
+
+
+def test_a_source_reading_the_whole_schema_skips_run_records_and_is_warned(
+    client, output_schema
+):
+    client, database = client
+    schema, db = output_schema
+    db.execute(f'CREATE TABLE "{schema}".items (id bigint PRIMARY KEY)')
+    whole_schema = client.connect(
+        engine="postgresql",
+        credential=EnvironmentCredential(variable=WRITER_ENV),
+        schema_name=schema,
+    )
+    frame = client.predict(source=database, query=QUERY, **OPTIONS)
+
+    with pytest.warns(UserWarning, match="reads every table of schema"):
+        client.write_predictions(
+            frame,
+            destination=_destination(schema),
+            table="spend_forecast",
+            create_table=True,
+        )
+
+    names = {table.name for table in client.discover(whole_schema).tables}
+    assert names == {"items", "spend_forecast"}

@@ -86,16 +86,16 @@
       "sha256": "bf9ce863c3993e55b7980073364a6b617ae28f4f4e9ba19fa51669b02751c6e1"
     },
     "src/nori_rel/client.py": {
-      "sha256": "28dde8344092c84668b52e6ed53163e841f04991c5faa31448211828f0e4a67c"
+      "sha256": "4abf03ffa4ecc6f694f7e0074f11f53862d99c0fccebc83451a706bd661e1a39"
     },
     "src/nori_rel/connectors/__init__.py": {
       "sha256": "394e83634ec9bf6f9aabb2cceecf26c0f3f7b0c62b6e72b5988162b2bf062119"
     },
     "src/nori_rel/connectors/base.py": {
-      "sha256": "d04e06970ba60014c8128e79e0f231022333a9164b61e402a8989b64127c0b8b"
+      "sha256": "d88eb10988fedccb90508e7c66deb5242d6496a1a5a3806b9bb7865faf0da474"
     },
     "src/nori_rel/connectors/databricks.py": {
-      "sha256": "94dda158d238f3e30c74ecad302e39b88e8e5592a3273cfcfdbc714c8b7d1daa"
+      "sha256": "7bdebe4d10158252520fbef14bd97444b618e81077502c053fe2119b9ab27f0f"
     },
     "src/nori_rel/connectors/errors.py": {
       "sha256": "b94959788800d6d8eeb7c577cd8bbda9a7e1fd5203117375032bf4d802fa1861"
@@ -104,10 +104,10 @@
       "sha256": "3a77dff2fc2b809fb6744ada19af147a6483ae9b7b72d1f5425f34404b116452"
     },
     "src/nori_rel/connectors/postgres.py": {
-      "sha256": "d357008a3a268239023bf1c25262b8e5ea9c8e6c63235d0b4cb873634eae5e83"
+      "sha256": "8ddb3d5f89c61a41590722210688e095dade51277ae23f3be7826fe96e7b6be5"
     },
     "src/nori_rel/connectors/snowflake.py": {
-      "sha256": "d89c52d0873b39f514082cb02e552b0ac7b96ed01c44a8440d0d623bc247b578"
+      "sha256": "f607aa17d336813b1089d6760f21100ce0b7d6916ea37570418bf8a3903681d1"
     },
     "src/nori_rel/connectors/warehouse.py": {
       "sha256": "e701ee5cc42b4119b00905ee643fbacd398c191d4843dc73c6367eed70b59d44"
@@ -344,13 +344,13 @@
       "sha256": "d7841aa59b77cdc76c714bfef4a22bedff827b5a7ea8f12209f029b9859159db"
     },
     "src/nori_rel/writeback/rows.py": {
-      "sha256": "ff23973c3340d5b33e3c72b13ed38f126b65665bc8ed9765ad3b2f09384c8b99"
+      "sha256": "e6109315968e2e6b182f4f527ad47ecd90760146f2e2d3253dbe47f3c5b353ad"
     },
     "src/nori_rel/writeback/write.py": {
-      "sha256": "b3436d840d60b711b90fd1b18cd18b72c05dca82454e727f8174623ed582d498"
+      "sha256": "5acfb828b316b9734cfa3540c224627e5ab303a1e16864101d2d5913930c6306"
     },
     "src/nori_rel/writeback/writers.py": {
-      "sha256": "13a473dd904f5c2bc911a1f327981255a0b8d2c6b9d7c8a68e4f26fbdf2b78de"
+      "sha256": "5add63ed85b7a94a4c8da877a6e73a0018fa6283f30bc4f50df7fea5f1af24d8"
     },
     "uv.lock": {
       "sha256": "487a6edee22f18b8bcf21eab01fd9e185ac1879b33f375ec0ff83a5200799650"
