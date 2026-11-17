@@ -11,12 +11,13 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from nori_rel.run.context import RunContext
 from nori_rel.run.local_run import LocalRun, new_run_id
 from nori_rel.run.models import RunEvent, RunLimits
+from nori_rel.run.records import RunRecordStore
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,14 @@ _PAUSED_RUN_CHECK_SECONDS = 0.1
 
 
 class LocalExecutor:
-    """Executes local runs and finds the background ones again by id."""
+    """Executes local runs and finds the background ones again by id.
 
-    def __init__(self) -> None:
+    With a ``record_store``, every run writes its record there when it ends.
+    """
+
+    def __init__(self, record_store: RunRecordStore | None = None) -> None:
         """Start with no runs, accepting new ones."""
+        self.record_store = record_store
         self._runs: dict[str, LocalRun] = {}
         self._runs_lock = threading.Lock()
         self._closed = False
@@ -44,6 +49,7 @@ class LocalExecutor:
         max_trials: int | None = None,
         limits: RunLimits | None = None,
         on_event: Callable[[RunEvent], None] | None = None,
+        record_fields: Mapping[str, Any] | None = None,
     ) -> LocalRun:
         """Start ``prediction`` on a new worker thread and return its run at once.
 
@@ -51,7 +57,13 @@ class LocalExecutor:
         is a daemon: a run still going when the process exits is lost. Raises
         ``RuntimeError`` once the executor is closed.
         """
-        run = LocalRun(new_run_id(), limits=limits, on_event=on_event)
+        run = LocalRun(
+            new_run_id(),
+            limits=limits,
+            on_event=on_event,
+            record_store=self.record_store,
+            record_fields=record_fields,
+        )
         with self._runs_lock:
             if self._closed:
                 raise RuntimeError(
@@ -88,13 +100,20 @@ class LocalExecutor:
         limits: RunLimits | None = None,
         on_event: Callable[[RunEvent], None] | None = None,
         summary_in_result_attrs: bool = True,
+        record_fields: Mapping[str, Any] | None = None,
     ) -> LocalRun:
         """Execute ``prediction`` as a run on the calling thread and return it.
 
         A failure is raised unchanged, as a plain call would raise it. The run
         is not kept for ``get_run``.
         """
-        run = LocalRun(new_run_id(), limits=limits, on_event=on_event)
+        run = LocalRun(
+            new_run_id(),
+            limits=limits,
+            on_event=on_event,
+            record_store=self.record_store,
+            record_fields=record_fields,
+        )
         run._execute_prediction(
             prediction,
             strategy=strategy,

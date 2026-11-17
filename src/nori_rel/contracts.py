@@ -320,6 +320,56 @@ class DatabaseCreateRequest(StrictModel):
         return self
 
 
+class PredictionDestination(StrictModel):
+    """Where ``write_predictions`` writes, with its own writer credential.
+
+    The credential is separate from every source's reader, which never writes.
+    It needs rights to create and write tables in ``schema_name`` only, and it
+    is resolved in this process for each write and never stored. Names are
+    used as given: on Snowflake, pass ``FORECASTS`` for a schema you query
+    unquoted.
+    """
+
+    engine: DatabaseEngine
+    credential: CredentialReference
+    schema_name: str = Field(min_length=1, max_length=128)
+    connection: WarehouseConnection | None = None
+
+    @field_validator("schema_name")
+    @classmethod
+    def validate_schema_name(cls, value: str) -> str:
+        """Refuse blank and NUL-bearing schema names."""
+        if not value.strip() or "\x00" in value:
+            raise ValueError("schema_name must not be blank or contain NUL")
+        return value
+
+    @model_validator(mode="after")
+    def validate_engine_settings(self) -> PredictionDestination:
+        """Require warehouse settings for warehouses and a secret reference."""
+        if self.engine is DatabaseEngine.MYSQL:
+            raise ValueError(
+                "predictions are written to PostgreSQL, Snowflake or Databricks"
+            )
+        if isinstance(self.credential, RdsIamToken):
+            raise ValueError("RdsIamToken is supported for MySQL sources only")
+        if self.engine is DatabaseEngine.POSTGRESQL:
+            if self.connection is not None:
+                raise ValueError("connection settings require a warehouse engine")
+            return self
+        expected = (
+            SnowflakeConnection
+            if self.engine is DatabaseEngine.SNOWFLAKE
+            else DatabricksConnection
+        )
+        if not isinstance(self.connection, expected):
+            raise ValueError("connection settings do not match the database engine")
+        if isinstance(self.credential, DatabaseUrl):
+            raise ValueError(
+                "warehouse credentials require an environment or secret reference"
+            )
+        return self
+
+
 class Database(StrictModel):
     """Opaque handle for a source registered with one client instance."""
 

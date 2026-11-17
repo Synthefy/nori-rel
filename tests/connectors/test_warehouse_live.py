@@ -10,11 +10,23 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nori_rel import NoriRelClient, RelationalLimits
+from nori_rel import (
+    EnvironmentCredential,
+    NoriRelClient,
+    PredictionDestination,
+    RelationalLimits,
+    TableRunRecordStore,
+)
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.contracts import DatabaseCreateRequest, ForeignKeySchema
 
-from .conftest import JANUARY_ANCHOR, LARGE_ENTITY_ID, SCORING_CUTOFF, _grant_reader
+from .conftest import (
+    JANUARY_ANCHOR,
+    LARGE_ENTITY_ID,
+    SCORING_CUTOFF,
+    _connection_settings,
+    _grant_reader,
+)
 
 
 def _query(expression: str) -> str:
@@ -452,6 +464,61 @@ def test_live_public_local_pipeline_does_not_create_hosted_client(
             _predict(client, database, CASES[12][1])
     assert result["predictions"]["prediction"].tolist() == [2.5]
     assert fitted[0][1].tolist() == list(_expected_labels("sum").values())
+
+
+def test_live_write_back_lands_once_per_run_with_its_record(
+    warehouse_source, captured_transport
+):
+    source = warehouse_source
+    configuration = source.configuration
+    destination = PredictionDestination(
+        engine=source.engine,
+        credential=EnvironmentCredential(
+            variable=configuration["writer_credential_env"]
+        ),
+        schema_name=source.config.schema_name,
+        connection=_connection_settings(
+            source.engine,
+            {
+                **configuration["connection"],
+                **configuration.get("writer_connection", {}),
+            },
+        ),
+    )
+    records = TableRunRecordStore(destination)
+    with NoriRelClient(
+        mode="hosted",
+        api_key="warehouse-test-only",
+        limits=RelationalLimits(min_training_rows=2),
+        run_records=records,
+    ) as client:
+        database = source.connect(client)
+        frame = _predict(client, database, CASES[3][1])["predictions"]
+        record = client.write_predictions(
+            frame, destination=destination, table="live_forecast", create_table=True
+        )
+        client.write_predictions(frame, destination=destination, table="live_forecast")
+
+    def column(name):
+        return source.identifier(name.upper() if source.engine == "snowflake" else name)
+
+    with source.writer.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {column('entity_id')}, {column('prediction')}, "
+            f"{column('run_id')} FROM {source.reference('live_forecast')}"
+        )
+        rows = [tuple(row) for row in cursor.fetchall()]
+    assert rows == [(LARGE_ENTITY_ID, 12.5, frame.attrs["run_id"])]
+    stored = records.read(record.run_id)
+    assert (stored.status, stored.rows_written) == ("completed", 1)
+    assert stored.output_table == record.output_table
+    assert stored.snapshot.model_dump(mode="json") == frame.attrs["snapshot"]
+    assert stored.principal
+    # The source's connection still refuses every write statement.
+    with pytest.raises(ConnectorError, match="read statements only"):
+        source.connector._get_query_frame(
+            None, f"INSERT INTO {source.reference('users')} VALUES (1)"
+        )
 
 
 @pytest.mark.parity

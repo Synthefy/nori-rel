@@ -17,6 +17,7 @@ from nori_rel.contracts import (
     DatabricksConnection,
     EnvironmentCredential,
     ForeignKeySchema,
+    PredictionDestination,
     RdsIamToken,
     RelationalOutputType,
     SchemaGraph,
@@ -26,20 +27,28 @@ from nori_rel.contracts import (
 from nori_rel.limits import RelationalLimits
 from nori_rel.pipeline import PipelineError
 from nori_rel.run import (
+    JsonRunRecordStore,
     PredictionCancelled,
     PredictionFailed,
     PredictionRun,
     RunEvent,
+    RunRecord,
+    RunRecordStore,
     RunTimeout,
 )
 
 if TYPE_CHECKING:
     from nori_rel._feature_search import AgenticSearch
     from nori_rel.pipeline import NoriRelPipeline
+    from nori_rel.writeback import PredictionWriteError, TableRunRecordStore
+
+#: Write-back names, loaded on first use so importing nori_rel loads no
+#: connector.
+_WRITE_BACK_NAMES = frozenset({"PredictionWriteError", "TableRunRecordStore"})
 
 
 def __getattr__(name: str):
-    """Load the agent search and pipeline records only when requested."""
+    """Load the agent search, pipeline records and write-back names on use."""
     if name == "AgenticSearch":
         from nori_rel._feature_search import AgenticSearch
 
@@ -48,6 +57,10 @@ def __getattr__(name: str):
         from nori_rel.pipeline import NoriRelPipeline
 
         return NoriRelPipeline
+    if name in _WRITE_BACK_NAMES:
+        import nori_rel.writeback
+
+        return getattr(nori_rel.writeback, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -68,20 +81,26 @@ __all__ = [
     "DatabricksConnection",
     "EnvironmentCredential",
     "ForeignKeySchema",
+    "JsonRunRecordStore",
     "NoriRelClient",
     "NoriRelPipeline",
     "PipelineError",
     "PredictionCancelled",
+    "PredictionDestination",
     "PredictionFailed",
     "PredictionOperation",
     "PredictionRun",
     "PredictionTask",
+    "PredictionWriteError",
     "RdsIamToken",
     "RelationalLimits",
     "RelationalOutputType",
     "RunEvent",
+    "RunRecord",
+    "RunRecordStore",
     "RunTimeout",
     "SchemaGraph",
     "SnowflakeConnection",
+    "TableRunRecordStore",
     "TableSchema",
 ]

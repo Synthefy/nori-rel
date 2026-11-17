@@ -121,6 +121,8 @@ class Snapshot:
     # None means no scoring filter; () means no eligible entity matched.
     scoring_filter_ids: tuple[object, ...] | None = None
     provenance: SnapshotProvenance | None = None
+    # The database user the read ran as, e.g. "nori_reader"; never a secret.
+    principal: str | None = None
 
 
 class RelationalConnector(Protocol):

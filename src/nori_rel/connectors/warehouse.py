@@ -7,6 +7,7 @@ Extraction versions and event-time cutoffs are deliberately separate concepts.
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from collections import defaultdict
@@ -56,6 +57,8 @@ _SQL_WRITE_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 _CONTEXT_COLUMNS = ["context_row_id", "entity_id", "anchor_time", "label"]
+
+logger = logging.getLogger(__name__)
 
 
 def bind_native_parameters(
@@ -283,6 +286,24 @@ class WarehouseConnector:
     ) -> dict[str, str]:
         """Return physical table IDs when version references depend on names."""
         return {}
+
+    def _get_principal(self, connection: Any) -> str | None:
+        """Return the user this session reads as, for the run record.
+
+        Snowflake and Databricks both answer ``SELECT CURRENT_USER()``. An
+        empty answer, or a failed query, is None: the record's principal is
+        not worth failing a read for, so the failure is only logged.
+        """
+        try:
+            frame = self._get_query_frame(
+                connection, "SELECT CURRENT_USER()", max_rows=1
+            )
+        except ConnectorError:
+            logger.warning("could not read the warehouse session's user")
+            return None
+        if frame.empty or pd.isna(frame.iloc[0, 0]):
+            return None
+        return str(frame.iloc[0, 0])
 
     def _get_table_row_counts(
         self, connection: Any, schema: SchemaGraph
@@ -862,6 +883,7 @@ class WarehouseConnector:
                 extraction_timestamp=pinned_at,
                 table_references=dict(references),
             ),
+            principal=self._get_principal(connection),
         )
 
     def snapshot(

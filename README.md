@@ -322,6 +322,41 @@ model settings. Each replay reads fresh rows. It contains no credentials,
 source rows, or model weights. See [pipeline export](docs/pipeline-export.md)
 and the runnable [save/reload example](examples/pipeline_reload.py).
 
+## Keep a record of every run
+
+`NoriRelClient(run_records="nori_rel_runs")` writes a `RunRecord` for every run
+the client executes, as `nori_rel_runs/<run_id>.json`: the pipeline, the
+warehouse snapshot, the package and model versions with the checkpoint hash,
+the database user the read ran as, the row counts and the outcome. Failed and
+cancelled runs, and requests refused before they start, write one too. Each run
+first writes a `running` record, so a run whose process is killed still leaves
+one, and a run that cannot write its record fails instead of returning
+predictions. Records hold no credentials or row values. See
+[run records](docs/pipeline-export.md#run-records).
+
+## Write predictions back
+
+`client.write_predictions(predictions, destination=..., table=...)` stores one
+run's predictions in a PostgreSQL, Snowflake or Databricks table you name, and
+the run's record in a `nori_rel_runs` table beside it:
+
+```python
+from nori_rel import PredictionDestination
+
+destination = PredictionDestination(
+    engine="postgresql",
+    credential=EnvironmentCredential(variable="WRITER_DATABASE_URL"),
+    schema_name="forecasts",
+)
+client.write_predictions(
+    predictions, destination=destination, table="customer_spend", create_table=True
+)
+```
+
+The destination connects with its own writer credential, so sources stay
+read-only. Writing the same run again replaces its rows, so a retried job
+leaves one copy. See [writing predictions back](docs/warehouse-connectors.md#write-predictions-back).
+
 ## Operations and safety boundaries
 
 Use the client as a context manager to close connection pools. PostgreSQL and

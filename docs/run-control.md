@@ -42,6 +42,9 @@ return receipts; a request to a finished run is rejected. Pausing cannot suspend
 an already running database or model call. `client.get_run(run.run_id)` retrieves
 a run owned by that client.
 
+Every run also builds a `RunRecord` of what it read and ran, kept by a client
+created with `run_records`; see [run records](pipeline-export.md#run-records).
+
 Use a context manager for the client. Normal `close()` waits for active runs
 and closes database pools; a paused run is cancelled so close can make progress.
 `close(timeout_seconds=...)` requests cancellation after its waiting period, then

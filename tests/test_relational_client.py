@@ -12,6 +12,7 @@ from nori_rel import (
     DatabaseStatus,
     DatabaseUrl,
     NoriRelClient,
+    PredictionFailed,
 )
 from nori_rel._feature_search import AgenticSearch
 from nori_rel._pql_runtime import get_context_label_frame, get_scoring_feature_frame
@@ -22,6 +23,7 @@ from nori_rel.pipeline import (
     SCORING_FEATURES_ATTR,
     PredictionDetails,
 )
+from nori_rel.run import JsonRunRecordStore
 
 
 class FakeRuntime:
@@ -68,11 +70,12 @@ class FakeRuntime:
         return frame
 
 
-def _client(runtime: FakeRuntime | None = None) -> NoriRelClient:
+def _client(runtime: FakeRuntime | None = None, **options) -> NoriRelClient:
     return NoriRelClient(
         mode="hosted",
         api_key="hosted-model-key",
         _runtime=runtime or FakeRuntime(),
+        **options,
     )
 
 
@@ -197,12 +200,74 @@ def test_predict_reports_its_run_to_on_event_and_in_attrs() -> None:
     assert frame.attrs["run"]["run_id"] == events[0].run_id
 
 
-def test_predict_without_on_event_leaves_attrs_unchanged() -> None:
+def test_predict_without_on_event_adds_no_run_summary() -> None:
     runtime = FakeRuntime()
 
     frame = _client(runtime).predict(source=runtime.source, **PQL_OPTIONS)
 
     assert "run" not in frame.attrs
+    assert frame.attrs["run_record"]["run_id"] == frame.attrs["run_id"]
+
+
+def test_a_client_with_run_records_writes_one_record_per_prediction(tmp_path) -> None:
+    runtime = FakeRuntime()
+    client = _client(runtime, run_records=tmp_path / "runs")
+
+    details = client.predict(source=runtime.source, return_details=True, **PQL_OPTIONS)
+    frame = client.start_predict(source=runtime.source, **PQL_OPTIONS).result(timeout=5)
+
+    assert isinstance(client.run_records, JsonRunRecordStore)
+    record = client.run_records.read(details.predictions.attrs["run_id"])
+    assert record == details.run_record == details["run_record"]
+    assert (record.status, record.strategy) == ("completed", "fastdfs")
+    assert not {"run_id", "run_record"} & set(details.metadata)
+    assert client.run_records.read(frame.attrs["run_id"]).status == "completed"
+    assert len(list((tmp_path / "runs").iterdir())) == 2
+
+
+def test_a_refused_request_leaves_a_failed_record(tmp_path) -> None:
+    runtime = FakeRuntime()
+    client = _client(runtime, run_records=tmp_path)
+
+    with pytest.raises(ValueError, match="requires anchor_times") as refused:
+        client.predict(source=runtime.source, query=PQL_OPTIONS["query"])
+    with pytest.raises(TypeError, match="return_details") as misused:
+        client.start_predict(source=runtime.source, return_details=True, **PQL_OPTIONS)
+
+    for raised, error_class in ((refused, "ValueError"), (misused, "TypeError")):
+        run_id = raised.value.__notes__[-1].removeprefix("Nori-Rel run ")
+        record = client.run_records.read(run_id)
+        assert (record.status, record.error_class) == ("failed", error_class)
+        assert (record.engine, record.schema_name) == ("postgresql", "public")
+        assert record.strategy == "fastdfs"
+    assert runtime.prediction is None
+    assert len(list(tmp_path.iterdir())) == 2
+
+
+def test_a_refused_request_without_run_records_runs_nothing() -> None:
+    runtime = FakeRuntime()
+
+    with pytest.raises(ValueError, match="requires anchor_times") as refused:
+        _client(runtime).predict(source=runtime.source, query=PQL_OPTIONS["query"])
+
+    assert not getattr(refused.value, "__notes__", [])
+
+
+def test_a_failed_background_run_leaves_a_failed_record(tmp_path) -> None:
+    class FailingRuntime(FakeRuntime):
+        def predict_pql(self, source, request, **options):
+            raise PermissionError("permission denied for table orders")
+
+    runtime = FailingRuntime()
+    client = _client(runtime, run_records=tmp_path)
+    run = client.start_predict(source=runtime.source, **PQL_OPTIONS)
+
+    with pytest.raises(PredictionFailed):
+        run.result(timeout=5)
+    record = client.run_records.read(run.run_id)
+    assert record == run.record
+    assert (record.status, record.error_class) == ("failed", "PermissionError")
+    assert record.error_message == "permission denied for table orders"
 
 
 def test_start_predict_returns_a_run_the_client_can_find_again() -> None:
@@ -254,8 +319,10 @@ def test_predict_raises_the_original_failure() -> None:
             raise PermissionError("permission denied for table orders")
 
     runtime = FailingRuntime()
-    with pytest.raises(PermissionError, match="orders"):
+    with pytest.raises(PermissionError, match="orders") as raised:
         _client(runtime).predict(source=runtime.source, **PQL_OPTIONS)
+    # The note names the run whose record describes this failure.
+    assert raised.value.__notes__[0].startswith("Nori-Rel run run_")
 
 
 class BlockingRuntime(FakeRuntime):
@@ -377,6 +444,12 @@ def test_run_types_are_exported_from_the_package() -> None:
         "PredictionFailed",
         "PredictionCancelled",
         "RunTimeout",
+        "RunRecord",
+        "RunRecordStore",
+        "JsonRunRecordStore",
+        "PredictionDestination",
+        "PredictionWriteError",
+        "TableRunRecordStore",
     ):
         assert name in nori_rel.__all__ and hasattr(nori_rel, name)
 

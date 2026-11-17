@@ -13,14 +13,16 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation, model_validator
 
 from nori_rel.pipeline.artifact import NoriRelPipeline
+from nori_rel.run.records import RunRecord
 
 
 class PredictionDetails(BaseModel):
-    """A prediction with its metadata and the pipeline that produced it.
+    """A prediction with its metadata, its pipeline and its run's record.
 
     ``details["predictions"]``, ``details["metadata"]`` and
     ``details["pipeline"]`` work as they did when ``return_details`` returned
-    a dict.
+    a dict, and ``details["run_record"]`` does too. ``metadata`` leaves out
+    the pipeline and the run's id and record, which have their own fields.
 
     ``features`` names each column by what it reads, joined with dots: the
     tables the feature reads through from the entity, then the column, then
@@ -74,6 +76,8 @@ class PredictionDetails(BaseModel):
     #: columns of ``features``. Fitting Nori on it and ``context["label"]``
     #: reproduces the predictions. ``None`` when not kept.
     context_features: pd.DataFrame | None = None
+    #: What the run read, ran and produced; see ``RunRecord``.
+    run_record: RunRecord | None = None
 
     @model_validator(mode="before")
     @classmethod

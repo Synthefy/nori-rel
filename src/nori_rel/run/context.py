@@ -26,6 +26,7 @@ from nori_rel.run.models import (
     RunStatus,
     Stage,
 )
+from nori_rel.run.records import REPORTED_RUN_RECORD_FIELDS
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,9 @@ class RunContext:
         #: What the final status reports about a pipeline run: its id and the
         #: audit hashes of its inputs. Empty for a run without a pipeline.
         self.pipeline_summary: dict[str, str] = {}
+        #: The run record's fields the prediction has reported so far; the
+        #: run adds its status, times and versions when it ends.
+        self.record_fields: dict[str, Any] = {}
         self._event_sink = event_sink
         self._clock = clock
         if seconds_clock is None:
@@ -141,16 +145,38 @@ class RunContext:
             "context_sha256": context_sha256,
             "features_sha256": features_sha256,
         }
+        self.report_record_fields(pipeline_id=pipeline_id)
 
-    def change_status(self, to: RunStatus, **data: Any) -> None:
-        """Move the run to status ``to`` and report it, counting running time."""
+    def report_record_fields(self, **fields: Any) -> None:
+        """Keep fields of the run's record as the prediction learns them.
+
+        A run that fails or is cancelled still records what was reported
+        before it ended, such as the snapshot a schema check refused. A later
+        report replaces a field; ``None`` is ignored, so it never clears one.
+        Only the fields prediction code knows are accepted (see
+        ``REPORTED_RUN_RECORD_FIELDS``); the run sets its status, times,
+        strategy and versions itself.
+        """
+        unknown = sorted(set(fields) - REPORTED_RUN_RECORD_FIELDS)
+        if unknown:
+            raise ValueError(f"not reported by a prediction: {unknown}")
+        self.record_fields.update(
+            (name, value) for name, value in fields.items() if value is not None
+        )
+
+    def now(self) -> datetime:
+        """Return the run's current time, from the clock its events use."""
+        return self._clock()
+
+    def change_status(self, to: RunStatus, **data: Any) -> RunEvent:
+        """Move the run to status ``to``, count running time, return the event."""
         now_seconds = self._seconds_clock()
         if self._running_since_seconds is not None:
             elapsed = max(now_seconds - self._running_since_seconds, 0.0)
             self._finished_running_seconds += elapsed
         self._running_since_seconds = now_seconds if to == "running" else None
         previous, self.status = self.status, to
-        self.emit_event(
+        return self.emit_event(
             EventKind.STATUS_CHANGED, **{"from": previous, "to": to}, **data
         )
 

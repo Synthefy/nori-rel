@@ -250,6 +250,18 @@ def test_mysql_labels_and_tables_come_from_one_snapshot(
     assert -1000 not in snapshot.tables["orders"]["amount"].dropna().tolist()
 
 
+def test_mysql_snapshots_name_the_user_they_read_as(mysql_parity_source):
+    """The run record's principal is the server's own name for the reader."""
+    source = mysql_parity_source
+    with source.writer.cursor() as cursor:
+        cursor.execute("SELECT CURRENT_USER()")
+        [(user,)] = cursor.fetchall()
+
+    snapshot, _, _ = _prepare(source, CASES[3][1])
+
+    assert snapshot.principal == user
+
+
 @pytest.mark.parametrize(
     "limits,message",
     [

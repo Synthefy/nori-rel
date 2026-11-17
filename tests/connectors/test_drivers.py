@@ -112,6 +112,26 @@ def install_snowflake_driver(monkeypatch, connection):
     return calls
 
 
+def test_snowflake_reports_the_user_its_session_reads_as(monkeypatch):
+    """The run record's principal is the server's answer, never the secret."""
+    source = snowflake_connector(
+        monkeypatch, {"authenticator": "oauth", "token": "private-token"}
+    )
+    fake = FakeConnection(
+        lambda sql, params: pd.DataFrame([["NORI_READER"]], columns=["USER"])
+    )
+
+    assert source._get_principal(fake) == "NORI_READER"
+    assert [sql for sql, _ in fake.calls] == ["SELECT CURRENT_USER()"]
+    assert source._get_principal(FakeConnection()) is None
+
+    def fail(sql, params):
+        raise RuntimeError("private-token")
+
+    # The principal is optional: a failed lookup must not fail the read.
+    assert source._get_principal(FakeConnection(fail)) is None
+
+
 def test_snowflake_oauth_uses_native_binding_tls_and_bounded_session(monkeypatch):
     """Verify only approved connection kwargs reach the Snowflake driver."""
     source = snowflake_connector(

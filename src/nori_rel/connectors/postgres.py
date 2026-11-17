@@ -669,6 +669,7 @@ class PostgreSQLConnector:
                 raise SnapshotLimitError("snapshot exceeds the configured memory limit")
             frames[table_schema.name] = frame
         primary_keys = {table.name: table.primary_key for table in schema.tables}
+        principal = connection.exec_driver_sql("SELECT current_user", {}).scalar_one()
         return Snapshot(
             tables=frames,
             primary_keys=primary_keys,
@@ -682,4 +683,5 @@ class PostgreSQLConnector:
             schema=schema,
             as_of=as_of,
             approximate_bytes=total_bytes,
+            principal=principal,
         )

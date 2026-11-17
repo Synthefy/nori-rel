@@ -18,6 +18,11 @@ from nori_rel._pql_static import (
     get_static_target_task,
     require_static_target_arguments,
 )
+from nori_rel._run_record_fields import (
+    get_loaded_checkpoint_sha256,
+    get_pipeline_record_fields,
+    get_record_time,
+)
 from nori_rel.connectors.base import get_dropped_foreign_keys
 from nori_rel.context_policy import ContextPolicy, ContextPolicyChooser
 from nori_rel.contracts import AgentSearchMetric, PredictionTask, RelationalOutputType
@@ -128,7 +133,9 @@ def predict_pql(
     pipeline's first run; with ``expected_context_sha256`` the run raises
     unless its context rows hash to that value. No silent context truncation
     or refill. run_context receives stage and search events and applies the
-    run's commands between stages; without one, nothing is reported.
+    run's commands between stages; without one, nothing is reported. It also
+    receives the run record's fields as each step learns them, so a run that
+    fails still records its pipeline, model and, once read, its snapshot.
     metric chooses how an agent search scores its candidate programs on a
     regression target ("mae" when None); it is refused for any other run.
     keep_scoring_features puts the scored rows' feature matrix, indexed by
@@ -180,6 +187,15 @@ def predict_pql(
             "agentic"
         ):
             raise ValueError("entity_time does not support the agent search yet")
+    # The run's record keeps what each step learns, so a run that fails, such
+    # as a replay whose schema changed, still names its pipeline and model.
+    run_context.report_record_fields(
+        engine=str(source.engine),
+        schema_name=source.schema_name,
+        as_of=get_record_time(anchor_time),
+        observed_through=get_record_time(observed_through),
+        **({} if pipeline is None else get_pipeline_record_fields(pipeline)),
+    )
     # An agent search holds steering from the run's first boundary until its
     # agent delivers it; a DFS run or a saved program rejects steering.
     run_context.steering_enabled = (
@@ -244,6 +260,7 @@ def predict_pql(
             context_policy=context_policy,
         )
         model = predictor.model_for(resolved)
+        run_context.report_record_fields(transport=predictor.mode, model=model)
     if metric is not None:
         _require_agent_search_metric(
             metric,
@@ -280,6 +297,16 @@ def predict_pql(
             query_filter=query_filter,
             **candidate_options,
         )
+        run_context.report_record_fields(
+            as_of=get_record_time(snapshot.as_of),
+            snapshot=(
+                None
+                if snapshot.provenance is None
+                else snapshot.provenance.model_dump(mode="json")
+            ),
+            principal=getattr(snapshot, "principal", None),
+            context_rows_read=counts.get("candidate_rows"),
+        )
         context, context_report = get_selected_context(
             context,
             context_policy,
@@ -306,6 +333,7 @@ def predict_pql(
                 READ_TIME_STAND_IN if is_read_time_cutoff else None
             ),
         )
+        run_context.report_record_fields(context_rows_used=len(context))
         if feature_program is not None:
             feature_program.validate_schema(snapshot.schema)
         if pipeline is not None:
@@ -331,6 +359,7 @@ def predict_pql(
             context_policy=context_policy,
         )
         model = predictor.model_for(resolved)
+        run_context.report_record_fields(transport=predictor.mode, model=model)
         if log_summary:
             logger.info(
                 "PQL task=%s; static target=%s",
@@ -379,6 +408,7 @@ def predict_pql(
         elif output is RelationalOutputType.QUANTILES:
             columns.append("quantiles")
         result = pd.DataFrame(columns=columns)
+        run_context.report_record_fields(entities_scored=0)
         result.attrs.update(
             {
                 **metadata,
@@ -409,6 +439,8 @@ def predict_pql(
         else context,
         context_labels,
     )
+    # Recorded before the check, so a refused reproduction names the rows it saw.
+    run_context.report_record_fields(context_rows_sha256=context_hash)
     require_expected_context(expected_context_sha256, context_hash)
     if pipeline is None:
         backend = runtime.feature_backend(
@@ -482,6 +514,11 @@ def predict_pql(
             "context_rows_sha256": context_hash,
             "feature_matrix_sha256": get_feature_matrix_sha256(matrices),
         }
+    )
+    run_context.report_record_fields(
+        checkpoint_sha256=get_loaded_checkpoint_sha256(predictor),
+        entities_scored=len(result),
+        feature_matrix_sha256=result.attrs["feature_matrix_sha256"],
     )
     if metadata["features"] in ("agentic", "saved_program"):
         from nori_rel._feature_search import (

@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -17,6 +18,7 @@ import pytest
 from nori_rel import (
     EnvironmentCredential,
     NoriRelClient,
+    PredictionCancelled,
     RelationalLimits,
 )
 from nori_rel._feature_program import program_record
@@ -29,6 +31,7 @@ from nori_rel.pipeline import (
     PipelineSchemaError,
     PipelineTaskError,
 )
+from nori_rel.run import JsonRunRecordStore
 
 QUERY = "PREDICT SUM(orders.amount,0,30,days) FOR EACH users.user_id"
 ANCHORS = [datetime(2025, month, 1, tzinfo=UTC) for month in (9, 10, 11, 12)]
@@ -366,6 +369,134 @@ def test_a_pipeline_rejects_changed_schemas_tasks_and_arguments(shop, checkpoint
     db.execute("ALTER TABLE users ADD COLUMN tier text")
     with pytest.raises(PipelineSchemaError, match=r"column users\.tier is new"):
         predict()
+
+
+def test_a_replay_leaves_a_record_that_matches_its_predictions(
+    shop, checkpoint, tmp_path
+):
+    schema, db = shop
+    pipeline = _first_prediction(schema)["pipeline"]
+    principal = db.execute("SELECT current_user").fetchone()[0]
+
+    with NoriRelClient(limits=LIMITS, device="cpu", run_records=tmp_path) as client:
+        details = client.predict(
+            source=_connect(client, schema),
+            pipeline=pipeline,
+            as_of=LATER,
+            observed_through=LATER,
+            return_details=True,
+        )
+
+    frame = details["predictions"]
+    record = JsonRunRecordStore(tmp_path).read(frame.attrs["run_id"])
+    assert record == details["run_record"]
+    assert record.pipeline_id == frame.attrs["pipeline_id"] == pipeline.pipeline_id
+    # PostgreSQL pins no past version, so neither has a snapshot.
+    assert record.snapshot is None and "snapshot" not in frame.attrs
+    assert (record.status, record.strategy) == ("completed", "noridfs")
+    assert (record.as_of, record.observed_through) == (LATER, LATER)
+    assert (record.engine, record.schema_name, record.principal) == (
+        "postgresql",
+        schema,
+        principal,
+    )
+    model = pipeline.manifest.model
+    assert (record.transport, record.model, record.checkpoint_sha256) == (
+        "local",
+        model.model,
+        model.sha256,
+    )
+    assert record.synthefy_nori_version == model.synthefy_nori_version
+    assert record.context_rows_read == frame.attrs["candidate_rows"]
+    assert record.entities_scored == len(frame)
+    assert (record.context_rows_sha256, record.feature_matrix_sha256) == (
+        frame.attrs["context_rows_sha256"],
+        frame.attrs["feature_matrix_sha256"],
+    )
+
+
+def test_a_replay_refused_for_a_changed_schema_leaves_a_record(
+    shop, checkpoint, tmp_path
+):
+    schema, db = shop
+    pipeline = _first_prediction(schema)["pipeline"]
+    db.execute("ALTER TABLE users ADD COLUMN tier text")
+
+    with (
+        NoriRelClient(limits=LIMITS, device="cpu", run_records=tmp_path) as client,
+        pytest.raises(PipelineSchemaError) as raised,
+    ):
+        client.predict(
+            source=_connect(client, schema),
+            pipeline=pipeline,
+            as_of=LATER,
+            observed_through=LATER,
+        )
+
+    run_id = raised.value.__notes__[-1].removeprefix("Nori-Rel run ")
+    record = JsonRunRecordStore(tmp_path).read(run_id)
+    assert (record.status, record.error_class) == ("failed", "PipelineSchemaError")
+    assert "users.tier is new" in record.error_message
+    assert record.pipeline_id == pipeline.pipeline_id
+    assert record.checkpoint_sha256 == pipeline.manifest.model.sha256
+    # The schema check refuses what the run read, so the read is recorded.
+    assert record.principal and record.context_rows_read
+    assert record.entities_scored is None
+
+
+def test_a_replay_refused_before_it_starts_leaves_a_record(shop, checkpoint, tmp_path):
+    schema, _ = shop
+    pipeline = _first_prediction(schema)["pipeline"]
+
+    with (
+        NoriRelClient(limits=LIMITS, device="cpu", run_records=tmp_path) as client,
+        pytest.raises(PipelineTaskError) as raised,
+    ):
+        client.predict(
+            source=_connect(client, schema),
+            pipeline=pipeline,
+            query=QUERY.replace("SUM", "AVG"),
+            as_of=LATER,
+            observed_through=LATER,
+        )
+
+    run_id = raised.value.__notes__[-1].removeprefix("Nori-Rel run ")
+    record = JsonRunRecordStore(tmp_path).read(run_id)
+    assert (record.status, record.error_class) == ("failed", "PipelineTaskError")
+    assert (record.pipeline_id, record.as_of) == (pipeline.pipeline_id, LATER)
+    assert record.checkpoint_sha256 == pipeline.manifest.model.sha256
+    # Refused before the run started, so nothing was read.
+    assert record.principal is record.context_rows_read is None
+
+
+def test_a_cancelled_replay_leaves_a_record(shop, checkpoint, tmp_path):
+    schema, _ = shop
+    pipeline = _first_prediction(schema)["pipeline"]
+    in_first_stage, release = threading.Event(), threading.Event()
+
+    def hold_the_first_stage(event):
+        if event.data["kind"] == "stage_started" and not in_first_stage.is_set():
+            in_first_stage.set()
+            release.wait(60)
+
+    with NoriRelClient(limits=LIMITS, device="cpu", run_records=tmp_path) as client:
+        run = client.start_predict(
+            source=_connect(client, schema),
+            pipeline=pipeline,
+            as_of=LATER,
+            observed_through=LATER,
+            on_event=hold_the_first_stage,
+        )
+        assert in_first_stage.wait(60)
+        run.cancel()
+        release.set()
+        with pytest.raises(PredictionCancelled):
+            run.result(timeout=120)
+
+    record = JsonRunRecordStore(tmp_path).read(run.run_id)
+    assert (record.status, record.error_class) == ("cancelled", None)
+    assert record.pipeline_id == pipeline.pipeline_id
+    assert record.entities_scored is None
 
 
 def test_a_tampered_checkpoint_is_refused(shop, checkpoint):
