@@ -1,5 +1,6 @@
 """Snowflake and Databricks writers: the statements they send and the values in them."""
 
+import dataclasses
 import json
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
@@ -18,6 +19,7 @@ from nori_rel.run import RunRecord
 from nori_rel.writeback import write_predictions, writers
 from nori_rel.writeback.rows import (
     Column,
+    EarlierRuns,
     TableRows,
     get_prediction_rows,
     get_run_record_rows,
@@ -468,3 +470,39 @@ def test_ids_wider_than_38_digits_are_written_as_text() -> None:
 
     assert rows.columns[0] == Column("entity_id", "text")
     assert rows.rows[0][0] == str(10**40)
+
+
+def _rows_replacing_earlier_runs():
+    rows = _prediction_rows()
+    return dataclasses.replace(rows, earlier_runs=EarlierRuns(PIPELINE_ID, (AS_OF,)))
+
+
+def test_snowflake_replaces_earlier_runs_of_the_same_pipeline_and_time(
+    connection,
+) -> None:
+    writer = writers.open_table_writer(_destination("snowflake"))
+
+    writer.replace_run_rows([_rows_replacing_earlier_runs()])
+
+    sql, params = connection.calls[1]
+    assert sql == (
+        'DELETE FROM "ANALYTICS"."FORECASTS"."spend" WHERE "RUN_ID" = ? OR '
+        '("PIPELINE_ID" = ? AND "AS_OF" IN '
+        "(TO_TIMESTAMP_TZ(?, 'YYYY-MM-DD HH24:MI:SS.FF6TZH:TZM')))"
+    )
+    assert params == [RUN_ID, PIPELINE_ID, "2026-02-01 00:00:00.000000+00:00"]
+
+
+def test_databricks_replaces_earlier_runs_of_the_same_pipeline_and_time(
+    connection,
+) -> None:
+    writer = writers.open_table_writer(_destination("databricks"))
+
+    writer.replace_run_rows([_rows_replacing_earlier_runs()])
+
+    [(sql, _)] = connection.calls
+    assert sql.startswith(
+        "INSERT INTO `main`.`forecasts`.`spend` REPLACE WHERE "
+        f"`run_id` = '{RUN_ID}' OR (`pipeline_id` = '{PIPELINE_ID}' AND `as_of` IN "
+        "(TIMESTAMP '2026-02-01 00:00:00.000000+00:00')) SELECT "
+    )

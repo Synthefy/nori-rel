@@ -200,8 +200,10 @@ record = client.write_predictions(
 
 - Writing a run again replaces that run's rows, so retrying the write of the
   same predictions leaves one copy. A retry that predicts again is a new run
-  with its own rows; readers that want one batch per prediction time pick the
-  latest `written_at` for each `as_of`. PostgreSQL and Snowflake replace the
+  with its own rows: pass `replace_earlier_runs=True` to also replace the rows
+  other runs of the same pipeline wrote for the same `as_of`, so a scheduled
+  replay leaves one batch per prediction time. The earlier runs' records stay
+  in `nori_rel_runs`. PostgreSQL and Snowflake replace the
   rows and the run's record in one transaction, and PostgreSQL makes two
   writes of the same run take turns. Databricks replaces each table with one
   atomic `INSERT INTO … REPLACE WHERE run_id = …`; rows that do not fit one

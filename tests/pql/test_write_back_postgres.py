@@ -342,3 +342,44 @@ def test_a_source_reading_the_whole_schema_skips_run_records_and_is_warned(
 
     names = {table.name for table in client.discover(whole_schema).tables}
     assert names == {"items", "spend_forecast"}
+
+
+def test_a_retried_replay_can_replace_the_earlier_batch(client, output_schema):
+    client, database = client
+    schema, db = output_schema
+    destination = _destination(schema)
+    first = client.predict(source=database, query=QUERY, **OPTIONS)
+    retry = client.predict(source=database, query=QUERY, **OPTIONS)
+    assert first.attrs["pipeline_id"] == retry.attrs["pipeline_id"]
+
+    client.write_predictions(
+        first, destination=destination, table="spend_forecast", create_table=True
+    )
+    client.write_predictions(
+        retry,
+        destination=destination,
+        table="spend_forecast",
+        replace_earlier_runs=True,
+    )
+
+    rows = _rows(db, schema, "spend_forecast")
+    assert {row[3] for row in rows} == {retry.attrs["run_id"]}
+    assert len(rows) == len(retry)
+    # Both runs keep their records; only the predictions were replaced.
+    assert len(_rows(db, schema, "nori_rel_runs", order="run_id")) == 2
+
+
+def test_replacing_earlier_runs_needs_a_pipeline(client, output_schema):
+    client, database = client
+    schema, _ = output_schema
+    frame = client.predict(source=database, query=QUERY, **OPTIONS)
+    frame.attrs["run_record"] = {**frame.attrs["run_record"], "pipeline_id": None}
+
+    with pytest.raises(ValueError, match="needs predictions from a pipeline run"):
+        client.write_predictions(
+            frame,
+            destination=_destination(schema),
+            table="spend_forecast",
+            create_table=True,
+            replace_earlier_runs=True,
+        )

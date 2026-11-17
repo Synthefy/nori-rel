@@ -26,8 +26,10 @@
   rows so a retried job leaves one copy, creates the table with
   `create_table=True`, and refuses a table with other columns, naming them.
   The run's record, with `output_table` and `rows_written`, goes to
-  `nori_rel_runs` in the same schema. Failed writes raise
-  `PredictionWriteError` without the credential. See
+  `nori_rel_runs` in the same schema. `replace_earlier_runs=True` also
+  replaces the rows other runs of the same pipeline wrote for the same
+  `as_of`, so a retried scheduled replay leaves one batch. Failed writes
+  raise `PredictionWriteError` without the credential. See
   [writing predictions back](docs/warehouse-connectors.md#write-predictions-back).
 - MySQL 8 sources, including Amazon RDS for MySQL and Aurora MySQL 3:
   `client.connect(engine="mysql", ...)` with the new `mysql` extra (PyMySQL).

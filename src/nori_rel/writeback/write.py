@@ -20,6 +20,7 @@ from nori_rel.limits import RelationalLimits
 from nori_rel.run.records import RunRecord
 from nori_rel.writeback.rows import (
     RUN_RECORDS_TABLE,
+    EarlierRuns,
     TableRows,
     get_completed_run_record,
     get_prediction_rows,
@@ -35,6 +36,7 @@ def write_predictions(
     destination: PredictionDestination,
     table: str,
     create_table: bool = False,
+    replace_earlier_runs: bool = False,
     limits: RelationalLimits | None = None,
 ) -> RunRecord:
     """Store one run's predictions in ``table``, replacing that run's earlier rows.
@@ -42,11 +44,15 @@ def write_predictions(
     Returns the run's record with ``output_table`` and ``rows_written``; the
     same record is stored in ``nori_rel_runs`` in the destination schema,
     which is created when missing. ``table`` must exist with the prediction
-    columns unless ``create_table`` is true.
+    columns unless ``create_table`` is true. With ``replace_earlier_runs``,
+    the rows other runs of the same pipeline wrote for the same ``as_of``
+    are replaced too, so a scheduled job that predicts again on a retry
+    leaves one batch; their records stay in ``nori_rel_runs``.
 
     Raises:
         ValueError: The frame has no completed run record, the table is
             missing, or its columns differ; the message names the columns.
+            ``replace_earlier_runs`` for a run without a pipeline.
         PredictionWriteError: The destination refused the write.
     """
     _require_table_name(table)
@@ -57,6 +63,8 @@ def write_predictions(
     rows = get_prediction_rows(
         predictions, table=table, record=record, written_at=written_at
     )
+    if replace_earlier_runs:
+        rows = replace(rows, earlier_runs=_get_earlier_runs(record, rows))
     writer = open_table_writer(destination, limits)
     try:
         if rows.rows or writer.get_column_names(table) is not None:
@@ -175,6 +183,27 @@ def _get_rows_in_table_order(
         columns=tuple(rows.columns[index] for index in order),
         rows=tuple(tuple(row[index] for index in order) for row in rows.rows),
     )
+
+
+def _get_earlier_runs(record: RunRecord, rows: TableRows) -> EarlierRuns:
+    """Return the pipeline and prediction times whose earlier rows are replaced.
+
+    A pipeline replay scores every row at its ``as_of``; the record's
+    ``as_of`` counts too, so a retry that scored nobody still clears its batch.
+
+    Raises:
+        ValueError: The run has no pipeline, so other runs cannot be matched.
+    """
+    if record.pipeline_id is None:
+        raise ValueError(
+            "replace_earlier_runs needs predictions from a pipeline run; this "
+            "run has no pipeline, so its earlier runs cannot be told apart"
+        )
+    as_of_index = [column.name for column in rows.columns].index("as_of")
+    as_of_values = {row[as_of_index] for row in rows.rows}
+    if record.as_of is not None:
+        as_of_values.add(record.as_of)
+    return EarlierRuns(record.pipeline_id, tuple(sorted(as_of_values)))
 
 
 def _require_table_name(table: Any) -> None:

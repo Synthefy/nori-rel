@@ -86,7 +86,7 @@
       "sha256": "bf9ce863c3993e55b7980073364a6b617ae28f4f4e9ba19fa51669b02751c6e1"
     },
     "src/nori_rel/client.py": {
-      "sha256": "4abf03ffa4ecc6f694f7e0074f11f53862d99c0fccebc83451a706bd661e1a39"
+      "sha256": "0acd000112877fff6cf08789689a1234dd8530cbca7cf9ec3524814b42a38a5d"
     },
     "src/nori_rel/connectors/__init__.py": {
       "sha256": "394e83634ec9bf6f9aabb2cceecf26c0f3f7b0c62b6e72b5988162b2bf062119"
@@ -344,13 +344,13 @@
       "sha256": "d7841aa59b77cdc76c714bfef4a22bedff827b5a7ea8f12209f029b9859159db"
     },
     "src/nori_rel/writeback/rows.py": {
-      "sha256": "e6109315968e2e6b182f4f527ad47ecd90760146f2e2d3253dbe47f3c5b353ad"
+      "sha256": "c09688ebf7a6f81e2fc460ac144eb7ae6ae6b15ee7a2fdbf3af205f4b5a6df97"
     },
     "src/nori_rel/writeback/write.py": {
-      "sha256": "5acfb828b316b9734cfa3540c224627e5ab303a1e16864101d2d5913930c6306"
+      "sha256": "29b8474391813922808d5e0be98050e8d0c89fcf6c48bbed0a3309e80bc80678"
     },
     "src/nori_rel/writeback/writers.py": {
-      "sha256": "5add63ed85b7a94a4c8da877a6e73a0018fa6283f30bc4f50df7fea5f1af24d8"
+      "sha256": "e82110479a3ba3c9ca1bddfd971e31dd9da601cffa8e549a77fee7248157c8cc"
     },
     "uv.lock": {
       "sha256": "487a6edee22f18b8bcf21eab01fd9e185ac1879b33f375ec0ff83a5200799650"

@@ -561,6 +561,7 @@ class NoriRelClient:
         destination: PredictionDestination,
         table: str,
         create_table: bool = False,
+        replace_earlier_runs: bool = False,
     ) -> RunRecord:
         """Write one run's predictions to ``table`` in the destination's schema.
 
@@ -574,6 +575,11 @@ class NoriRelClient:
         own writer credential; source connections only read. A source of this
         client that reads every table of the destination schema gets a
         warning: it would read the predictions table too.
+
+        ``replace_earlier_runs`` also replaces the rows that other runs of the
+        same pipeline wrote for the same ``as_of``, so a scheduled replay that
+        predicts again on a retry leaves one batch. The earlier runs' records
+        stay in ``nori_rel_runs``. It needs a pipeline run.
 
         ``table`` must exist with those columns unless ``create_table`` is
         true. The run's record, with ``output_table`` and ``rows_written``, is
@@ -595,6 +601,7 @@ class NoriRelClient:
             destination=destination,
             table=table,
             create_table=create_table,
+            replace_earlier_runs=replace_earlier_runs,
             limits=getattr(self._runtime, "limits", None),
         )
         predictions.attrs[RUN_RECORD_ATTR] = record.model_dump(mode="json")

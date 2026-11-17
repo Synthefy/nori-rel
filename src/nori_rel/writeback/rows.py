@@ -37,16 +37,27 @@ class Column:
 
 
 @dataclass(frozen=True)
+class EarlierRuns:
+    """Earlier runs' rows a write also replaces: one pipeline's prediction times."""
+
+    pipeline_id: str
+    as_of_values: tuple[datetime, ...]
+
+
+@dataclass(frozen=True)
 class TableRows:
     """One run's rows for one table; writing them replaces that run's rows.
 
-    A ``json`` value is a Python list or dict; the writer serializes it.
+    With ``earlier_runs`` the write also replaces the rows that other runs of
+    that pipeline wrote for the same ``as_of`` times. A ``json`` value is a
+    Python list or dict; the writer serializes it.
     """
 
     table: str
     run_id: str
     columns: tuple[Column, ...]
     rows: tuple[tuple[Any, ...], ...]
+    earlier_runs: EarlierRuns | None = None
 
 
 RUN_RECORD_COLUMNS = (
@@ -213,6 +224,7 @@ __all__ = [
     "RUN_RECORD_COLUMNS",
     "Column",
     "ColumnKind",
+    "EarlierRuns",
     "TableRows",
     "get_completed_run_record",
     "get_prediction_rows",

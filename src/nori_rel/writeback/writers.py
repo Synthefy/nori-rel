@@ -57,6 +57,8 @@ MAX_PAYLOAD_BYTES = 900_000
 #: Run ids are generated (``run_<hex>``); this is checked before one enters
 #: a Databricks ``REPLACE WHERE`` clause as a literal.
 _RUN_ID = re.compile(r"[A-Za-z0-9_-]+")
+#: How every written time is spelled for Snowflake to parse; see ``_get_text``.
+_SNOWFLAKE_TIME_FORMAT = "YYYY-MM-DD HH24:MI:SS.FF6TZH:TZM"
 #: Databricks starts an error message with its error class and ends it with
 #: its SQL state; the text between can quote values, so only these are kept.
 _ERROR_CLASS = re.compile(r"^\[([A-Z][A-Z0-9_.]*)\]")
@@ -245,24 +247,35 @@ class PostgreSQLTableWriter:
     def replace_run_rows(self, writes: Sequence[TableRows]) -> None:
         """Delete and insert every write's rows in one transaction.
 
-        A transaction lock per run makes two writes of the same run take
-        turns; otherwise neither delete sees the other's uncommitted rows and
-        both copies stay.
+        A transaction lock per run, and per pipeline and ``as_of`` when
+        earlier runs are replaced, makes two such writes take turns;
+        otherwise neither delete sees the other's uncommitted rows and both
+        copies stay. Locks are taken in a fixed order.
         """
-        from sqlalchemy import delete, insert, text
+        from sqlalchemy import and_, delete, insert, or_, text
 
         with (
             _reporting_errors("PostgreSQL", keep_message=True),
             self._engine.begin() as connection,
         ):
-            for run_id in sorted({write.run_id for write in writes}):
+            for key in sorted(_get_lock_keys(self.schema_name, writes)):
                 connection.execute(
-                    text("SELECT pg_advisory_xact_lock(hashtextextended(:run_id, 0))"),
-                    {"run_id": run_id},
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                    {"key": key},
                 )
             for write in writes:
                 table = self._get_table(write.table, write.columns)
-                connection.execute(delete(table).where(table.c.run_id == write.run_id))
+                condition = table.c.run_id == write.run_id
+                earlier = write.earlier_runs
+                if earlier is not None and earlier.as_of_values:
+                    condition = or_(
+                        condition,
+                        and_(
+                            table.c.pipeline_id == earlier.pipeline_id,
+                            table.c.as_of.in_(earlier.as_of_values),
+                        ),
+                    )
+                connection.execute(delete(table).where(condition))
                 if write.rows:
                     names = [column.name for column in write.columns]
                     connection.execute(
@@ -448,7 +461,7 @@ class SnowflakeTableWriter(_WarehouseTableWriter):
         "integer": "{value}::NUMBER(38,0)",
         "decimal": "{value}::NUMBER(38,0)",
         "text": "{value}",
-        "timestamp": "TO_TIMESTAMP_TZ({value}, 'YYYY-MM-DD HH24:MI:SS.FF6TZH:TZM')",
+        "timestamp": "TO_TIMESTAMP_TZ({value}, '" + _SNOWFLAKE_TIME_FORMAT + "')",
         "double": "{value}::FLOAT",
         "boolean": "{value}::BOOLEAN",
         "json": "PARSE_JSON({value})",
@@ -489,11 +502,27 @@ class SnowflakeTableWriter(_WarehouseTableWriter):
         try:
             for write in writes:
                 reference = self.get_reference(write.table)
-                self.execute(
-                    f"DELETE FROM {reference} WHERE "
-                    f"{self.quote(self.get_column_name('run_id'))} = ?",
-                    [write.run_id],
-                )
+                condition = f"{self.quote(self.get_column_name('run_id'))} = ?"
+                parameters: list[Any] = [write.run_id]
+                earlier = write.earlier_runs
+                if earlier is not None and earlier.as_of_values:
+                    times = ", ".join(
+                        f"TO_TIMESTAMP_TZ(?, '{_SNOWFLAKE_TIME_FORMAT}')"
+                        for _ in earlier.as_of_values
+                    )
+                    condition += (
+                        f" OR ({self.quote(self.get_column_name('pipeline_id'))} = ?"
+                        f" AND {self.quote(self.get_column_name('as_of'))}"
+                        f" IN ({times}))"
+                    )
+                    parameters += [
+                        earlier.pipeline_id,
+                        *(
+                            _get_text(value, "timestamp")
+                            for value in earlier.as_of_values
+                        ),
+                    ]
+                self.execute(f"DELETE FROM {reference} WHERE {condition}", parameters)
                 select_list = ", ".join(
                     self._CASTS[column.kind].format(value=f"value[{index}]::VARCHAR")
                     for index, column in enumerate(write.columns)
@@ -563,7 +592,7 @@ class DatabricksTableWriter(_WarehouseTableWriter):
             payloads = list(get_json_payloads(write)) or ["[]"]
             replace = (
                 f"INSERT INTO {self.get_reference(write.table)} "
-                f"REPLACE WHERE {self.quote('run_id')} = '{write.run_id}' "
+                f"REPLACE WHERE {self._get_replaced_rows(write)} "
             )
             if len(payloads) == 1:
                 self.execute(
@@ -597,6 +626,27 @@ class DatabricksTableWriter(_WarehouseTableWriter):
         """Return a backquoted identifier."""
         return "`" + name.replace("`", "``") + "`"
 
+    def _get_replaced_rows(self, write: TableRows) -> str:
+        """Return the ``REPLACE WHERE`` condition of the rows ``write`` replaces.
+
+        Literals are safe: the run id and pipeline id are checked against
+        their generated shapes, and times are formatted by ``_get_text``.
+        """
+        condition = f"{self.quote('run_id')} = '{write.run_id}'"
+        earlier = write.earlier_runs
+        if earlier is None or not earlier.as_of_values:
+            return condition
+        if not _RUN_ID.fullmatch(earlier.pipeline_id):
+            raise ValueError(f"not a pipeline id: {earlier.pipeline_id!r}")
+        times = ", ".join(
+            f"TIMESTAMP '{_get_text(value, 'timestamp')}'"
+            for value in earlier.as_of_values
+        )
+        return (
+            f"{condition} OR ({self.quote('pipeline_id')} = '{earlier.pipeline_id}'"
+            f" AND {self.quote('as_of')} IN ({times}))"
+        )
+
     def _get_payload_select(self, columns: Sequence[Column]) -> str:
         """Return a SELECT that reads the rows of one JSON parameter."""
         casts = ", ".join(
@@ -609,6 +659,23 @@ class DatabricksTableWriter(_WarehouseTableWriter):
             f"SELECT {casts} FROM (SELECT explode(from_json(?, "
             "'ARRAY<ARRAY<STRING>>', map('mode', 'FAILFAST'))) AS r)"
         )
+
+
+def _get_lock_keys(schema_name: str, writes: Sequence[TableRows]) -> set[str]:
+    """Return the PostgreSQL lock keys of ``writes``.
+
+    One per run, and one per pipeline and ``as_of`` whose earlier rows a
+    write replaces.
+    """
+    keys = {write.run_id for write in writes}
+    for write in writes:
+        earlier = write.earlier_runs
+        if earlier is not None:
+            keys.update(
+                f"{schema_name}.{write.table}|{earlier.pipeline_id}|{value.isoformat()}"
+                for value in earlier.as_of_values
+            )
+    return keys
 
 
 def get_json_payloads(write: TableRows) -> Iterator[str]:
