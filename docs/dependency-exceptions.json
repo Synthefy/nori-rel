@@ -26,7 +26,7 @@
       "sha256": "99c48f690c36a4886b33d415fff98acfc719303d2dcc4d760d838fae9dbbfa0e"
     },
     "docs/dependency-security.md": {
-      "sha256": "1140d8de7128e921a10bde681258a00d109be9b4db4b43acdba7c2a753c199c4"
+      "sha256": "122d3d3bf7b93727789fee3e34b17aeda19cb7d136813cd649bb0b0e8dd08b6d"
     },
     "pyproject.toml": {
       "sha256": "ead7dd2067edc9492075db2a2b078ff69e153c306ba9542e39fb95f23d4fa7e8"
@@ -335,7 +335,7 @@
       "sha256": "74bca3696c360d807bc0b742ad83180ca19b8ea8a34c614ec8aef35ceaaca968"
     },
     "uv.lock": {
-      "sha256": "487a6edee22f18b8bcf21eab01fd9e185ac1879b33f375ec0ff83a5200799650"
+      "sha256": "f40c23f88304a7f97cf15174f36138e14c453fe7a1c1a4a4bb6fdead93c99905"
     }
   },
   "exceptions": [
