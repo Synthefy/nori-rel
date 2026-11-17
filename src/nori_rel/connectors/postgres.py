@@ -22,6 +22,7 @@ from nori_rel.connectors.base import (
     get_context_read_row_cap,
     get_loaded_foreign_keys,
     is_local_host,
+    is_write_back_table,
 )
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.contracts import (
@@ -182,7 +183,9 @@ class PostgreSQLConnector:
     ) -> SchemaGraph:
         inspector = inspect(connection)
         available = inspector.get_table_names(schema=self.config.schema_name)
-        selected = self.config.tables or sorted(available)
+        selected = self.config.tables or sorted(
+            name for name in available if not is_write_back_table(name)
+        )
         missing = sorted(set(selected).difference(available))
         if missing:
             raise ConnectorError(f"configured tables do not exist: {missing}")
@@ -669,6 +672,7 @@ class PostgreSQLConnector:
                 raise SnapshotLimitError("snapshot exceeds the configured memory limit")
             frames[table_schema.name] = frame
         primary_keys = {table.name: table.primary_key for table in schema.tables}
+        principal = connection.exec_driver_sql("SELECT current_user", {}).scalar_one()
         return Snapshot(
             tables=frames,
             primary_keys=primary_keys,
@@ -682,4 +686,5 @@ class PostgreSQLConnector:
             schema=schema,
             as_of=as_of,
             approximate_bytes=total_bytes,
+            principal=principal,
         )

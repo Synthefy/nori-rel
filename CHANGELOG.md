@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Run records. Every `predict()` and `start_predict()` run builds a
+  `RunRecord` when it ends: its run id, status, times, error class and
+  redacted message, pipeline id, feature strategy, `as_of`,
+  `observed_through`, source, the database user the read ran as, the warehouse
+  snapshot, installed versions, model and checkpoint SHA-256, row counts and
+  audit hashes. `NoriRelClient(run_records=...)` keeps them: a directory gets
+  one JSON file per run, `TableRunRecordStore(destination)` keeps them in a
+  `nori_rel_runs` table, and any `RunRecordStore` works. A run writes a
+  `running` record before any work and its final record before its final
+  status, failed and cancelled runs and refused requests included; a run that
+  cannot write its record fails. Completed predictions carry `attrs["run_id"]`
+  and `attrs["run_record"]`, and `details.run_record` is the typed record;
+  `details.metadata` leaves both out. An exception from `predict()` notes its
+  run id. Snapshots gain `principal`, read with `current_user` or
+  `CURRENT_USER()` in the same transaction or session. See
+  [run records](docs/pipeline-export.md#run-records).
+- `client.write_predictions(predictions, destination=PredictionDestination(...),
+  table=...)` writes one run's predictions to a PostgreSQL, Snowflake or
+  Databricks table: `entity_id`, `as_of`, `prediction` (with `probability`
+  or `quantiles` when present), `run_id`, `pipeline_id` and `written_at`.
+  It connects with a separate writer credential, replaces the run's earlier
+  rows so a retried job leaves one copy, creates the table with
+  `create_table=True`, and refuses a table with other columns, naming them.
+  The run's record, with `output_table` and `rows_written`, goes to
+  `nori_rel_runs` in the same schema. `replace_earlier_runs=True` also
+  replaces the rows other runs of the same pipeline wrote for the same
+  `as_of`, so a retried scheduled replay leaves one batch. Failed writes
+  raise `PredictionWriteError` without the credential. See
+  [writing predictions back](docs/warehouse-connectors.md#write-predictions-back).
 - MySQL 8 sources, including Amazon RDS for MySQL and Aurora MySQL 3:
   `client.connect(engine="mysql", ...)` with the new `mysql` extra (PyMySQL).
   `schema_name` names the MySQL database and is required. Each operation reads

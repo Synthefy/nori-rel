@@ -26,6 +26,7 @@ from nori_rel import (
     SnowflakeConnection,
 )
 from nori_rel._credentials import CredentialResolutionError, CredentialResolver
+from nori_rel._runtime import LocalRelationalRuntime
 from nori_rel.connectors.base import SnapshotProvenance
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.connectors.warehouse import (
@@ -37,6 +38,7 @@ from nori_rel.connectors.warehouse import (
     normalize_warehouse_timestamp_utc,
 )
 from nori_rel.contracts import ColumnSchema, SchemaGraph, TableSchema
+from nori_rel.run import JsonRunRecordStore
 
 ANCHOR = datetime(2026, 1, 1, tzinfo=UTC)
 CUTOFF = datetime(2026, 2, 1, tzinfo=UTC)
@@ -155,6 +157,7 @@ class SQLiteConnection:
         self.calls = []
         self.closed = False
         self.cursor_options = []
+        self.database.create_function("CURRENT_USER", 0, lambda: "nori_reader")
         self.database.create_function(
             "TIMESTAMPADD",
             3,
@@ -251,9 +254,88 @@ def test_complete_preparation_retains_ids_labels_cutoffs_and_provenance():
         assert snapshot.tables["orders"].order_id.tolist() == [1, 2, 3]
         assert snapshot.provenance.extraction_timestamp == PINNED_AT
         assert snapshot.provenance.engine == "snowflake"
+        assert snapshot.principal == "nori_reader"
         assert source.database.cursor_options[0] == {}
     finally:
         source.close()
+
+
+def test_a_prediction_and_its_replay_leave_records_that_match_them(
+    monkeypatch, tmp_path
+):
+    class HostedNori:
+        def __init__(self, **options):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def predict(self, train, target, query, **options):
+            return pd.Series([12.5] * len(query))
+
+    monkeypatch.setattr("nori_rel._runtime.SynthefyNoriClient", HostedNori)
+    runtime = LocalRelationalRuntime(
+        api_key="test-only",
+        model="nori-30m",
+        classification_model=None,
+        timeout=10,
+        max_retries=0,
+        limits=RelationalLimits(min_training_rows=2),
+        connector_factory=lambda config, limits: PreparedConnector(),
+    )
+    config = _build_snowflake_config()
+    with NoriRelClient(
+        mode="hosted", api_key="test-only", run_records=tmp_path, _runtime=runtime
+    ) as client:
+        source = client.connect(
+            engine="snowflake",
+            credential=config.credential,
+            connection=config.connection,
+            schema_name="test",
+            tables=["users", "orders"],
+            time_columns={"orders": "event_time"},
+        )
+        first = client.predict(
+            source=source,
+            query=f"PREDICT SUM(orders.amount,0,30,days) FOR users.user_id={LARGE_ID}",
+            anchor_times=[ANCHOR],
+            anchor_time=CUTOFF,
+            observed_through=CUTOFF,
+            entity_created_at="created_at",
+            return_details=True,
+        )
+        replay = client.predict(
+            source=source,
+            pipeline=first.pipeline,
+            as_of=CUTOFF,
+            observed_through=CUTOFF,
+            return_details=True,
+        )
+
+    store = JsonRunRecordStore(tmp_path)
+    for details in (first, replay):
+        frame = details.predictions
+        record = store.read(frame.attrs["run_id"])
+        assert record == details.run_record
+        assert record.pipeline_id == frame.attrs["pipeline_id"]
+        assert record.snapshot.model_dump(mode="json") == frame.attrs["snapshot"]
+        assert (record.principal, record.as_of) == ("nori_reader", CUTOFF)
+        assert (record.transport, record.model) == ("hosted", "nori-30m")
+        assert record.context_rows_read == frame.attrs["candidate_rows"]
+        assert record.entities_scored == len(frame) == 1
+        assert (record.context_rows_sha256, record.feature_matrix_sha256) == (
+            frame.attrs["context_rows_sha256"],
+            frame.attrs["feature_matrix_sha256"],
+        )
+    assert replay.run_record.pipeline_id == first.pipeline.pipeline_id
+    assert first.run_record.snapshot.extraction_timestamp == PINNED_AT
+    assert first.run_record.snapshot.table_references == {
+        "users": '"users"',
+        "orders": '"orders"',
+    }
 
 
 def test_static_target_reads_labels_at_the_pinned_extraction_time():

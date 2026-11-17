@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 
+from nori_rel.connectors.base import is_write_back_table
 from nori_rel.connectors.errors import ConnectorError, SnapshotLimitError
 from nori_rel.connectors.warehouse import (
     WarehouseConnector,
@@ -323,7 +324,7 @@ class SnowflakeConnector(WarehouseConnector):
                 for name in self.config.tables
             ]
             if self.config.tables
-            else sorted(available)
+            else sorted(name for name in available if not is_write_back_table(name))
         )
         if len(set(selected)) != len(selected):
             raise ConnectorError(

@@ -163,6 +163,90 @@ require `NoriRelClient(mode="hosted", api_key=...)`. In hosted mode only generat
 feature matrices and labels reach Nori; database credentials and source tables
 remain in your process. Generated features and labels may still contain sensitive derived values.
 
+## Write predictions back
+
+`client.write_predictions` stores one run's predictions in a table you name,
+on PostgreSQL, Snowflake or Databricks. It is a separate call, so `predict()`
+stays read-only, and it connects with its own writer credential. Predictions
+from a MySQL source can be written to any of the three.
+
+```python
+from nori_rel import EnvironmentCredential, PredictionDestination, SnowflakeConnection
+
+destination = PredictionDestination(
+    engine="snowflake",
+    connection=SnowflakeConnection(
+        account="acme-prod", warehouse="SCORING", database="ANALYTICS"
+    ),
+    credential=EnvironmentCredential(variable="SNOWFLAKE_WRITER_AUTH_JSON"),
+    schema_name="FORECASTS",
+)
+frame = client.predict(source=source, pipeline=pipeline,
+                       as_of=as_of, observed_through=as_of)
+record = client.write_predictions(
+    frame, destination=destination, table="CUSTOMER_SPEND", create_table=True
+)
+```
+
+| Column | Contents |
+| --- | --- |
+| `entity_id` | The entity key: a 64-bit integer, a 38-digit decimal for wider ids, or text |
+| `as_of` | The scoring time |
+| `prediction` | The requested mean or median; a Boolean for a binary target |
+| `probability` | Binary targets only |
+| `quantiles` | A JSON list of the requested quantiles, with `output_type="quantiles"` |
+| `run_id`, `pipeline_id` | The run and the pipeline that produced the rows |
+| `written_at` | When the rows were written |
+
+- Writing a run again replaces that run's rows, so retrying the write of the
+  same predictions leaves one copy. A retry that predicts again is a new run
+  with its own rows: pass `replace_earlier_runs=True` to also replace the rows
+  other runs of the same pipeline wrote for the same `as_of`, so a scheduled
+  replay leaves one batch per prediction time. The earlier runs' records stay
+  in `nori_rel_runs`. PostgreSQL and Snowflake replace the
+  rows and the run's record in one transaction, and PostgreSQL makes two
+  writes of the same run take turns. Databricks replaces each table with one
+  atomic `INSERT INTO … REPLACE WHERE run_id = …`; rows that do not fit one
+  900 KB parameter are loaded into a staging table first, which is dropped
+  after, so such a write also needs `CREATE TABLE`.
+- `create_table=True` creates a missing table (on PostgreSQL with an index on
+  `run_id`). An existing table must have exactly these columns, in any order,
+  as the destination names them (uppercase on Snowflake); otherwise a
+  `ValueError` names the missing and unexpected ones. The first write sets
+  the `entity_id` type, so a run that scored nobody creates no table.
+- Write to a schema no source reads, or connect the sources that read it with
+  `tables=[...]`. A source without that list reads every table of its schema:
+  it skips `nori_rel_runs` and the staging tables, but it reads the
+  predictions table, and replaying a pipeline saved before refuses the new
+  table as a schema change. `write_predictions` warns when a source of the
+  same client reads every table of the destination schema.
+- Times are written in UTC, also into `timestamp without time zone` columns of
+  a table you created.
+- The run's record, with `output_table` and `rows_written`, goes to
+  `nori_rel_runs` in the same schema (`NORI_REL_RUNS` on Snowflake), which is
+  created when missing. It is also put back on
+  `predictions.attrs["run_record"]`, written to the client's `run_records`
+  and returned. See [run records](pipeline-export.md#run-records).
+- Names are used as given, as for a source. Snowflake columns are uppercase,
+  so unquoted SQL reads them; pass an uppercase table name for the same.
+- Use an identity that can only create and write tables in the output
+  schema: PostgreSQL `USAGE` and `CREATE` on the schema; Snowflake warehouse
+  `USAGE`, database and schema `USAGE`, and `CREATE TABLE` on the schema;
+  Databricks `USE CATALOG`, `USE SCHEMA`, `CREATE TABLE` and `MODIFY`. Pass it
+  as an `EnvironmentCredential` or `AwsSecret` with the same JSON shapes as a
+  reader (a `DatabaseUrl` also works for PostgreSQL). It is resolved for each
+  write and never stored, and errors never show it: warehouse errors give
+  only the driver's code and SQL state.
+- Source connections never write. `write_predictions` does not use them, and
+  they still refuse every write statement.
+- Values travel as parameters. Snowflake and Databricks receive each batch of
+  rows as one JSON parameter of at most 900 KB, read with `FLATTEN` or
+  `from_json`; Databricks allows 1 MB of parameters per statement.
+
+To keep every run's record in the warehouse, failed and cancelled runs
+included, pass a `TableRunRecordStore(destination)` as
+`NoriRelClient(run_records=...)`.
+
 ## Snapshot and time behavior
 
 Snowflake reads allowed standard tables at one extraction timestamp using Time

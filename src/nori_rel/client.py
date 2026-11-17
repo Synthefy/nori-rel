@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import warnings
 from collections.abc import Callable, Mapping, Sequence
@@ -14,6 +15,7 @@ from nori_rel._pql_static import (
     get_pql_target_kind,
     require_static_target_arguments,
 )
+from nori_rel._run_record_fields import get_request_record_fields
 from nori_rel.contracts import (
     AgentSearchMetric,
     ConnectionStatus,
@@ -23,6 +25,7 @@ from nori_rel.contracts import (
     DatabaseEngine,
     DatabaseUrl,
     ForeignKeySchema,
+    PredictionDestination,
     RelationalOutputType,
     SchemaGraph,
     WarehouseConnection,
@@ -31,7 +34,17 @@ from nori_rel.contracts import (
     PredictionTask as WirePredictionTask,
 )
 from nori_rel.pql.context_sql import DEFAULT_MAX_CONTEXT_ROWS
-from nori_rel.run import LocalExecutor, PredictionRun, RunContext, RunEvent
+from nori_rel.run import (
+    RUN_ID_ATTR,
+    RUN_RECORD_ATTR,
+    LocalExecutor,
+    PredictionRun,
+    RunContext,
+    RunEvent,
+    RunRecord,
+    RunRecordStore,
+    get_run_record_store,
+)
 
 if TYPE_CHECKING:
     from nori_rel._feature_search import AgenticSearch
@@ -42,6 +55,22 @@ if TYPE_CHECKING:
     from nori_rel.pipeline import NoriRelPipeline, PredictionDetails
 
 PredictionOperation = Literal["average", "total", "minimum", "maximum", "count"]
+
+
+def _get_namespace(connection: WarehouseConnection | None) -> tuple[str, ...]:
+    """Return the warehouse a connection reaches, or ``()`` for PostgreSQL.
+
+    Snowflake is named by account and database, Databricks by host and
+    catalog.
+    """
+    if connection is None:
+        return ()
+    if hasattr(connection, "account"):
+        return (connection.account, connection.database)
+    return (connection.server_hostname, connection.catalog)
+
+
+logger = logging.getLogger(__name__)
 
 
 class PredictionRequestArguments(TypedDict, total=False):
@@ -107,6 +136,15 @@ class NoriRelClient:
     ``features`` on the constructor is deprecated: it still sets the search
     for predictions that pass no ``feature_strategy``, with a
     ``DeprecationWarning``, and will be removed in 0.5.0.
+
+    ``run_records`` keeps the record of every run this client executes: a
+    directory, where each run writes ``<run_id>.json``, or a
+    ``RunRecordStore``. A record names the run's pipeline, snapshot, versions,
+    model, principal, row counts and outcome. Failed and cancelled runs and
+    requests refused before they start write one too, and each run writes a
+    ``running`` record first, so a run whose process dies leaves one. Without
+    a store, records are still built and returned, but not kept. See
+    ``docs/pipeline-export.md``.
     """
 
     def __init__(
@@ -121,6 +159,7 @@ class NoriRelClient:
         device: str | None = None,
         limits: RelationalLimits | None = None,
         features: FeatureBackendName | FeatureBackend | AgenticSearch | None = None,
+        run_records: str | os.PathLike[str] | RunRecordStore | None = None,
         _runtime: LocalRelationalRuntime | None = None,
     ) -> None:
         """Configure Nori inference and bounded local database execution.
@@ -164,6 +203,8 @@ class NoriRelClient:
             raise ValueError("timeout must be positive")
         if max_retries < 0:
             raise ValueError("max_retries must be non-negative")
+        #: Where each run's record is written, or None to keep none.
+        self.run_records = get_run_record_store(run_records)
 
         self.mode = mode
         self.model = model
@@ -195,7 +236,7 @@ class NoriRelClient:
                 features="fastdfs" if features is None else features,
             )
         self._runtime = _runtime
-        self._executor = LocalExecutor()
+        self._executor = LocalExecutor(self.run_records)
 
     def __repr__(self) -> str:
         """Return a credential-free client description."""
@@ -430,15 +471,19 @@ class NoriRelClient:
         and in the run summary.
 
         PQL returns entity_id, anchor_time, prediction; binary adds probability,
-        quantile output adds quantiles. attrs holds task/model and context counts.
+        quantile output adds quantiles. attrs holds task/model and context counts,
+        run_id and run_record, the run's RunRecord as JSON.
         return_details=True returns PredictionDetails with predictions
         (DataFrame), metadata (dict), pipeline (NoriRelPipeline or None) and
         features, the scored rows' feature matrix (one row per entity_id, one
         column per feature, under dotted names such as results.grid.mean);
         details.get_feature_table() lists each feature column with its
-        internal name, source, SQL and value summary. details["predictions"]
-        works too. Save the pipeline to predict again in another process
-        without a feature search.
+        internal name, source, SQL and value summary, and run_record
+        (RunRecord). details["predictions"] works too. Save the pipeline to
+        predict again in another process without a feature search. A client
+        with run_records also writes the record there, for failed and
+        cancelled runs and refused requests too; a failure's exception notes
+        its run id.
         log_summary emits INFO records through Python logging. Task is resolved
         explicitly from the target; conflicting task overrides error.
         Larger-context retrieval is not implemented yet.
@@ -458,12 +503,18 @@ class NoriRelClient:
         request = dict(locals())
         for name in ("self", "return_details", "on_event"):
             del request[name]
-        run = self._executor.run_on_this_thread(
-            self._prepare_pql_prediction(
+        try:
+            prediction = self._prepare_pql_prediction(
                 **request, keep_scoring_features=return_details
-            ),
+            )
+        except Exception as error:
+            self._record_refused_request(error, request)
+            raise
+        run = self._executor.run_on_this_thread(
+            prediction,
             on_event=on_event,
             summary_in_result_attrs=on_event is not None,
+            record_fields=get_request_record_fields(request),
             **self._get_run_options_for_features(
                 feature_program is not None, pipeline, feature_strategy
             ),
@@ -485,17 +536,113 @@ class NoriRelClient:
         feature_sql = frame.attrs.pop(SCORING_FEATURE_SQL_ATTR, None) or {}
         context = frame.attrs.pop(CONTEXT_LABELS_ATTR, None)
         context_features = frame.attrs.pop(CONTEXT_FEATURES_ATTR, None)
+        # These have their own fields. Leaving the run's id out of metadata
+        # also keeps the metadata of identical requests equal.
+        keys_with_own_fields = (PIPELINE_ATTR, RUN_ID_ATTR, RUN_RECORD_ATTR)
         return PredictionDetails(
             predictions=frame,
             metadata={
-                key: value for key, value in frame.attrs.items() if key != PIPELINE_ATTR
+                key: value
+                for key, value in frame.attrs.items()
+                if key not in keys_with_own_fields
             },
             pipeline=NoriRelPipeline.from_prediction(frame),
             features=features,
             feature_sql=feature_sql,
             context=context,
             context_features=context_features,
+            run_record=RunRecord.from_prediction(frame),
         )
+
+    def write_predictions(
+        self,
+        predictions: pd.DataFrame,
+        *,
+        destination: PredictionDestination,
+        table: str,
+        create_table: bool = False,
+        replace_earlier_runs: bool = False,
+    ) -> RunRecord:
+        """Write one run's predictions to ``table`` in the destination's schema.
+
+        ``predictions`` is the frame ``predict`` or ``run.result()`` returned.
+        Each row keeps ``entity_id``, ``as_of`` (the scoring time), the
+        ``prediction`` (``probability`` too for a binary target, and
+        ``quantiles`` as JSON when asked for), ``run_id``, ``pipeline_id`` and
+        ``written_at``. Writing the same run again replaces its rows, so
+        retrying a failed write of these predictions leaves one copy; a retry
+        that predicts again is a new run. The destination connects with its
+        own writer credential; source connections only read. A source of this
+        client that reads every table of the destination schema gets a
+        warning: it would read the predictions table too.
+
+        ``replace_earlier_runs`` also replaces the rows that other runs of the
+        same pipeline wrote for the same ``as_of``, so a scheduled replay that
+        predicts again on a retry leaves one batch. The earlier runs' records
+        stay in ``nori_rel_runs``. It needs a pipeline run.
+
+        ``table`` must exist with those columns unless ``create_table`` is
+        true. The run's record, with ``output_table`` and ``rows_written``, is
+        stored in ``nori_rel_runs`` in the same schema (created when missing),
+        put back on ``predictions.attrs["run_record"]``, written to this
+        client's ``run_records`` and returned.
+
+        Raises:
+            ValueError: The frame has no completed run record, the table is
+                missing, or its columns differ; the message names them.
+            PredictionWriteError: The destination refused the write. Its
+                message never holds the credential.
+        """
+        from nori_rel.writeback import write_predictions
+
+        self._warn_if_a_source_reads_every_table_of(destination, table)
+        record = write_predictions(
+            predictions,
+            destination=destination,
+            table=table,
+            create_table=create_table,
+            replace_earlier_runs=replace_earlier_runs,
+            limits=getattr(self._runtime, "limits", None),
+        )
+        predictions.attrs[RUN_RECORD_ATTR] = record.model_dump(mode="json")
+        if self.run_records is not None:
+            self.run_records.write(record)
+        return record
+
+    def _warn_if_a_source_reads_every_table_of(
+        self, destination: PredictionDestination, table: str
+    ) -> None:
+        """Warn when a source of this client may read the table being written.
+
+        A source connected without ``tables=`` reads every table of its
+        schema, so a predictions table written into that schema joins its
+        reads, and a pipeline replay refuses it as a schema change. Run
+        records and staging tables are skipped by every source. Sources are
+        matched by engine and schema name, and on a warehouse by database or
+        catalog too; PostgreSQL databases cannot be told apart without
+        resolving their credentials, so the warning says "if".
+        """
+        for connector in getattr(self._runtime, "_connectors", {}).values():
+            config = getattr(connector, "config", None)
+            if (
+                config is None
+                or config.tables is not None
+                or config.engine != destination.engine
+                or config.schema_name != destination.schema_name
+                or _get_namespace(config.connection)
+                != _get_namespace(destination.connection)
+            ):
+                continue
+            warnings.warn(
+                f"a source of this client reads every table of schema "
+                f"{destination.schema_name!r}; if it is the same database, it "
+                f"will read {table!r} too, and replaying a pipeline saved "
+                "before will refuse the new table. Pass tables=[...] when "
+                "connecting that source, or write to another schema",
+                UserWarning,
+                stacklevel=3,
+            )
+            return
 
     def start_predict(
         self,
@@ -515,19 +662,27 @@ class NoriRelClient:
         even when they share an agent. Find the run again with
         get_run(run.run_id).
         """
-        if "return_details" in request:
-            raise TypeError(
-                "start_predict does not take return_details; "
-                "run.result() returns the frame, and frame.attrs holds the metadata"
+        try:
+            if "return_details" in request:
+                raise TypeError(
+                    "start_predict does not take return_details; run.result() "
+                    "returns the frame, and frame.attrs holds the metadata"
+                )
+            unknown = sorted(
+                set(request) - set(PredictionRequestArguments.__annotations__)
             )
-        unknown = sorted(set(request) - set(PredictionRequestArguments.__annotations__))
-        if unknown:
-            raise TypeError(
-                f"start_predict() got an unexpected keyword argument {unknown[0]!r}"
-            )
+            if unknown:
+                raise TypeError(
+                    f"start_predict() got an unexpected keyword argument {unknown[0]!r}"
+                )
+            prediction = self._prepare_pql_prediction(**request)
+        except Exception as error:
+            self._record_refused_request(error, request)
+            raise
         return self._executor.start_run(
-            self._prepare_pql_prediction(**request),
+            prediction,
             on_event=on_event,
+            record_fields=get_request_record_fields(request),
             **self._get_run_options_for_features(
                 request.get("feature_program") is not None,
                 request.get("pipeline"),
@@ -538,6 +693,57 @@ class NoriRelClient:
     def get_run(self, run_id: str) -> PredictionRun:
         """Return a run started by start_predict; KeyError if unknown or forgotten."""
         return self._executor.get_run(run_id)
+
+    def _record_refused_request(
+        self, error: Exception, request: Mapping[str, Any]
+    ) -> None:
+        """Keep a failed record of a request refused before its run started.
+
+        Only a client with ``run_records`` keeps one: the refusal is executed
+        as a run that fails at once with ``error``, which gains the run-id
+        note and keeps its own traceback. A record that cannot be written is
+        logged, and the caller raises ``error`` either way.
+        """
+        if self.run_records is None:
+            return
+        traceback = error.__traceback__
+
+        def refuse(run_context: RunContext) -> pd.DataFrame:
+            raise error
+
+        try:
+            self._executor.run_on_this_thread(
+                refuse,
+                strategy=self._get_refused_request_strategy(request),
+                summary_in_result_attrs=False,
+                record_fields=get_request_record_fields(request),
+            )
+        except Exception as raised:
+            if raised is not error:
+                logger.exception("could not record a refused prediction request")
+        finally:
+            error.__traceback__ = traceback
+
+    def _get_refused_request_strategy(self, request: Mapping[str, Any]) -> str:
+        """Return the strategy a refused request would have run, as far as known.
+
+        A pipeline that is not a ``NoriRelPipeline`` has no strategy, so the
+        client's own feature strategy is used.
+        """
+        from nori_rel._pql_runtime import get_feature_strategy_name
+
+        try:
+            options = self._get_run_options_for_features(
+                request.get("feature_program") is not None,
+                request.get("pipeline"),
+                request.get("feature_strategy"),
+            )
+        except Exception:
+            return get_feature_strategy_name(
+                getattr(self._runtime, "features", "fastdfs"),
+                replaying_program=False,
+            )
+        return options["strategy"]
 
     def _get_run_options_for_features(
         self,

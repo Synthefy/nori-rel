@@ -780,6 +780,9 @@ class MySQLConnector:
                 raise SnapshotLimitError("snapshot exceeds the configured memory limit")
             frames[table_schema.name] = frame
         primary_keys = {table.name: table.primary_key for table in schema.tables}
+        principal = self._get_query_frame(
+            connection, "SELECT CURRENT_USER()", {}, max_rows=1, max_bytes=max_bytes
+        ).iloc[0, 0]
         return Snapshot(
             tables=frames,
             primary_keys=primary_keys,
@@ -793,6 +796,7 @@ class MySQLConnector:
             schema=schema,
             as_of=as_of,
             approximate_bytes=total_bytes,
+            principal=str(principal),
         )
 
     @staticmethod

@@ -43,6 +43,9 @@ if TYPE_CHECKING:
 
 
 class Predictor(Protocol):
+    #: ``"local"`` (this process) or ``"hosted"`` (the Synthefy API).
+    mode: str
+
     def model_for(self, task: PredictionTask) -> str: ...
 
     def predict_arrays(
@@ -60,6 +63,8 @@ class Predictor(Protocol):
 
 class HostedNoriPredictor:
     """Send only flat feature matrices to the hosted Nori endpoint."""
+
+    mode = "hosted"
 
     def __init__(
         self,
@@ -178,6 +183,8 @@ class LocalNoriPredictor:
     pipeline does. Without them the latest revision loads, and ``checkpoint``
     records which file it was.
     """
+
+    mode = "local"
 
     def __init__(
         self,

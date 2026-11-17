@@ -12,9 +12,12 @@ import re
 import threading
 import traceback
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
+from datetime import datetime
 from functools import partial
 from typing import Any, Protocol
+
+from pydantic import ValidationError
 
 from nori_rel.run.commands import QueuedCommand
 from nori_rel.run.context import RunCancelled, RunContext
@@ -32,6 +35,13 @@ from nori_rel.run.progress import (
     RunProgress,
     RunStatusResponse,
     apply_event_to_progress,
+)
+from nori_rel.run.records import (
+    RUN_ID_ATTR,
+    RUN_RECORD_ATTR,
+    RunRecord,
+    RunRecordStore,
+    get_installed_versions,
 )
 from nori_rel.run.redact import redact
 
@@ -61,6 +71,11 @@ class PredictionRun(Protocol):
     @property
     def progress(self) -> RunProgress:
         """The run's progress as of its latest event; its summary once final."""
+        ...
+
+    @property
+    def record(self) -> RunRecord | None:
+        """The run's record once it has ended; None while it is going."""
         ...
 
     def status(self) -> RunStatusResponse:
@@ -127,6 +142,16 @@ class LocalRun:
     from any id. ``on_event`` receives each event in order on the thread that
     emits it. It should return quickly and must not wait for the run through
     ``result()`` or ``events()``; an exception it raises is logged.
+
+    When the run ends it builds its :class:`RunRecord` and, with a
+    ``record_store``, writes it there before its final status. The store also
+    gets a ``running`` record when the run starts, so a run whose process
+    dies leaves one. A run that cannot write its start record, or would
+    complete but cannot write its final one, fails instead, so no prediction
+    is returned without its record. A failed or cancelled run whose record
+    cannot be written keeps its status, and the write error is logged.
+    ``record_fields`` are record fields the request decides, reported before
+    the run starts.
     """
 
     def __init__(
@@ -135,10 +160,16 @@ class LocalRun:
         *,
         limits: RunLimits | None = None,
         on_event: Callable[[RunEvent], None] | None = None,
+        record_store: RunRecordStore | None = None,
+        record_fields: Mapping[str, Any] | None = None,
     ) -> None:
         """Create a queued run; an executor runs it with ``_execute_prediction``."""
         self.run_id = run_id
         self._on_event = on_event
+        self._record_store = record_store
+        self._record: RunRecord | None = None
+        self._started_at: datetime | None = None
+        self._strategy: str | None = None
         self._journal: list[RunEvent] = []
         self._progress = RunProgress(run_id=run_id)
         self._run_state_changed = threading.Condition()
@@ -151,6 +182,7 @@ class LocalRun:
         #: ``on_event`` fails instead of waiting for itself.
         self._finishing_thread_id: int | None = None
         self._context = RunContext(run_id, event_sink=self._record_event, limits=limits)
+        self._context.report_record_fields(**(record_fields or {}))
 
     @property
     def progress(self) -> RunProgress:
@@ -162,6 +194,15 @@ class LocalRun:
     def is_finished(self) -> bool:
         """Whether the run has ended and its result is available."""
         return self._finished.is_set()
+
+    @property
+    def record(self) -> RunRecord | None:
+        """The run's record once it has ended; None while it is going.
+
+        It is built for every outcome, and written to the run's record store
+        when it has one.
+        """
+        return self._record
 
     def status(self) -> RunStatusResponse:
         """Return the run's status, latest message and, if it failed, its error."""
@@ -248,14 +289,22 @@ class LocalRun:
         between searches, so two searches can share one agent.
         """
         final_status: RunStatus = "failed"
+        self._strategy = strategy
         try:
-            self._context.change_status(
+            self._started_at = self._context.change_status(
                 "running",
                 strategy=strategy,
                 max_trials=max_trials,
                 max_spend_usd=self._context.limits.max_spend_usd,
-            )
+            ).timestamp
+            if self._record_store is not None:
+                # Stored before any work, so a run whose process dies still
+                # leaves a record; it stays running.
+                self._record_store.write(self._build_record("running"))
             self._prediction = prediction(self._context)
+            # A record that cannot be written fails the run here, so no
+            # prediction is returned without its record.
+            self._keep_record("completed")
             final_status = "completed"
         except RunCancelled:
             final_status = "cancelled"
@@ -385,6 +434,9 @@ class LocalRun:
         than cleared: it holds the prediction closure (client, source, program).
         """
         self._failure = error
+        # A caller of predict() gets this exception itself; the note names
+        # the run whose record describes the failure.
+        error.add_note(f"Nori-Rel run {self.run_id}")
         if not keep_frames and error.__traceback__ is not None:
             error.__traceback__ = error.__traceback__.tb_next
             traceback.clear_frames(error.__traceback__)
@@ -401,7 +453,9 @@ class LocalRun:
 
         The inbox is closed first, so later commands get a rejected receipt and
         no event: the final status, which carries the summary fields, is the run's
-        last event. With ``summary_in_result_attrs``, the prediction's
+        last event. A failed or cancelled run keeps its record before that; a
+        completed one has already. A completed prediction's attrs hold its
+        ``run_id`` and its record. With ``summary_in_result_attrs``, its
         ``attrs["run"]`` also holds the run's summary.
         """
         self._finishing_thread_id = threading.get_ident()
@@ -411,6 +465,11 @@ class LocalRun:
             self._context.reject_undelivered_steering_texts("run_finished")
             for queued in self._context.commands.close_and_take_all_commands():
                 self._reject_command_after_run_finished(queued)
+            if status != "completed":
+                try:
+                    self._keep_record(status)
+                except Exception:
+                    logger.exception("run %s: could not keep its record", self.run_id)
             progress = self.progress
             fallback_reason = progress.fallback_reason
             completed_strategy = strategy if status == "completed" else None
@@ -427,12 +486,74 @@ class LocalRun:
                 },
             )
             attrs = getattr(self._prediction, "attrs", None)
+            if status == "completed" and isinstance(attrs, dict):
+                attrs[RUN_ID_ATTR] = self.run_id
+                if self._record is not None:
+                    attrs[RUN_RECORD_ATTR] = self._record.model_dump(mode="json")
             if summary_in_result_attrs and isinstance(attrs, dict):
                 attrs["run"] = self.progress.model_dump(mode="json")
         finally:
             with self._run_state_changed:
                 self._finished.set()
                 self._run_state_changed.notify_all()
+
+    def _keep_record(self, status: RunStatus) -> None:
+        """Build the run's record and write it to the store, if there is one.
+
+        A failed or cancelled run's record is final, so ``record`` shows it
+        even when the write fails. A completed record shows only once written,
+        because a failed write fails the run.
+        """
+        record = self._build_record(status)
+        if status != "completed":
+            self._record = record
+        if self._record_store is not None:
+            self._record_store.write(record)
+        self._record = record
+
+    def _build_record(self, status: RunStatus) -> RunRecord:
+        """Return the record of this run ending with ``status``.
+
+        It holds what the prediction reported, the outcome, the run's times and
+        the installed versions; the error message is the run's redacted one. A
+        reported value the record cannot hold, such as a naive time from a
+        custom connector, is left out and logged, so the record is still built.
+        """
+        progress = self.progress
+        failed = status == "failed"
+        error_class = None
+        if failed:
+            error_class = (
+                "RunError" if self._failure is None else type(self._failure).__name__
+            )
+        reported = dict(self._context.record_fields)
+        outcome = {
+            **get_installed_versions(),
+            "run_id": self.run_id,
+            "status": status,
+            "started_at": self._started_at or self._context.now(),
+            "finished_at": None if status == "running" else self._context.now(),
+            "error_class": error_class,
+            "error_message": progress.error_message if failed else None,
+            "strategy": progress.strategy_used or self._strategy,
+        }
+        try:
+            return RunRecord.model_validate(reported | outcome)
+        except ValidationError as error:
+            invalid = {str(detail["loc"][0]) for detail in error.errors()} & set(
+                reported
+            )
+            if not invalid:
+                raise
+            logger.warning(
+                "run %s: left %s out of its record: invalid values",
+                self.run_id,
+                sorted(invalid),
+            )
+            kept = {
+                name: value for name, value in reported.items() if name not in invalid
+            }
+            return RunRecord.model_validate(kept | outcome)
 
     def _reject_command_after_run_finished(self, queued: QueuedCommand) -> None:
         """Report that the run ended before ``queued`` could be applied.

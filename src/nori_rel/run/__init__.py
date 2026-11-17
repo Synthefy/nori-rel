@@ -37,11 +37,22 @@ from nori_rel.run.progress import (
     apply_event_to_progress,
     progress_from_events,
 )
+from nori_rel.run.records import (
+    RUN_ID_ATTR,
+    RUN_RECORD_ATTR,
+    JsonRunRecordStore,
+    RunRecord,
+    RunRecordStore,
+    RunSnapshot,
+    get_run_record_store,
+)
 from nori_rel.run.redact import redact
 
 __all__ = [
     "EVENT_TYPE_BY_KIND",
     "FINAL_STATUSES",
+    "RUN_ID_ATTR",
+    "RUN_RECORD_ATTR",
     "Command",
     "CommandAcceptedResponse",
     "CommandInbox",
@@ -50,6 +61,7 @@ __all__ = [
     "EventKind",
     "EventType",
     "FallbackReason",
+    "JsonRunRecordStore",
     "LocalExecutor",
     "LocalRun",
     "PredictionCancelled",
@@ -62,12 +74,16 @@ __all__ = [
     "RunEvent",
     "RunLimits",
     "RunProgress",
+    "RunRecord",
+    "RunRecordStore",
+    "RunSnapshot",
     "RunStatus",
     "RunStatusResponse",
     "RunTimeout",
     "Stage",
     "TrialOutcome",
     "apply_event_to_progress",
+    "get_run_record_store",
     "new_run_id",
     "progress_from_events",
     "redact",

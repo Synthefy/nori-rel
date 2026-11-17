@@ -20,10 +20,13 @@ These names are exported from `nori_rel`:
 | Feature search | `AgenticSearch`, loaded on first use so the `agentic` extra stays optional |
 | Pipelines | `NoriRelPipeline`, `PipelineError` |
 | Lifecycle | `PredictionRun`, `RunEvent`, `PredictionCancelled`, `PredictionFailed`, `RunTimeout` |
+| Run records | `RunRecord`, `RunRecordStore`, `JsonRunRecordStore`, and `TableRunRecordStore`, loaded on first use |
+| Write-back | `PredictionDestination`, and `PredictionWriteError`, loaded on first use |
 | Deprecated request typing | `PredictionOperation`, for the aggregate-argument compatibility bridge |
 
 The client supports context management, `connect`, `test_connection`, `discover`,
-`predict`, `start_predict`, `get_run`, and `close`. Prediction uses either PQL
+`predict`, `start_predict`, `get_run`, `write_predictions`, and `close`; its
+`run_records` attribute is the configured record store. Prediction uses either PQL
 with explicit historical/scoring/completeness settings or a saved pipeline with
 `as_of` and `observed_through`. Background runs expose `progress`, `status`,
 `events`, `result`, `cancel`, `stop`, `steer`, `pause`, and `resume`. `stop`
@@ -40,6 +43,11 @@ and `steer` apply to agent searches; see [run control](run-control.md).
   supported built-in implementations; `nori_rel.feature.agentic` holds the agent
   search. Callers sharing custom backends across runs must
   provide their own concurrency safety; custom backends have no pipeline format.
+- `nori_rel.run`: run records (`RunRecord`, `RunSnapshot`, the stores) next
+  to the lifecycle types. A custom `RunRecordStore` needs `write(record)` and
+  `read(run_id)`.
+- `nori_rel.writeback`: `write_predictions`, `TableRunRecordStore`,
+  `PredictionWriteError` and `RUN_RECORDS_TABLE`.
 - `nori_rel.connectors`: connector classes, `RelationalConnector`, `Snapshot`,
   and `create_connector` expose the connector extension contract. Import
   `ConnectorError` and `SnapshotLimitError` from `nori_rel.connectors.errors`.

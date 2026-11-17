@@ -112,6 +112,26 @@ def install_snowflake_driver(monkeypatch, connection):
     return calls
 
 
+def test_snowflake_reports_the_user_its_session_reads_as(monkeypatch):
+    """The run record's principal is the server's answer, never the secret."""
+    source = snowflake_connector(
+        monkeypatch, {"authenticator": "oauth", "token": "private-token"}
+    )
+    fake = FakeConnection(
+        lambda sql, params: pd.DataFrame([["NORI_READER"]], columns=["USER"])
+    )
+
+    assert source._get_principal(fake) == "NORI_READER"
+    assert [sql for sql, _ in fake.calls] == ["SELECT CURRENT_USER()"]
+    assert source._get_principal(FakeConnection()) is None
+
+    def fail(sql, params):
+        raise RuntimeError("private-token")
+
+    # The principal is optional: a failed lookup must not fail the read.
+    assert source._get_principal(FakeConnection(fail)) is None
+
+
 def test_snowflake_oauth_uses_native_binding_tls_and_bounded_session(monkeypatch):
     """Verify only approved connection kwargs reach the Snowflake driver."""
     source = snowflake_connector(
@@ -682,3 +702,41 @@ def test_snowflake_rejects_ambiguous_case_insensitive_mapping(monkeypatch, kind)
         fake = _snowflake_identifier_metadata({"users": ["userId", "USERID"]})
     with pytest.raises(ConnectorError, match=f"ambiguous Snowflake {kind}"):
         source._discover_schema(fake, "test")
+
+
+def test_snowflake_discovery_skips_write_back_tables(monkeypatch):
+    """A source reading the whole schema never reads run records or staging."""
+    source = snowflake_connector(monkeypatch, {"token": "token"})
+    names = ("USERS", "NORI_REL_RUNS", "NORI_REL_WRITE_0A1B2C")
+
+    def respond(sql, params):
+        if "SHOW TABLES" in sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "name": name,
+                        "kind": "TABLE",
+                        "retention_time": 1,
+                        "is_hybrid": "N",
+                        "is_iceberg": "N",
+                    }
+                    for name in names
+                ]
+            )
+        if "SHOW PRIMARY" in sql or "SHOW IMPORTED" in sql:
+            return pd.DataFrame()
+        return pd.DataFrame(
+            [
+                {
+                    "table_name": name,
+                    "column_name": "ID",
+                    "data_type": "NUMBER",
+                    "is_nullable": "NO",
+                    "ordinal_position": 1,
+                }
+                for name in names
+            ]
+        )
+
+    schema = source._discover_schema(FakeConnection(respond), "test")
+    assert [table.name for table in schema.tables] == ["USERS"]

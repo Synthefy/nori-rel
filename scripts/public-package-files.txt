@@ -11,6 +11,7 @@ nori_rel/_names.py
 nori_rel/_pql_features.py
 nori_rel/_pql_runtime.py
 nori_rel/_pql_static.py
+nori_rel/_run_record_fields.py
 nori_rel/_runtime.py
 nori_rel/client.py
 nori_rel/connectors/__init__.py
@@ -95,4 +96,9 @@ nori_rel/run/local_run.py
 nori_rel/run/messages.py
 nori_rel/run/models.py
 nori_rel/run/progress.py
+nori_rel/run/records.py
 nori_rel/run/redact.py
+nori_rel/writeback/__init__.py
+nori_rel/writeback/rows.py
+nori_rel/writeback/write.py
+nori_rel/writeback/writers.py
